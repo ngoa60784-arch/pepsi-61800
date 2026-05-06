@@ -21,6 +21,11 @@ bun run install && bun run web
 
 ![](./docs/design.png)
 
+
+https://github.com/user-attachments/assets/b051927e-b64f-4bdf-833d-d542e328ad20
+
+
+
 ## 架构核心
 
 项目整体采用 `Manager / Solver / Observer` 的多角色架构。
