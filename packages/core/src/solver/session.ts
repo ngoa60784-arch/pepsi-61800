@@ -6,6 +6,7 @@ import type { PromptFile } from "../config/prompts/index"
 import type { SolverInitPayload } from "./rpc/rpc-types"
 import { solverDir, solverSessionDir, solverWorkspaceDir } from "../runtime/types"
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
+import { largeToolResultExtension } from "./extension/large-tool-result"
 import { isEngagementMode, loadEngagementScope } from "../challenge/engagement"
 
 export interface SolverSession {
@@ -125,7 +126,13 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     const promptModel = typeof prompt.meta.model === "string" && prompt.meta.model.trim() ? prompt.meta.model.trim() : undefined
     const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
 
-    const extensions = [challengeObserverExtension({ observerEnabled, observerModel })]
+    const extensions = [
+        // 上下文压缩：工具输出超过阈值(默认 32KB)就溢出到 workspace 的 .tool-results/ 文件，
+        // 上下文里只留 600 字预览 + 文件路径，并提示用 grep/分块读定位。避免 nmap/ffuf/nuclei
+        // 等海量输出把上下文撑爆、稀释信号。放在 observer 之前，让后续钩子看到的是已压缩的结果。
+        largeToolResultExtension({ workspaceRoot: workspaceDir }),
+        challengeObserverExtension({ observerEnabled, observerModel }),
+    ]
 
     const sessionOpts = await config.resolvePromptSession(init.promptName, extensions)
     if (!sessionOpts) {
@@ -176,7 +183,10 @@ export async function createSubagentSession(promptName: string, task: string): P
     await mkdir(sessionDir, { recursive: true })
     await mkdir(workspaceDir, { recursive: true })
 
-    const extensionFactories: ExtensionFactory[] = []
+    const extensionFactories: ExtensionFactory[] = [
+        // subagent 的工具输出同样可能很大，套用同一套上下文压缩（溢出到共享 workspace 的 .tool-results/）。
+        largeToolResultExtension({ workspaceRoot: workspaceDir }),
+    ]
 
     const sessionOpts = await config.resolvePromptSession(promptName, extensionFactories)
     if (!sessionOpts) {
