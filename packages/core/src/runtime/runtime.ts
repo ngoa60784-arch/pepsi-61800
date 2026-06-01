@@ -240,8 +240,7 @@ export class RuntimeManager {
         await this.ensureImage(onProgress)
         const execName = basename(process.execPath).toLowerCase()
         if (execName === "bun" || execName === "bun.exe") {
-            onProgress?.("Compiling runtime solver binary...")
-            await ensureSolverBinary()
+            await ensureSolverBinary(onProgress)
         }
     }
 

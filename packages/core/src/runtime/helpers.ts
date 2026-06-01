@@ -126,13 +126,68 @@ export async function getStableSolverCreatedAt(solverId: string, startup: unknow
     }
 }
 
-export async function ensureSolverBinary(): Promise<string> {
+/**
+ * 递归求若干源目录下最新的文件 mtime（毫秒）。用于判断 solver 二进制是否过期。
+ * 跳过 node_modules/dist/.git/bin 等与编译产物无关、且体量巨大的目录。
+ */
+async function newestSourceMtime(projectRoot: string): Promise<number> {
+    const SKIP = new Set(["node_modules", "dist", ".git", "bin", ".cache"])
+    const targets = ["packages/core/src", "packages/libs", "apps/cli/src", "scripts"].map((rel) => resolve(projectRoot, rel))
+    let newest = 0
+    async function walk(dir: string): Promise<void> {
+        let entries
+        try {
+            entries = await readdir(dir, { withFileTypes: true })
+        } catch {
+            return
+        }
+        for (const entry of entries) {
+            const full = resolve(dir, entry.name)
+            if (entry.isDirectory()) {
+                if (SKIP.has(entry.name)) continue
+                await walk(full)
+            } else if (entry.isFile()) {
+                // 跳过构建期生成的文件（如 builtin-assets.generated.ts）：它们每次启动都会被
+                // 重新写出、mtime 刷新为当前时刻，会让缓存判断永远失效。其真实内容变化来自
+                // 对应的源文件（SKILL.md / prompt .md 等），这些源文件本身已在扫描范围内。
+                if (entry.name.includes(".generated.")) continue
+                try {
+                    const info = await stat(full)
+                    if (info.mtimeMs > newest) newest = info.mtimeMs
+                } catch {
+                    // ignore unreadable files
+                }
+            }
+        }
+    }
+    for (const target of targets) await walk(target)
+    return newest
+}
+
+export async function ensureSolverBinary(onProgress?: (message: string) => void): Promise<string> {
     const binDir = RUNTIME_SELF_DIR
     const binPath = resolve(binDir, "tch-agent-linux-x64")
     const projectRoot = resolve(import.meta.dir, "../../../..")
     const buildScript = resolve(projectRoot, "scripts/build.ts")
 
     await mkdir(binDir, { recursive: true })
+
+    // 缓存：产物已存在且比所有相关源码都新，则跳过这次重型 `bun build --compile`。
+    // 该编译每次产出 ~158MB 单文件包，CPU/内存峰值很高；若每次启动都重编，在内存吃紧的机器上
+    // 会引发剧烈 swap 颠簸、拖垮整机。源码一旦改动(mtime 变新)就会重建，正确性不受影响。
+    try {
+        const binStat = await stat(binPath)
+        const newestSource = await newestSourceMtime(projectRoot)
+        if (newestSource > 0 && binStat.mtimeMs >= newestSource) {
+            onProgress?.("Reusing cached solver binary (source unchanged)")
+            await Bun.write(resolve(binDir, "package.json"), JSON.stringify(GENERATED_RUNTIME_PACKAGE_JSON, null, 2))
+            return binPath
+        }
+    } catch {
+        // 产物不存在或无法 stat → 落到下方实际编译
+    }
+
+    onProgress?.("Compiling runtime solver binary...")
     const proc = Bun.spawn(["bun", buildScript, "bun-linux-x64-baseline", binPath], { cwd: projectRoot, stdout: "inherit", stderr: "inherit" })
     const exitCode = await proc.exited
     if (exitCode !== 0) {
