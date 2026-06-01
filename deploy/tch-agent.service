@@ -1,0 +1,47 @@
+[Unit]
+Description=tch-agent control plane (web UI + daemon)
+Documentation=file:///opt/tch-agent/docs/deployment.md
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+# 运行用户：solver 数据落在该用户的 ~/.tch-agent，确保其 home 在持久卷上。
+# 该用户需在 docker 组（能调用 docker），或改用 rootless docker。
+User=tch
+Group=docker
+WorkingDirectory=/opt/tch-agent
+
+# ── 必填：访问令牌 ──
+# 公网/任何不可信网络部署前必须设置为强随机值（如 `openssl rand -hex 32`）。
+# 不设则 Web UI 零认证 = 任何人都能派渗透 solver。
+Environment=TCH_AUTH_TOKEN=CHANGE_ME_RUN_openssl_rand_hex_32
+
+# ── 可选：solver 镜像 ──
+# 默认用本机的 tch-agent:latest。若从 registry 拉取，可在 UI Config→Host 配置 runtime.image，
+# 或 `docker tag <registry>/tch-agent:latest tch-agent:latest`。
+
+# ── 可选：出网代理（如目标 API/模型需要）──
+# Environment=HTTPS_PROXY=http://127.0.0.1:7897
+# Environment=NO_PROXY=127.0.0.1,localhost
+
+# 启动方式 A（推荐：预编译二进制，无需 bun/源码）：
+# ExecStart=/opt/tch-agent/bin/tch-agent-linux-x64 web -l 127.0.0.1:3000
+# 启动方式 B（用 bun 跑源码）：
+ExecStart=/usr/local/bin/bun apps/cli/src/main.ts web -l 127.0.0.1:3000
+
+# 监听 127.0.0.1：默认只本机可达，通过 SSH 隧道或前置反向代理访问（推荐）。
+# 若要直接对外，改成 0.0.0.0 并务必确认 TCH_AUTH_TOKEN 已设 + 最好套 HTTPS 反代。
+
+Restart=on-failure
+RestartSec=5
+# 首次启动会编译/拉取 solver 镜像，给足启动时间。
+TimeoutStartSec=600
+
+# 日志交给 journald（journalctl -u tch-agent -f 查看）。
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

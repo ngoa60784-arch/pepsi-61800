@@ -278,6 +278,17 @@ export const mcpSettings = {
     set: (settings: McpSettings) => post("/api/config/mcp-settings", settings),
 }
 
+export const auth = {
+    status: () => json<{ authRequired: boolean; authed: boolean }>("/api/auth/status"),
+    login: (token: string) =>
+        json<{ ok: boolean }>("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+        }),
+    logout: () => json<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+}
+
 export const hostSettings = {
     get: () => json<HostSettings>("/api/config/host-settings"),
     set: (settings: Partial<HostSettings>) =>

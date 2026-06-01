@@ -414,12 +414,115 @@ export async function startWeb(options: WebServerOptions) {
         }
     })
 
+    // ── 认证（P0 安全）──
+    // 设置 TCH_AUTH_TOKEN 即启用：所有 /api/* 与 SSE 需带 token（HttpOnly cookie 或 Bearer header）。
+    // 不设则不启用（本地开发/SSH 隧道场景无感）。这是一个能发起真实攻击的控制台，公网部署务必设置。
+    const AUTH_TOKEN = process.env.TCH_AUTH_TOKEN?.trim() ?? ""
+    const AUTH_ENABLED = AUTH_TOKEN.length > 0
+    if (AUTH_ENABLED) console.log("[web] auth enabled (TCH_AUTH_TOKEN set)")
+    else console.warn("[web] auth DISABLED — set TCH_AUTH_TOKEN before exposing this service to any untrusted network")
+
+    function readCookie(req: Request, name: string): string | undefined {
+        const header = req.headers.get("cookie")
+        if (!header) return undefined
+        for (const part of header.split(";")) {
+            const eq = part.indexOf("=")
+            if (eq < 0) continue
+            if (part.slice(0, eq).trim() !== name) continue
+            return decodeURIComponent(part.slice(eq + 1).trim())
+        }
+        return undefined
+    }
+
+    function constantTimeEqual(a: string, b: string): boolean {
+        if (a.length !== b.length) return false
+        let diff = 0
+        for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+        return diff === 0
+    }
+
+    function isAuthed(req: Request): boolean {
+        if (!AUTH_ENABLED) return true
+        const bearer = req.headers.get("authorization")
+        if (bearer?.startsWith("Bearer ") && constantTimeEqual(bearer.slice(7).trim(), AUTH_TOKEN)) return true
+        const cookie = readCookie(req, "tch_auth")
+        return !!cookie && constantTimeEqual(cookie, AUTH_TOKEN)
+    }
+
+    type AnyRouteHandler = (req: any, server: any) => Response | Promise<Response>
+    function guard(handler: AnyRouteHandler): AnyRouteHandler {
+        return (req, server) =>
+            isAuthed(req)
+                ? handler(req, server)
+                : new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } })
+    }
+
+    // 程序化包装所有 route handler；跳过首页 "/" 与 /api/auth/*（登录前需可访问）。
+    function withAuth<T extends Record<string, unknown>>(routes: T): T {
+        if (!AUTH_ENABLED) return routes
+        const out: Record<string, unknown> = {}
+        for (const [path, def] of Object.entries(routes)) {
+            if (path === "/" || path.startsWith("/api/auth")) {
+                out[path] = def
+                continue
+            }
+            if (typeof def === "function") {
+                out[path] = guard(def as AnyRouteHandler)
+            } else if (def && typeof def === "object") {
+                const methods: Record<string, unknown> = {}
+                for (const [method, h] of Object.entries(def as Record<string, unknown>)) {
+                    methods[method] = typeof h === "function" ? guard(h as AnyRouteHandler) : h
+                }
+                out[path] = methods
+            } else {
+                out[path] = def
+            }
+        }
+        return out as T
+    }
+
     const server = Bun.serve({
         hostname,
         port,
         idleTimeout: 30,
-        routes: {
+        routes: withAuth({
             "/": index,
+
+            // ── Auth（登录前可访问）──
+            "/api/auth/status": {
+                GET(req: Request) {
+                    return Response.json({ authRequired: AUTH_ENABLED, authed: isAuthed(req) })
+                },
+            },
+            "/api/auth/login": {
+                async POST(req: Request) {
+                    if (!AUTH_ENABLED) return Response.json({ ok: true })
+                    const body = (await req.json().catch(() => ({}))) as { token?: string }
+                    const token = String(body.token ?? "").trim()
+                    if (!token || !constantTimeEqual(token, AUTH_TOKEN)) {
+                        return Response.json({ error: "invalid token" }, { status: 401 })
+                    }
+                    // 注意：生产用 HTTPS 时应追加 `Secure`。SameSite=Strict 防 CSRF。
+                    return new Response(JSON.stringify({ ok: true }), {
+                        status: 200,
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Set-Cookie": `tch_auth=${encodeURIComponent(AUTH_TOKEN)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`,
+                        },
+                    })
+                },
+            },
+            "/api/auth/logout": {
+                POST() {
+                    return new Response(JSON.stringify({ ok: true }), {
+                        status: 200,
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Set-Cookie": "tch_auth=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+                        },
+                    })
+                },
+            },
 
             // ── API Keys ──
             "/api/config/api-keys": {
@@ -1190,7 +1293,7 @@ export async function startWeb(options: WebServerOptions) {
                     }
                 },
             },
-        },
+        }),
         development: {
             hmr: true,
             console: true,

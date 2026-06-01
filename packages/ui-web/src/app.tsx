@@ -1,5 +1,5 @@
 import { Component, useEffect, useState } from "react"
-import type { ReactNode } from "react"
+import type { FormEvent, ReactNode } from "react"
 import {
     BotIcon,
     ChevronRightIcon,
@@ -28,6 +28,9 @@ import { ChallengePage } from "./components/challenge/page"
 import { CommanderPage } from "./components/commander/page"
 import { AttackFlowPage } from "./components/challenge/attack-flow"
 import { RuntimeShell } from "./components/runtime/shell"
+import { Input } from "./components/ui/input"
+import { Button } from "./components/ui/button"
+import { auth } from "./lib/api"
 import { configTabs, mainNavItems } from "./data/app-nav"
 
 function useHash() {
@@ -144,11 +147,71 @@ function getPageTitle(hash: string): string {
     return "Challenge"
 }
 
+type AuthState = "loading" | "need-login" | "ok"
+
+function useAuthGate(): [AuthState, () => void] {
+    const [state, setState] = useState<AuthState>("loading")
+    useEffect(() => {
+        auth.status()
+            .then((s) => setState(!s.authRequired || s.authed ? "ok" : "need-login"))
+            // status 端点本身不鉴权；查询失败时放行，避免把人锁在门外。
+            .catch(() => setState("ok"))
+    }, [])
+    return [state, () => setState("ok")]
+}
+
+function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
+    const [token, setToken] = useState("")
+    const [error, setError] = useState("")
+    const [busy, setBusy] = useState(false)
+
+    async function handleSubmit(event: FormEvent) {
+        event.preventDefault()
+        setBusy(true)
+        setError("")
+        try {
+            await auth.login(token.trim())
+            onSuccess()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err))
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    return (
+        <div className="flex h-screen items-center justify-center p-6">
+            <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg border p-6 shadow-sm">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-base font-semibold">
+                        <BotIcon className="size-5" />
+                        tch-agent
+                    </div>
+                    <div className="text-sm text-muted-foreground">请输入访问令牌（TCH_AUTH_TOKEN）</div>
+                </div>
+                <Input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="access token" autoFocus />
+                {error && <div className="text-sm text-red-500">{error}</div>}
+                <Button type="submit" className="w-full" disabled={busy || !token.trim()}>
+                    {busy ? "验证中…" : "登录"}
+                </Button>
+            </form>
+        </div>
+    )
+}
+
 export function App() {
     const hash = useHash()
     const isConfigOpen = hash.startsWith("#/config")
     const isAttackFlowRoute = /^#\/challenge\/[^/]+\/attack-flow$/.test(hash)
     const { error, clearError } = useGlobalUiError()
+    const [authState, markAuthed] = useAuthGate()
+
+    if (authState === "loading") {
+        return <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">加载中…</div>
+    }
+    if (authState === "need-login") {
+        return <LoginScreen onSuccess={markAuthed} />
+    }
 
     return (
         <SidebarProvider>
