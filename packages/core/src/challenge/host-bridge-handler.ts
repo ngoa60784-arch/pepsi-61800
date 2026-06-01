@@ -235,7 +235,12 @@ async function handleEngagementAction(
                             }
                         },
                     })
-                    .catch(() => {})
+                    .catch((error) => {
+                        // verifier 启动/复跑失败不应静默：solver 仍在等收尾信号，操作员需要知道验证没跑成。
+                        console.error(
+                            `[engagement] verifyObjective failed for ${storeKey}/${record.id}: ${error instanceof Error ? error.message : String(error)}`,
+                        )
+                    })
             }
             const downgraded = objectiveClaimed && !evidence.sufficient
             return {

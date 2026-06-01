@@ -385,6 +385,14 @@ export async function startWeb(options: WebServerOptions) {
         challengeTimelineBroadcastTimers.set(challengeId, timer)
     }
 
+    // UI 直接改 memory/ideas（无 solver 事件触发）时也要推 attack-timeline，否则 Attack Flow
+    // 页面在没有运行中 solver 时看不到操作员的手动编辑。直接广播（非 solver 防抖路径）。
+    function broadcastChallengeTimelineNow(challengeId: string) {
+        const id = challengeId.trim()
+        if (!id) return
+        runInBackground(`broadcast-challenge-timeline:${id}`, broadcastChallengeTimeline(id))
+    }
+
     function broadcastSolverEvent(solverId: string, event: AgentSessionEvent) {
         const subscribers = solverSubscribers.get(solverId)
         if (!subscribers || subscribers.size === 0) return
@@ -795,6 +803,7 @@ export async function startWeb(options: WebServerOptions) {
                             refs: Array.isArray(body.refs) ? body.refs : [],
                             source: body.source?.trim() || "challenge-ui",
                         })
+                        broadcastChallengeTimelineNow(req.params.id)
                         return Response.json(entry)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -816,6 +825,7 @@ export async function startWeb(options: WebServerOptions) {
                             refs: Array.isArray(body.refs) ? body.refs : body.refs === undefined ? undefined : [],
                             source: body.source,
                         })
+                        broadcastChallengeTimelineNow(req.params.id)
                         return Response.json(entry)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -824,6 +834,7 @@ export async function startWeb(options: WebServerOptions) {
                 async DELETE(req) {
                     try {
                         const entry = await daemon.challenge.deleteMemory(req.params.id, req.params.entryId)
+                        broadcastChallengeTimelineNow(req.params.id)
                         return Response.json(entry)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -843,6 +854,7 @@ export async function startWeb(options: WebServerOptions) {
                             status: body.status,
                             result: body.result,
                         })
+                        broadcastChallengeTimelineNow(req.params.id)
                         return Response.json(result)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -862,6 +874,7 @@ export async function startWeb(options: WebServerOptions) {
                             status: body.status,
                             result: body.result,
                         })
+                        broadcastChallengeTimelineNow(req.params.id)
                         return Response.json(item)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -870,6 +883,7 @@ export async function startWeb(options: WebServerOptions) {
                 async DELETE(req) {
                     try {
                         const item = await daemon.challenge.deleteIdea(req.params.id, req.params.ideaId)
+                        broadcastChallengeTimelineNow(req.params.id)
                         return Response.json(item)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)

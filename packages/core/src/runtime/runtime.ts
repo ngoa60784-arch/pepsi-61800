@@ -579,8 +579,13 @@ export class RuntimeManager {
 
         try {
             await this.backend.stop({ solverId, containerName: solver.containerId })
-        } catch {
-            // backend may have already stopped it
+        } catch (error) {
+            // backend.stop 失败不再静默：docker(--rm) 下容器多半已随退出清理，但 ssh 后端靠远端
+            // pkill 关闭，失败时远端 solver 可能孤儿化（本地 proc 仍会被 finally 兜底 kill）。
+            // 记录日志让操作员能察觉并手动清理远端残留。
+            console.error(
+                `[runtime] backend.stop failed for solver ${solverId} (backend=${this.backend.kind}): ${error instanceof Error ? error.message : String(error)}`,
+            )
         } finally {
             // 显式关闭本地 client 子进程（docker run -i / ssh）。docker 下 --rm 容器退出后
             // 它本会自行结束；但 ssh 后端依赖远端 pkill 关闭管道，一旦 pkill 失败或连接挂死，

@@ -198,17 +198,25 @@ export function RuntimeDetailPage({ solverId }: RuntimeDetailPageProps) {
     useEffect(() => {
         const source = new EventSource(`/api/runtime/solvers/${encodeURIComponent(solverId)}/stream`)
         source.addEventListener("details", (event) => {
-            const payload = JSON.parse((event as MessageEvent).data) as RuntimeDetailsView | { notFound?: boolean }
-            setDetails(payload && "solver" in payload ? payload : null)
-            setDetailsLoading(false)
+            try {
+                const payload = JSON.parse((event as MessageEvent).data) as RuntimeDetailsView | { notFound?: boolean }
+                setDetails(payload && "solver" in payload ? payload : null)
+                setDetailsLoading(false)
+            } catch {
+                // 忽略畸形 SSE 帧
+            }
         })
         source.addEventListener("agent_event", (event) => {
-            const nextEvent = JSON.parse((event as MessageEvent).data) as RuntimeAgentEvent
-            setDetails((current) => {
-                if (!current) return current
-                const withMessages = applyAgentEvent(current, nextEvent)
-                return mergeSubagentThreads(withMessages, nextEvent)
-            })
+            try {
+                const nextEvent = JSON.parse((event as MessageEvent).data) as RuntimeAgentEvent
+                setDetails((current) => {
+                    if (!current) return current
+                    const withMessages = applyAgentEvent(current, nextEvent)
+                    return mergeSubagentThreads(withMessages, nextEvent)
+                })
+            } catch {
+                // 忽略畸形 SSE 帧
+            }
         })
         return () => source.close()
     }, [solverId])

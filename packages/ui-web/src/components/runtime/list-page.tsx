@@ -84,10 +84,18 @@ export function RuntimeListPage() {
     useEffect(() => {
         const source = new EventSource("/api/runtime/stream")
         source.addEventListener("status", (event) => {
-            setStatus(JSON.parse((event as MessageEvent).data) as RuntimeStatusView)
+            try {
+                setStatus(JSON.parse((event as MessageEvent).data) as RuntimeStatusView)
+            } catch {
+                // 忽略畸形 SSE 帧
+            }
         })
         source.addEventListener("solvers", (event) => {
-            setSolverList(JSON.parse((event as MessageEvent).data) as RuntimeSolverView[])
+            try {
+                setSolverList(JSON.parse((event as MessageEvent).data) as RuntimeSolverView[])
+            } catch {
+                // 忽略畸形 SSE 帧
+            }
         })
         return () => source.close()
     }, [])

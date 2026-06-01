@@ -79,8 +79,11 @@ export function CommanderPage() {
         void loadRollbackPoints()
         const source = new EventSource("/api/commander/stream")
         source.addEventListener("commander", (event) => {
-            const data = JSON.parse((event as MessageEvent).data) as CommanderEvent
-            handleEvent(data)
+            try {
+                handleEvent(JSON.parse((event as MessageEvent).data) as CommanderEvent)
+            } catch {
+                // 忽略畸形 SSE 帧，避免一帧坏数据让监听器抛错中断
+            }
         })
         return () => source.close()
     }, [])

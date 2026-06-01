@@ -2,7 +2,16 @@ import { buildSessionContext } from "@mariozechner/pi-coding-agent"
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../../challenge/env"
 import { requestHostBridge } from "../../../challenge/host-bridge-client"
-import { enqueueObserverReview, loadLatestObserverRoundNumber, loadRecentObserverRounds, persistObserverRound, takeNextObserverReview, updateObserverState } from "./observer-store"
+import {
+    completeObserverReview,
+    enqueueObserverReview,
+    failObserverReview,
+    loadLatestObserverRoundNumber,
+    loadRecentObserverRounds,
+    persistObserverRound,
+    takeNextObserverReview,
+    updateObserverState,
+} from "./observer-store"
 import { runSolverObserverReview } from "./observer-agent"
 import type { ObserverReviewPayload, ObserverRoundPayload, ObserverToolLog } from "./types"
 
@@ -267,18 +276,26 @@ export function attachObserverLoop(
                 const next = await takeNextObserverReview()
                 if (!next) return
                 try {
-                    await runReview(challengeIdText, next, {
+                    await runReview(challengeIdText, next.payload, {
                         observerModel: options.observerModel,
                         sendCorrectionNotice: async (message) => {
-                            if (!(await shouldSendEfficiencyReminder(next, message))) {
+                            if (!(await shouldSendEfficiencyReminder(next.payload, message))) {
                                 return false
                             }
                             pi.sendUserMessage(`纠偏提醒：${message.trim()}`, { deliverAs: "steer" })
                             return true
                         },
                     })
+                    // 只有成功才出队，保证 at-least-once（之前是 takeNext 即删 = 失败就丢）。
+                    await completeObserverReview(next.filePath)
                 } catch (error) {
-                    console.error(`[observer] review failed: ${error instanceof Error ? error.message : String(error)}`)
+                    const { dropped } = await failObserverReview(next.filePath, next.attempts)
+                    console.error(
+                        `[observer] review failed (attempt ${next.attempts + 1}${dropped ? ", dropped after max retries" : ", will retry"}): ${error instanceof Error ? error.message : String(error)}`,
+                    )
+                    // 保留待重试时退出本轮 drain，避免在同一 turn 内对毒丸紧密自旋；
+                    // 下一次 round/agent_end 事件会重新触发 drain 重试。
+                    if (!dropped) return
                 }
             }
         } finally {

@@ -1701,7 +1701,12 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
     useEffect(() => {
         const source = new EventSource(`/api/challenges/${encodeURIComponent(challengeId)}/attack-timeline/stream`)
         source.addEventListener("snapshot", (event) => {
-            const next = JSON.parse((event as MessageEvent).data) as AttackTimelineSnapshot
+            let next: AttackTimelineSnapshot
+            try {
+                next = JSON.parse((event as MessageEvent).data) as AttackTimelineSnapshot
+            } catch {
+                return // 忽略畸形 SSE 帧
+            }
             startTransition(() => {
                 setSnapshot(next)
                 setCursorIndex((current) => Math.min(current, next.events.length))
@@ -1716,9 +1721,8 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
                 // The stream snapshot remains usable if a board refresh races a write.
             })
         })
-        source.onerror = () => {
-            source.close()
-        }
+        // 不在 onerror 里主动 close：之前断线即 close 会永久断流（网络一抖就再也不更新）。
+        // 交给浏览器 EventSource 默认的自动重连，重连成功会重新收到 snapshot 刷新。
         return () => source.close()
     }, [challengeId])
 
