@@ -92,7 +92,11 @@ mock.module("./tools", () => ({
     createObserverSidecarToolsWithOptions,
 }))
 
+// Bun 的 mock.module 是进程级全局：只列部分导出会让真实 SDK 的其余导出（如 defineTool）
+// 在别的测试文件里变成 undefined，污染 manager.test.ts 等。先展开真实模块，再覆盖本测试要 fake 的导出。
+const realPiCodingAgent = await import("@mariozechner/pi-coding-agent")
 mock.module("@mariozechner/pi-coding-agent", () => ({
+    ...realPiCodingAgent,
     DefaultResourceLoader: FakeDefaultResourceLoader,
     SessionManager: {
         create: sessionManagerCreate,
@@ -113,6 +117,9 @@ beforeEach(async () => {
     solverWorkspaceDir = await mkdtemp(resolve(tmpdir(), "tch-observer-workspace-"))
     process.env.TCH_SOLVER_SESSION_DIR = solverSessionDir
     process.env.TCH_SOLVER_WORKSPACE = solverWorkspaceDir
+    // 这些断言针对 CTF 模式的 challenge-context 格式（difficulty/flags/hint 等），
+    // 显式关闭 engagement 模式，避免默认开启时切到 Target State 文案。
+    process.env.TCH_ENGAGEMENT_MODE = "0"
     capturedLoaderOptions = undefined
     capturedCreateSessionOptions = undefined
     capturedPrompt = ""
@@ -127,6 +134,7 @@ beforeEach(async () => {
 afterEach(async () => {
     delete process.env.TCH_SOLVER_SESSION_DIR
     delete process.env.TCH_SOLVER_WORKSPACE
+    delete process.env.TCH_ENGAGEMENT_MODE
     await rm(solverSessionDir, { recursive: true, force: true })
     await rm(solverWorkspaceDir, { recursive: true, force: true })
 })
@@ -162,9 +170,9 @@ describe("runSolverObserverReview", () => {
         expect(result).toEqual({ applied: true, summary: "observer summary" })
         expect(resolveModelPref).toHaveBeenCalledWith("kimi-fast")
         expect(capturedLoaderOptions?.systemPromptOverride()).toContain("observer sidecar")
-        expect(capturedLoaderOptions?.systemPromptOverride()).toContain("如果本轮无需修改，只回复 `NO_CHANGE`")
-        expect(capturedLoaderOptions?.systemPromptOverride()).toContain("memory 保持在 12 条以内")
-        expect(capturedLoaderOptions?.systemPromptOverride()).toContain("每轮 user prompt 只提供动态上下文")
+        expect(capturedLoaderOptions?.systemPromptOverride()).toContain("reply only `NO_CHANGE`")
+        expect(capturedLoaderOptions?.systemPromptOverride()).toContain("keep memory under 12 entries")
+        expect(capturedLoaderOptions?.systemPromptOverride()).toContain("Each round's user prompt provides only dynamic context")
         expect(capturedLoaderOptions?.systemPromptOverride()).toContain("send_efficiency_reminder")
         expect(capturedLoaderOptions?.systemPromptOverride()).toContain("query_solver_history")
         expect(sessionManagerCreate).toHaveBeenCalledWith(solverWorkspaceDir, join(solverSessionDir, ".observer"))

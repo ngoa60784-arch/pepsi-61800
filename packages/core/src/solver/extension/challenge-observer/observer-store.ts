@@ -6,6 +6,9 @@ const OBSERVER_RUNTIME_STATE_FILE = "state.json"
 const OBSERVER_REVIEW_QUEUE_DIRNAME = "review-queue"
 const OBSERVER_ROUNDS_DIRNAME = "rounds"
 
+// 进程内串行化 observer state 写入的链尾（见 updateObserverState）。
+let observerStateWriteChain: Promise<void> = Promise.resolve()
+
 export interface ObserverRuntimeState {
     round: number
     current_round_tool_logs: ObserverToolLog[]
@@ -77,10 +80,22 @@ export async function loadObserverState(): Promise<ObserverRuntimeState> {
 export async function updateObserverState<T>(
     mutate: (state: ObserverRuntimeState) => { nextState: ObserverRuntimeState; result: T },
 ): Promise<T> {
-    const currentState = await loadObserverState()
-    const { nextState, result } = mutate(currentState)
-    await Bun.write(resolveObserverRuntimeStatePath(), `${JSON.stringify(nextState, null, 2)}\n`)
-    return result
+    // 串行化所有 update：observer 的 tool_execution_start/end、message_end 等钩子在同一 turn
+    // 并发多个 tool call 时会并发触发，无锁的 read-modify-write 会丢更新（后写覆盖前写，
+    // 丢掉 tool_args_by_call_id / current_round_tool_logs 条目）。用链式 promise 把每次
+    // update 排到上一次之后，保证读到的是最新落盘状态。
+    const run = observerStateWriteChain.then(async () => {
+        const currentState = await loadObserverState()
+        const { nextState, result } = mutate(currentState)
+        await Bun.write(resolveObserverRuntimeStatePath(), `${JSON.stringify(nextState, null, 2)}\n`)
+        return result
+    })
+    // 链尾吞掉异常，避免一次失败卡死后续所有 update；调用方仍能拿到本次的 reject。
+    observerStateWriteChain = run.then(
+        () => undefined,
+        () => undefined,
+    )
+    return run
 }
 
 export async function enqueueObserverReview(payload: ObserverReviewPayload): Promise<void> {

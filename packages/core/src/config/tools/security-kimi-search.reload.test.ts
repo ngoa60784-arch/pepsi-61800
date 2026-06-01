@@ -101,7 +101,8 @@ test("reloads auth storage before resolving kimi api key", async () => {
     expect(refreshModels).toHaveBeenCalled()
     expect(getApiKeyValue).toHaveBeenCalledWith("provider:65d9d2f9")
     expect(fetchMock).toHaveBeenCalled()
-    expect(result.content).toEqual([{ type: "text", text: "# kimi result\nsearch ok" }])
+    // 仅配置了 kimi provider，qwen 源解析失败→内容为空，合并结果只剩 Kimi 段。
+    expect(result.content).toEqual([{ type: "text", text: "# Kimi Result (REFERENCE)\nsearch ok" }])
 })
 
 test("uses kimi provider that actually has an api key", async () => {

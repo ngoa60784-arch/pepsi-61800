@@ -6,6 +6,7 @@ import type { PromptTemplate } from "@mariozechner/pi-coding-agent"
 import { BUILTIN_PROMPTS } from "../builtin-assets.generated"
 
 export const CHALLENGE_PLANNER_PROMPT_NAME = "CHALLENGE_PLANNER"
+export const OBJECTIVE_VERIFIER_PROMPT_NAME = "OBJECTIVE_VERIFIER"
 
 export interface PromptMeta {
     description?: string
@@ -194,7 +195,7 @@ export async function listPrompts(configDir: string): Promise<PromptFile[]> {
         for (const file of mdFiles) {
             const name = basename(file, ".md")
             const prompt = await loadPrompt(configDir, name)
-            if (prompt && prompt.name !== CHALLENGE_PLANNER_PROMPT_NAME) results.push(prompt)
+            if (prompt && prompt.name !== CHALLENGE_PLANNER_PROMPT_NAME && prompt.name !== OBJECTIVE_VERIFIER_PROMPT_NAME) results.push(prompt)
         }
     } catch {}
 
@@ -202,7 +203,7 @@ export async function listPrompts(configDir: string): Promise<PromptFile[]> {
     const deleted = await loadDeletedBuiltins(configDir)
     for (const name of deleted) {
         // Only if not present in results (not restored yet)
-        if (name !== CHALLENGE_PLANNER_PROMPT_NAME && !results.some((p) => p.name === name)) {
+        if (name !== CHALLENGE_PLANNER_PROMPT_NAME && name !== OBJECTIVE_VERIFIER_PROMPT_NAME && !results.some((p) => p.name === name)) {
             results.push({
                 name,
                 meta: {},

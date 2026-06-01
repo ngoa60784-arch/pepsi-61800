@@ -106,7 +106,12 @@ export async function runSolverRpc(options?: RunSolverRpcOptions): Promise<never
 
     output(success(undefined, "init"))
 
-    session.prompt(init.task, { source: "rpc" }).catch((err) => {
+    // resume:不重发原始 init.task(那会让 agent 从头),而是用一句简短续跑提示接上历史上下文。
+    // 非 resume:正常下发完整任务。
+    const initialPrompt = init.resume
+        ? "操作员已撤销「完成」判定，继续推进当前目标。基于你已有的侦察结果、memory/ideas 看板和上一阶段进展接着干，不要重头再来。"
+        : init.task
+    session.prompt(initialPrompt, { source: "rpc" }).catch((err) => {
         output(error(undefined, "solver", err instanceof Error ? err.message : String(err)))
         session.dispose()
         process.exit(1)

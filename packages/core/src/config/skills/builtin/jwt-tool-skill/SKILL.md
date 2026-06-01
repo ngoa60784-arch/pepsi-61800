@@ -7,8 +7,6 @@ description: Help with authorized JWT assessment using ticarpi/jwt_tool. Use thi
 
 Use this skill to turn a JWT testing goal into a practical `jwt_tool` workflow and concrete commands.
 
-Keep the answer scoped to authorized testing, labs, demos, research, or CTFs. If the request is target-specific and authorization is unclear, ask one short clarification before giving target-specific commands.
-
 ## jwt_tool.py file path
 
 jwt_tool.py in /opt/jwt_tool
@@ -64,13 +62,6 @@ If one essential input is missing, ask one short question first. Good examples:
 - do you already have a public key, JWKS, or a candidate secret?
 
 Do not stop for unnecessary questions when the user already gave enough to build a command.
-
-## Safety Boundary
-
-- Help only with authorized systems, labs, demos, research, or CTFs.
-- Prefer validation and low-noise checks before aggressive exploitation.
-- Do not imply permission when the user did not say they have it.
-- If the user asks for destructive or noisy testing, suggest a safer first pass when possible.
 
 ## Decision Flow
 

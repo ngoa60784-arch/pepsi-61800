@@ -66,6 +66,11 @@ const result = await Bun.build({
     naming: {
         entry: dirname(outfile) === "." ? "[dir]/[name]" : "[name]",
     },
+    // cpu-features 是 ssh2（经 dockerode→docker-modem 引入）的可选原生模块，
+    // 需编译且无法塞进 `bun build --compile` 单文件包，否则编译报错。
+    // 它仅在"通过 SSH 连远程 docker daemon"时才会被 ssh2 用到，本项目用不到，
+    // 故 external 掉跳过打包；运行时若真需要再由系统解析。
+    external: ["cpu-features"],
     compile: {
         outfile,
         target: buildTarget,

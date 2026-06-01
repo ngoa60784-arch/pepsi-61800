@@ -14,7 +14,7 @@ import { discoverModelsForProvider } from "./providers/discovery"
 import type { DiscoveredModel } from "./providers/discovery"
 import type { ModelDefinition, ModelConfigEntry, ProviderPrefEntry, BuiltInProvider, ConfiguredModel } from "./providers/types"
 import { customTools, builtinToolDefinitions, builtinToolMap } from "./tools/index"
-import { challengeToolNames } from "./tools/challenge-tools"
+import { engagementToolNames } from "./tools/engagement-tools"
 import { createSubagentTool } from "./tools/subagent"
 import type { ToolEntry } from "./tools/index"
 import * as skills from "./skills/index"
@@ -25,6 +25,7 @@ import type { McpServerItem, McpToolCache } from "./mcp/index"
 import type { AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
 export type { AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
+import { isEngagementMode } from "../challenge/engagement"
 
 function computeHash(obj: Record<string, unknown>): string {
     const { id: _, hash: __, ...rest } = obj
@@ -1080,6 +1081,18 @@ export class ConfigManager {
             } catch (error: any) {
                 throw new Error(`prompt "${promptName}" model "${promptModelPrefId}": ${error?.message ?? String(error)}`)
             }
+        } else {
+            // 提示词未声明 model(如内置 planner)→ 回退到全局默认 Agent 模型(UI 里选的那个)，
+            // 没设全局默认再退到第一个可用 pref；都没有才交给 SDK 默认。
+            // 这样"UI 选一个模型 → 所有 agent 都用它"成立，且不会掉进 SDK 内置的 gemini(很多地区 400)。
+            const fallbackPrefId = await this.resolveDefaultModelPrefId()
+            if (fallbackPrefId) {
+                try {
+                    resolvedPromptModel = await this.resolveModelPref(fallbackPrefId)
+                } catch {
+                    resolvedPromptModel = undefined
+                }
+            }
         }
         const model = resolvedPromptModel?.model
         const thinkingLevel = resolvedPromptModel?.thinkingLevel
@@ -1090,10 +1103,10 @@ export class ConfigManager {
                 ? [...new Set(["read", ...(prompt.meta.tools ?? [])])]
                 : (prompt.meta.tools ?? [])
 
-        // 3) 比赛工具按环境开关过滤
+        // 3) 渗透工具门控：实战(engagement)模式或设置了 challengeId 环境时启用
         const challengeId = process.env[CHALLENGE_ENV_CHALLENGE_ID]?.trim()
-        const challengeToolsEnabled = Boolean(challengeId)
-        const enabledToolNames = requestedToolNames.filter((name) => challengeToolsEnabled || !challengeToolNames.has(name))
+        const challengeToolsEnabled = isEngagementMode() || Boolean(challengeId)
+        const enabledToolNames = requestedToolNames.filter((name) => challengeToolsEnabled || !engagementToolNames.has(name))
 
         // 4) 分离内置工具与自定义工具
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1167,6 +1180,20 @@ export class ConfigManager {
         }
 
         return opts
+    }
+
+    /**
+     * 全局默认 Agent 模型(model-pref id)：优先用 host settings 里 UI 选的 defaultModelPrefId，
+     * 其次回退到第一个可用 model pref。所有 agent 在自身未声明 model 时统一用它。
+     * 返回 undefined 表示一个模型都没配。
+     */
+    async resolveDefaultModelPrefId(): Promise<string | undefined> {
+        const prefs = await this.listModelPrefs()
+        if (prefs.length === 0) return undefined
+        const settings = await this.getHostSettings()
+        const configured = settings.defaultModelPrefId
+        if (configured && prefs.some((pref) => pref.id === configured)) return configured
+        return prefs[0].id
     }
 
     async resolveModelPref(modelPrefId: string): Promise<{ model: Model<Api>; thinkingLevel?: ThinkingLevel }> {
@@ -1250,6 +1277,7 @@ export class ConfigManager {
     renameMcpServer(oldName: string, newName: string) {
         return mcp.renameMcpServer(this.dir, oldName, newName)
     }
+
     getMcpSettings() {
         return mcp.getMcpSettings(this.dir)
     }
@@ -1286,12 +1314,17 @@ export class ConfigManager {
         const raw = await this.readGlobalSettingsRaw()
         const tch =
             raw.tch && typeof raw.tch === "object" && !Array.isArray(raw.tch)
-                ? (raw.tch as { runtime?: HostRuntimeSettings; challenge?: HostChallengeSettings; planner?: HostPlannerSettings })
+                ? (raw.tch as { runtime?: HostRuntimeSettings; challenge?: HostChallengeSettings; planner?: HostPlannerSettings; defaultModelPrefId?: string })
                 : {}
+        const runtime = tch.runtime ?? {}
+        const planner = tch.planner ?? {}
         return {
-            runtime: tch.runtime ?? {},
+            // 默认强制开启自动调度 + 默认 3 路并行 solver。
+            // 仅当配置里显式写了 planner.enabled=false / 自定义 maxSolvers 时才覆盖默认。
+            runtime: { ...runtime, maxSolvers: runtime.maxSolvers ?? 3 },
             challenge: tch.challenge ?? {},
-            planner: tch.planner ?? {},
+            planner: { ...planner, enabled: planner.enabled ?? true },
+            defaultModelPrefId: typeof tch.defaultModelPrefId === "string" && tch.defaultModelPrefId.trim() ? tch.defaultModelPrefId.trim() : undefined,
         }
     }
 
@@ -1312,6 +1345,10 @@ export class ConfigManager {
                 ),
             },
             planner: { ...current.planner, ...(patch.planner ?? {}) },
+            defaultModelPrefId:
+                "defaultModelPrefId" in patch
+                    ? (typeof patch.defaultModelPrefId === "string" && patch.defaultModelPrefId.trim() ? patch.defaultModelPrefId.trim() : undefined)
+                    : current.defaultModelPrefId,
         }
 
         const raw = await this.readGlobalSettingsRaw()

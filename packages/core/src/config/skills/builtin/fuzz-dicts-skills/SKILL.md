@@ -9,8 +9,6 @@ Use this skill to turn the `fuzzDicts` repository into a practical navigation la
 
 The repository already contains many useful dictionaries, but the folder names alone do not help much during a live test. Your job is to quickly map the user's task to the smallest useful set of files, explain why those files fit, and give tool-ready examples.
 
-This skill is for authorized security testing, internal validation, lab work, and CTF-style practice. If the user's context is unclear, keep guidance focused on defensive or authorized use.
-
 ## What to do
 
 1. Identify the user's scenario.

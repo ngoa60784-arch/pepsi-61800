@@ -88,10 +88,6 @@ export class ChallengeApiClient {
         this.mockState = mockState
     }
 
-    static create(baseUrl: string, agentToken: string): ChallengeApiClient {
-        return new ChallengeApiClient(baseUrl, agentToken)
-    }
-
     static createMock(mockState: ChallengeApiMockState): ChallengeApiClient {
         return new ChallengeApiClient("mock://challenge-api", "mock-agent-token", mockState)
     }

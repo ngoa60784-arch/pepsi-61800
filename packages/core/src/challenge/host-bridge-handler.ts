@@ -1,5 +1,7 @@
 import type { ChallengeManager } from "./manager"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "./env"
+import { loadEngagementScope } from "./engagement"
+import { validateObjectiveEvidence } from "./finding-validation"
 import type { HostBridgeHandleContext, HostBridgeHandleResult, HostBridgeHandler, SolverInstance } from "../runtime/types"
 
 function getObjectValue(value: unknown): Record<string, unknown> {
@@ -13,14 +15,6 @@ function getRequiredString(data: Record<string, unknown>, key: string): string {
         throw new Error(`${key} is required`)
     }
     return value.trim()
-}
-
-function getRequiredChallengeId(getSolverEnvValue: (key: string) => string | undefined): string {
-    const challengeId = getSolverEnvValue(CHALLENGE_ENV_CHALLENGE_ID)
-    if (!challengeId) {
-        throw new Error(`${CHALLENGE_ENV_CHALLENGE_ID} is required for challenge actions`)
-    }
-    return challengeId
 }
 
 function getSolverPromptName(solver?: SolverInstance): string | undefined {
@@ -63,27 +57,6 @@ function sendSteerToSolver(context: HostBridgeHandleContext, solverId: string, m
         type: "steer",
         message: text,
     })
-}
-
-function sendHintToSolver(context: HostBridgeHandleContext, solverId: string, hintContent: string): void {
-    const message = hintContent.trim()
-    if (!message) return
-    sendSteerToSolver(context, solverId, `系统同步：赛题 hint 已更新。\n- 立即吸收这条 hint，并结合当前路线评估是否需要转向。\n- 如果它改变了攻击面理解，优先刷新 memory_list / idea_list。\n- hint:\n${message}`)
-}
-
-function broadcastHintToChallengeSolvers(context: HostBridgeHandleContext, challengeId: string, hintContent: string): void {
-    const targetChallengeId = challengeId.trim()
-    const message = hintContent.trim()
-    if (!targetChallengeId || !message) return
-    for (const solver of context.listSolvers?.() ?? []) {
-        if (solver.challengeId !== targetChallengeId) continue
-        if (solver.status !== "running") continue
-        try {
-            sendHintToSolver(context, solver.id, message)
-        } catch {
-            // ignore inactive solver pipes
-        }
-    }
 }
 
 function broadcastToChallengeSolvers(
@@ -138,110 +111,188 @@ function pickMemorySummary(items: Array<{ kind: string; content: string }>): str
     return items.slice(-6).map((item) => `- [${item.kind}] ${clipText(item.content, 140)}`)
 }
 
-function formatFlagSolvedBroadcastMessage(input: {
-    flag: string
-    gotCount?: number
-    flagCount?: number
-    isCompleted: boolean
+function formatEngagementObjectiveBroadcastMessage(input: {
     writeup?: string
     ideas: Array<{ id: string; status: string; content: string; result: string }>
     memory: Array<{ kind: string; content: string }>
 }): string {
-    const progress =
-        typeof input.gotCount === "number" && typeof input.flagCount === "number"
-            ? `${input.gotCount}/${input.flagCount}`
-            : "-"
-    const remaining =
-        typeof input.gotCount === "number" && typeof input.flagCount === "number"
-            ? Math.max(input.flagCount - input.gotCount, 0)
-            : undefined
     const ideaLines = pickIdeaSummary(input.ideas)
     const memoryLines = pickMemorySummary(input.memory)
-
     return [
-        "协作同步：同题已有 solver 提交正确 flag。",
-        `- flag: ${input.flag}`,
-        `- 进度: ${progress}`,
-        typeof remaining === "number" ? `- 剩余 flag: ${remaining}` : undefined,
-        input.isCompleted ? "- 题目已完成，不要继续重复当前路线。" : "- 这条路线已经拿到一个 flag，不要重复挖同一支，转向剩余 flag。",
-        input.writeup?.trim() ? "- 本次 flag 路线摘要：" : undefined,
+        "Collaboration sync: another solver in the same scope has recorded a verified objective/finding.",
+        "- This only means that route produced a result; it does NOT mean the whole engagement is complete (the operator confirms completion).",
+        "- Don't re-dig the same route — pivot to other in-scope targets or attack surface.",
+        input.writeup?.trim() ? "- Finding route summary:" : undefined,
         input.writeup?.trim() ? `- ${clipText(input.writeup, 300)}` : undefined,
-        ideaLines.length > 0 ? "- 当前思路板摘要：" : undefined,
+        ideaLines.length > 0 ? "- Current idea board summary:" : undefined,
         ...(ideaLines.length > 0 ? ideaLines : []),
-        memoryLines.length > 0 ? "- 当前记忆摘要：" : undefined,
+        memoryLines.length > 0 ? "- Current memory summary:" : undefined,
         ...(memoryLines.length > 0 ? memoryLines : []),
-        ideaLines.length === 0 && memoryLines.length === 0 ? "- 当前还没有足够的结构化思路摘要，请先查看 memory_list / idea_list。" : undefined,
     ]
         .filter((line): line is string => typeof line === "string" && line.trim().length > 0)
         .join("\n")
 }
 
-async function handleChallengeAction(
+async function handleEngagementAction(
     challengeManager: ChallengeManager,
     context: HostBridgeHandleContext,
 ): Promise<HostBridgeHandleResult> {
     const { solverId, action, params, getSolverEnvValue, getSolver, getSolverStartup } = context
     const data = getObjectValue(params)
+    const scope = await loadEngagementScope(getSolverEnvValue)
+        .then((loaded) => loaded.scope)
+        .catch(() => undefined)
+    // 存储/查询/广播一律用 challenge(target) id 作为 key —— solver 任务文案、seed board、
+    // broadcastToChallengeSolvers 的 solver.challengeId 过滤都以它为准。scope.engagement 只是
+    // 演练的人类可读名称，仅用于 challenge_get_state 的展示字段，绝不能当存储 key（否则写读 key 不一致，
+    // findings 永远不回灌、降重广播失效）。
+    const storeKey = getSolverEnvValue(CHALLENGE_ENV_CHALLENGE_ID) || scope?.engagement || "engagement"
+    const engagementName = scope?.engagement ?? storeKey
 
     switch (action) {
         case "challenge_get_state": {
-            const challengeId = getRequiredChallengeId(getSolverEnvValue)
-            const challenge = await challengeManager.getChallenge(challengeId)
-            const isCompleted = await challengeManager.isChallengeCompleted(challengeId)
-            return { handled: true, data: { challenge_id: challengeId, challenge, is_completed: isCompleted } }
+            // 带上目标记录与真实完成状态：observer review 用 challenge 字段填充上下文(标题/入口/状态)，
+            // 用 is_completed 决定目标收尾后是否还需要继续 review。两者都要反映真实状态——
+            // 之前硬编码 challenge 缺失 + is_completed=false，导致 observer 上下文全是占位符、
+            // 且目标完成后仍会无意义地继续跑 review。真实完成判定与 challenge_is_completed 一致
+            // （objective_achieved 经验证后为 true），最终收尾仍由操作员在范围外确认。
+            const [challenge, completed] = await Promise.all([
+                challengeManager.getChallenge(storeKey).catch(() => undefined),
+                challengeManager.isChallengeCompleted(storeKey).catch(() => false),
+            ])
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    challenge: challenge ?? null,
+                    engagement: engagementName,
+                    allowed_targets: scope?.allowed_targets ?? [],
+                    out_of_scope: scope?.out_of_scope ?? [],
+                    rules_of_engagement: scope?.rules_of_engagement ?? null,
+                    is_completed: completed,
+                },
+            }
         }
         case "challenge_get_hint": {
-            const challengeId = getRequiredChallengeId(getSolverEnvValue)
-            const challenge = await challengeManager.getChallenge(challengeId)
-            const cachedHint = challenge?.hint_content?.trim()
-            if (cachedHint) {
-                return {
-                    handled: true,
-                    data: {
-                        code: challengeId,
-                        hint_content: cachedHint,
-                    },
-                }
+            // 实战没有 hint 裁判；明确告知，避免模型空等。
+            return {
+                handled: true,
+                data: { code: storeKey, hint_content: null },
             }
-            const result = await challengeManager.getHint(challengeId)
-            if (result.remote.hint_content?.trim()) {
-                broadcastHintToChallengeSolvers(context, challengeId, result.remote.hint_content)
-            }
-            return { handled: true, data: result.remote }
         }
         case "challenge_submit_flag": {
-            const challengeId = getRequiredChallengeId(getSolverEnvValue)
-            const flag = getRequiredString(data, "flag")
+            const proof = getRequiredString(data, "flag")
             const writeup = typeof data.writeup === "string" && data.writeup.trim() ? data.writeup.trim() : undefined
-            const result = await challengeManager.submitFlag(challengeId, flag, {
+            const objectiveClaimed = data.objective_achieved === true
+            // 断言式证据门禁(确定性首过)：solver 自报主目标达成会触发停整条战线，
+            // 但模型有时无凭据"宣布胜利"。证据不足时降级为普通 finding（仍记录，不进验证流程），
+            // 让其它 solver 继续推进，并回报让该 solver 补上具体产物。
+            const evidence = objectiveClaimed ? validateObjectiveEvidence(proof, writeup) : { sufficient: false, reason: "" }
+            // 过了证据门禁 → 进入"待复核"状态(pending)，由独立 verifier 主动复现确认后才收尾。
+            const enterVerification = objectiveClaimed && evidence.sufficient
+            const record = await challengeManager.recordEngagementObjective(storeKey, proof, {
                 solverId,
                 promptName: getSolverPromptName(getSolver?.()),
                 modelName: getSolverModelName((await getSolverStartup?.()) ?? undefined),
                 writeup,
+                verificationStatus: enterVerification ? "pending" : undefined,
             })
-            if (result.remote.correct) {
-                const [memory, ideas] = await Promise.all([challengeManager.listMemory(challengeId), challengeManager.listIdeas(challengeId)])
-                broadcastToChallengeSolvers(
-                    context,
-                    challengeId,
-                    formatFlagSolvedBroadcastMessage({
-                        flag,
-                        gotCount: result.remote.flag_got_count,
-                        flagCount: result.remote.flag_count,
-                        isCompleted: result.is_completed,
+            // 广播给同题其它 solver：已记录一个 finding，避免重复挖同一路线。
+            const [memory, ideas] = await Promise.all([
+                challengeManager.listMemory(storeKey).catch(() => []),
+                challengeManager.listIdeas(storeKey).catch(() => []),
+            ])
+            broadcastToChallengeSolvers(
+                context,
+                storeKey,
+                formatEngagementObjectiveBroadcastMessage({ writeup, ideas, memory }),
+                { excludeSolverId: solverId, delivery: "steer" },
+            )
+            // 双重验证:solver 自报达成 + 过证据门禁 → 起独立 verifier 复跑确认。
+            // 只有 verifier 判 verified 才会 markEngagementComplete(在 verifyObjective 内部)；
+            // rejected → steer 该 solver"复核未通过，继续推进";inconclusive → 交操作员复核，不收尾。
+            // 异步触发，不阻塞本次工具返回(verifier 会起一个 LLM 会话复跑，耗时)。
+            if (enterVerification) {
+                void challengeManager
+                    .verifyObjective({
+                        challengeId: storeKey,
+                        recordId: record.id,
+                        proof,
                         writeup,
-                        ideas,
-                        memory,
-                    }),
-                    { excludeSolverId: solverId, delivery: "steer" },
-                )
+                        onResolved: (verdict, note) => {
+                            if (verdict === "rejected") {
+                                sendSteerToSolver(
+                                    context,
+                                    solverId,
+                                    `Your reported primary objective FAILED independent verification (a verifier re-ran your proof and could not reproduce it): ${note}. The target is NOT being wound down. Keep working — get concrete, freshly-reproducible proof before reporting objective_achieved again.`,
+                                )
+                            } else if (verdict === "inconclusive") {
+                                sendSteerToSolver(
+                                    context,
+                                    solverId,
+                                    `Your reported objective could not be auto-verified (${note}); it's left for operator review and the target is NOT wound down yet. Keep consolidating proof.`,
+                                )
+                            }
+                        },
+                    })
+                    .catch(() => {})
             }
-            return { handled: true, data: { challenge_id: challengeId, ...result } }
+            const downgraded = objectiveClaimed && !evidence.sufficient
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    recorded: true,
+                    record_id: record.id,
+                    // 进入验证流程时尚未收尾(等 verifier);故 is_completed=false。
+                    is_completed: false,
+                    // 已进入独立复核流程,让 solver 知道"已自报达成、正在被复跑验证"。
+                    under_verification: enterVerification,
+                    // 证据被门禁降级时显式告知，让 solver 补证据后再报，而不是误以为已收尾。
+                    objective_downgraded: downgraded,
+                    message: enterVerification
+                        ? "objective recorded and submitted to an independent verifier for re-run confirmation; the target will only be wound down if verification passes. Keep your session alive."
+                        : downgraded
+                          ? `finding recorded, but the objective_achieved signal was NOT accepted: ${evidence.reason}. Keep working and re-report with concrete proof to wind down the target.`
+                          : "objective recorded to local findings; pending operator confirmation",
+                },
+            }
         }
         case "challenge_is_completed": {
-            const challengeId = getRequiredChallengeId(getSolverEnvValue)
-            const isCompleted = await challengeManager.isChallengeCompleted(challengeId)
-            return { handled: true, data: { challenge_id: challengeId, is_completed: isCompleted } }
+            // 反映真实完成状态:objective_achieved 标记后为 true,让 solver 的续跑循环(ralph-loop)自行收手。
+            const completed = await challengeManager.isChallengeCompleted(storeKey).catch(() => false)
+            return { handled: true, data: { challenge_id: storeKey, is_completed: completed } }
+        }
+        case "state_upsert": {
+            // 结构化作战资产写入共享状态库(跨 solver 复用)。引擎去重合并 + 广播 + 喂给 planner。
+            const kindRaw = typeof data.kind === "string" ? data.kind.trim() : ""
+            const validKinds = new Set(["host", "service", "credential", "session"])
+            if (!validKinds.has(kindRaw)) {
+                return { handled: true, data: { challenge_id: storeKey, recorded: false, message: `invalid asset kind: ${kindRaw || "(empty)"}` } }
+            }
+            const result = await challengeManager.upsertStateAsset(storeKey, {
+                kind: kindRaw as "host" | "service" | "credential" | "session",
+                label: getRequiredString(data, "label"),
+                host: typeof data.host === "string" && data.host.trim() ? data.host.trim() : undefined,
+                port: typeof data.port === "number" && Number.isFinite(data.port) ? data.port : undefined,
+                service: typeof data.service === "string" && data.service.trim() ? data.service.trim() : undefined,
+                account: typeof data.account === "string" && data.account.trim() ? data.account.trim() : undefined,
+                privilege: typeof data.privilege === "string" && data.privilege.trim() ? data.privilege.trim() : undefined,
+                secretRef: typeof data.secret_ref === "string" && data.secret_ref.trim() ? data.secret_ref.trim() : undefined,
+                sessionType: typeof data.session_type === "string" && data.session_type.trim() ? data.session_type.trim() : undefined,
+                note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
+                sourceRefs: Array.isArray(data.source_refs) ? data.source_refs.filter((item): item is string => typeof item === "string") : undefined,
+            })
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    recorded: true,
+                    asset_id: result.asset.id,
+                    created: result.created,
+                    message: result.created ? "asset recorded to shared state" : "asset merged into existing shared-state entry",
+                },
+            }
         }
         default:
             return { handled: false }
@@ -251,7 +302,8 @@ async function handleChallengeAction(
 export function createChallengeHostBridgeHandler(challengeManager: ChallengeManager): HostBridgeHandler {
     return {
         async handle(context) {
-            return handleChallengeAction(challengeManager, context)
+            // CTF 远程评分链路已移除：所有 host-bridge 动作统一走实战(engagement)处理。
+            return handleEngagementAction(challengeManager, context)
         },
     }
 }

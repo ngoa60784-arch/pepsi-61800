@@ -7,6 +7,8 @@ export interface SolverInitPayload {
     promptName: string
     task: string
     challengeId?: string
+    /** true = 续跑:加载该 solver 落盘的旧 session 接着推进,而非新建空 session 从头跑 init.task。 */
+    resume?: boolean
 }
 
 // ── RPC types (mirrored from pi-coding-agent rpc-types.ts) ──

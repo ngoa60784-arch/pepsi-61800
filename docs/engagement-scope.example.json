@@ -1,0 +1,8 @@
+{
+    "engagement": "HVV-2026-示例",
+    "allowed_targets": ["10.0.0.0/24", "192.168.1.10", "app.target.example.com", "https://portal.target.example.com"],
+    "out_of_scope": ["10.0.0.1", "192.168.1.1"],
+    "no_scan": false,
+    "forbidden_commands": [],
+    "rules_of_engagement": "仅授权范围内资产；禁止 DoS / 数据破坏 / 拖库；发现高危即记录并暂停，等操作员确认；凭证不落明文，引用 evidence_refs。"
+}

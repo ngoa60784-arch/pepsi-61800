@@ -145,8 +145,6 @@ Keep the summary concrete and file-backed. Cite the `.raw` paths you inspected, 
 
 ## Guardrails
 
-- Only crawl targets the user is authorized to inspect.
-- Do not invent credentials or attempt bypass behavior.
 - Do not switch to visible-browser or manual-login flows. If the site is interactive-only, explain that the results are limited by a headless one-pass crawl.
 - If the binary or target is missing, say exactly what is missing and what path or URL is needed.
 

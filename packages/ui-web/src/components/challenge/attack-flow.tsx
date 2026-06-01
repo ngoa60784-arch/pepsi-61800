@@ -258,10 +258,12 @@ function eventIsoTime(event: AttackTimelineEvent) {
     return new Date(event.timestamp).toISOString()
 }
 
-function memoryKindLabel(kind: MemoryEntry["kind"]) {
+function memoryKindLabel(kind: MemoryEntry["kind"]): string {
     switch (kind) {
         case "evidence":
             return "Evidence"
+        case "credential":
+            return "Credential"
         case "failure":
             return "Failure boundary"
         case "hint":
@@ -270,6 +272,8 @@ function memoryKindLabel(kind: MemoryEntry["kind"]) {
             return "Note"
         case "fact":
             return "Finding"
+        default:
+            return "Memory"
     }
 }
 

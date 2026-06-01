@@ -378,7 +378,7 @@ function StatsOverviewDialog(props: {
                     <>
                         <DialogHeader>
                             <DialogTitle>Challenge Stats</DialogTitle>
-                            <DialogDescription>图表化展示题目完成情况，以及模型 / Prompt 维度统计。</DialogDescription>
+                            <DialogDescription>图表化展示目标完成情况，以及模型 / Prompt 维度统计。</DialogDescription>
                         </DialogHeader>
                         <div className="text-sm text-muted-foreground">Loading stats...</div>
                     </>
@@ -386,7 +386,7 @@ function StatsOverviewDialog(props: {
                     <Tabs value={tab} onValueChange={setTab} className="space-y-4">
                         <DialogHeader>
                             <DialogTitle>Challenge Stats</DialogTitle>
-                            <DialogDescription>图表化展示题目完成情况，以及模型 / Prompt 维度统计。</DialogDescription>
+                            <DialogDescription>图表化展示目标完成情况，以及模型 / Prompt 维度统计。</DialogDescription>
                         </DialogHeader>
                         <TabsList>
                             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -542,6 +542,8 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const [plannerMessage, setPlannerMessage] = useState("")
     const [startingSolver, setStartingSolver] = useState(false)
     const [exportingSessions, setExportingSessions] = useState(false)
+    const [completionBusy, setCompletionBusy] = useState(false)
+    const [completionMessage, setCompletionMessage] = useState("")
     const [startingChallengeId, setStartingChallengeId] = useState("")
     const [stoppingSolverId, setStoppingSolverId] = useState("")
     const [selectedStartChallengeId, setSelectedStartChallengeId] = useState("")
@@ -641,6 +643,48 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
         window.open(url.toString(), "_blank", "noopener,noreferrer")
     }
 
+    async function reloadDetails() {
+        if (!challengeId) return
+        try {
+            const next = await challenges.get(challengeId)
+            setDetails(next)
+        } catch {
+            // ignore reload errors; keep existing view
+        }
+    }
+
+    async function handleConfirmComplete() {
+        if (!challengeId || completionBusy) return
+        if (!window.confirm("确认该目标主目标已达成？将停掉它的所有 solver，planner 也不再补派。")) return
+        setCompletionBusy(true)
+        setCompletionMessage("")
+        try {
+            await challenges.complete(challengeId)
+            setCompletionMessage("已标记完成，正在停止该目标的 solver。")
+            await reloadDetails()
+        } catch (error) {
+            setCompletionMessage(error instanceof Error ? error.message : String(error))
+        } finally {
+            setCompletionBusy(false)
+        }
+    }
+
+    async function handleRevokeComplete() {
+        if (!challengeId || completionBusy) return
+        if (!window.confirm("撤销完成判定？将把之前停掉的 solver 用原 session 续跑（带上下文接着推进），planner 重新接管。")) return
+        setCompletionBusy(true)
+        setCompletionMessage("")
+        try {
+            const result = await challenges.revokeComplete(challengeId)
+            setCompletionMessage(result.resumed.length > 0 ? `已撤销完成，续跑 ${result.resumed.length} 个 solver。` : "已撤销完成（无可续跑的 solver，planner 会重新调度）。")
+            await reloadDetails()
+        } catch (error) {
+            setCompletionMessage(error instanceof Error ? error.message : String(error))
+        } finally {
+            setCompletionBusy(false)
+        }
+    }
+
     async function handleExportSolverSessions() {
         if (!challengeId) return
         setExportingSessions(true)
@@ -701,6 +745,8 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
             setAnswerModeEnabled(nextEnabled)
             if (nextEnabled) setPlannerEnabled(true)
             setPlannerMessage(nextEnabled ? "Answer mode enabled" : "Answer mode disabled")
+        } catch (error) {
+            setPlannerMessage(error instanceof Error ? error.message : String(error))
         } finally {
             setPlannerSaving(false)
         }
@@ -1299,7 +1345,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                     <DialogContent className="max-w-2xl">
                         <DialogHeader>
                             <DialogTitle>Planner Strategy</DialogTitle>
-                            <DialogDescription>这部分会作为系统提示词附加项注入给比赛规划 agent，用来表达用户的调度偏好。</DialogDescription>
+                            <DialogDescription>这部分会作为系统提示词附加项注入给演练规划 agent，用来表达用户的调度偏好。</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-2">
                             <Label htmlFor="planner-strategy-list">Strategy</Label>
@@ -1387,11 +1433,21 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     >
                                         {startingChallengeId === details.challenge.id ? "Starting..." : "Start Solver"}
                                     </Button>
+                                    {details.challenge.objective_achieved === true ? (
+                                        <Button variant="outline" size="sm" onClick={() => void handleRevokeComplete()} disabled={completionBusy}>
+                                            {completionBusy ? "处理中..." : "撤销完成"}
+                                        </Button>
+                                    ) : (
+                                        <Button variant="outline" size="sm" onClick={() => void handleConfirmComplete()} disabled={completionBusy}>
+                                            {completionBusy ? "处理中..." : "确认完成"}
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
                         </div>
                         {startSolverError && <div className="text-sm text-red-500">{startSolverError}</div>}
                         {sessionExportError && <div className="text-sm text-red-500">{sessionExportError}</div>}
+                        {completionMessage && <div className="text-sm text-muted-foreground">{completionMessage}</div>}
                         {plannerMessage && <div className="text-sm text-muted-foreground">{plannerMessage}</div>}
                         <div className="grid gap-6 md:grid-cols-2">
                             <section className="min-w-0 space-y-2">

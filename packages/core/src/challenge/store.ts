@@ -20,6 +20,8 @@ export interface ChallengeRecord {
     instance_status: string
     entrypoint: string[] | null
     flags?: string[]
+    /** 实战模式：主目标达成标记（solver 自报 / 操作员确认）。置 true 即视为该目标完成。 */
+    objective_achieved?: boolean
 }
 
 export interface ChallengeInfoRecord extends ChallengeRecord {
@@ -47,6 +49,17 @@ export interface ChallengeSubmissionLogRecord {
     message?: string
     writeup?: string
     created_at: string
+    /**
+     * 独立 verifier 的复跑判定状态(双重验证)。
+     * - 未设置 / "unverified": 普通 finding，无需复跑(只有 objective_achieved 才触发 verifier)
+     * - "pending": 已自报主目标达成，等待 verifier 复跑确认
+     * - "verified": verifier 复跑确认通过(才允许自动收尾)
+     * - "rejected": verifier 复跑未能复现，判为误报(不自动收尾)
+     * - "inconclusive": verifier 无法判定(执行环境不可用等)，回退到操作员复核
+     */
+    verification_status?: "unverified" | "pending" | "verified" | "rejected" | "inconclusive"
+    verifier_note?: string
+    verified_at?: string
 }
 
 function nowIso(): string {
@@ -193,7 +206,17 @@ export async function appendChallengeAttemptLog(
 
 export async function appendChallengeSubmissionLog(
     rootDir: string,
-    input: { challengeId: string; solverId?: string; promptName?: string; modelName?: string; flag: string; correct: boolean; message?: string; writeup?: string },
+    input: {
+        challengeId: string
+        solverId?: string
+        promptName?: string
+        modelName?: string
+        flag: string
+        correct: boolean
+        message?: string
+        writeup?: string
+        verificationStatus?: ChallengeSubmissionLogRecord["verification_status"]
+    },
 ): Promise<ChallengeSubmissionLogRecord> {
     const challengeId = requireText(input.challengeId, "challengeId")
     await ensureChallengeDirs(rootDir, challengeId)
@@ -207,10 +230,56 @@ export async function appendChallengeSubmissionLog(
         correct: input.correct,
         message: typeof input.message === "string" && input.message.trim() ? input.message.trim() : undefined,
         writeup: typeof input.writeup === "string" && input.writeup.trim() ? input.writeup.trim() : undefined,
+        verification_status: input.verificationStatus,
         created_at: nowIso(),
     }
     await atomicWriteJson(join(submissionLogsDir(rootDir, challengeId), `${Date.now()}-${record.id}.json`), record)
     return record
+}
+
+/**
+ * 更新一条提交记录的 verifier 判定状态(双重验证回写)。
+ * 提交日志一文件一记录、文件名带 record id；按 id 后缀定位文件后整文件重写。
+ * 用提交目录锁串行化，避免并发 verifier 写同一目标时互相覆盖。
+ */
+export async function updateChallengeSubmissionVerification(
+    rootDir: string,
+    challengeId: string,
+    recordId: string,
+    patch: { verification_status: ChallengeSubmissionLogRecord["verification_status"]; verifier_note?: string },
+): Promise<ChallengeSubmissionLogRecord | undefined> {
+    const id = requireText(challengeId, "challengeId")
+    const targetId = requireText(recordId, "recordId")
+    const dir = submissionLogsDir(rootDir, id)
+    // 先无锁探测目标文件是否存在：不存在(未知 id / 目标从未创建)直接返回，避免去 mkdir 一个父目录都不存在的锁目录。
+    let preMatches: string[] = []
+    try {
+        preMatches = (await readdir(dir)).filter((file) => file.endsWith(`-${targetId}.json`))
+    } catch {
+        return undefined
+    }
+    if (preMatches.length === 0) return undefined
+
+    return withDirectoryLock(challengeLockDir(rootDir, id), async () => {
+        let files: string[] = []
+        try {
+            files = (await readdir(dir)).filter((file) => file.endsWith(`-${targetId}.json`))
+        } catch {
+            return undefined
+        }
+        if (files.length === 0) return undefined
+        const path = join(dir, files[0])
+        const current = await readJsonFile<ChallengeSubmissionLogRecord>(path)
+        if (!current) return undefined
+        const updated: ChallengeSubmissionLogRecord = {
+            ...current,
+            verification_status: patch.verification_status,
+            verifier_note: patch.verifier_note?.trim() || current.verifier_note,
+            verified_at: nowIso(),
+        }
+        await atomicWriteJson(path, updated)
+        return updated
+    })
 }
 
 export async function listChallengeAttemptLogs(rootDir: string, challengeId: string): Promise<ChallengeAttemptLogRecord[]> {
@@ -262,6 +331,8 @@ export async function listChallengeRecords(rootDir: string): Promise<ChallengeIn
 
 export function computeChallengeCompleted(challenge: ChallengeInfoRecord | undefined): boolean {
     if (!challenge) return false
+    // 实战模式没有 flag，靠 objective_achieved 标记完成（solver 自报主目标达成 / 操作员标记）。
+    if (challenge.objective_achieved === true) return true
     return challenge.flag_count > 0 && challenge.flag_got_count >= challenge.flag_count
 }
 

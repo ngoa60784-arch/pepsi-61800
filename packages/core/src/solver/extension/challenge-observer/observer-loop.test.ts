@@ -5,16 +5,19 @@ import { resolve } from "node:path"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../../challenge/env"
 
 const reviewCalls: Array<[string, unknown, unknown]> = []
+// 通过 attachObserverLoop 的 runReview 选项注入，而不是 mock.module("./observer-agent")。
+// 后者是进程级全局，会泄漏到 observer-agent.test.ts 让其拿到这个桩（summary: "ok"）。
 const runSolverObserverReview = mock(async (challengeId: string, payload: unknown, options: unknown) => {
     reviewCalls.push([challengeId, payload, options])
     return { applied: true, summary: "ok" }
 })
 
-mock.module("./observer-agent", () => ({
-    runSolverObserverReview,
-}))
-
+// observer-loop 静态 import 了 observer-agent，后者又需要 pi-coding-agent 的多个真实导出
+// （DefaultResourceLoader / parseFrontmatter 等）。这里展开真实模块再覆盖 buildSessionContext，
+// 避免独立运行本文件时因 stub 缺少导出而报 "Export named ... not found"。
+const realPiCodingAgent = await import("@mariozechner/pi-coding-agent")
 mock.module("@mariozechner/pi-coding-agent", () => ({
+    ...realPiCodingAgent,
     buildSessionContext: (entries: unknown[]) => ({
         messages: entries,
     }),
@@ -84,7 +87,7 @@ afterEach(async () => {
 describe("attachObserverLoop", () => {
     test("persists rounds and triggers periodic review every 6 assistant rounds", async () => {
         const harness = createExtensionApiHarness()
-        attachObserverLoop(harness.pi as never, { observerModel: "kimi-fast" })
+        attachObserverLoop(harness.pi as never, { observerModel: "kimi-fast", runReview: runSolverObserverReview })
         const ctx = {
             sessionManager: {
                 getEntries: () => [
@@ -160,7 +163,7 @@ describe("attachObserverLoop", () => {
 
     test("records tool logs and forces hint review after challenge_get_hint", async () => {
         const harness = createExtensionApiHarness()
-        attachObserverLoop(harness.pi as never, {})
+        attachObserverLoop(harness.pi as never, { runReview: runSolverObserverReview })
         const ctx = { sessionManager: { getEntries: () => [] } }
 
         await harness.emit("tool_execution_start", {
@@ -201,7 +204,7 @@ describe("attachObserverLoop", () => {
 
     test("dedupes repeated efficiency reminders within the cooldown window", async () => {
         const harness = createExtensionApiHarness()
-        attachObserverLoop(harness.pi as never, {})
+        attachObserverLoop(harness.pi as never, { runReview: runSolverObserverReview })
         const ctx = { sessionManager: { getEntries: () => [] } }
 
         for (let i = 1; i <= 6; i += 1) {
@@ -230,7 +233,7 @@ describe("attachObserverLoop", () => {
 
     test("suppresses efficiency reminders after the challenge is completed", async () => {
         const harness = createExtensionApiHarness()
-        attachObserverLoop(harness.pi as never, {})
+        attachObserverLoop(harness.pi as never, { runReview: runSolverObserverReview })
         const ctx = { sessionManager: { getEntries: () => [] } }
 
         for (let i = 1; i <= 6; i += 1) {

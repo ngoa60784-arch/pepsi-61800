@@ -3,6 +3,7 @@ import { ARCHIVE_SOLVERS_DIR, solverSessionDir } from "../../core/src/runtime/ty
 import { readSolverBoardSnapshot } from "../../core/src/solver/board-store"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../core/src/challenge/env"
+import { isEngagementMode } from "../../core/src/challenge/engagement"
 import { buildChallengeAttackTimeline } from "../../core/src/challenge/attack-timeline"
 import { buildChallengeStatsOverview } from "../../core/src/challenge/stats"
 import { cp, mkdir, mkdtemp, rm, stat } from "fs/promises"
@@ -203,6 +204,14 @@ export async function startWeb(options: WebServerOptions) {
     const solverSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
     const challengeTimelineSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
     const challengeTimelineBroadcastTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const commanderSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
+    // 把 Commander 的对话事件广播给所有连着 /api/commander/stream 的前端。
+    daemon.commander.subscribe((event) => {
+        const frame = encodeSse("commander", event)
+        for (const controller of [...commanderSubscribers]) {
+            safeEnqueue(controller, frame, () => commanderSubscribers.delete(controller))
+        }
+    })
     const SSE_KEEPALIVE_MS = 5000
 
     function encodeSse(event: string, data: unknown) {
@@ -609,7 +618,8 @@ export async function startWeb(options: WebServerOptions) {
                 },
                 async POST(req) {
                     const hostSettings = await config.getHostSettings()
-                    if (hostSettings.challenge.mockEnabled !== true) {
+                    const engagement = isEngagementMode()
+                    if (!engagement && hostSettings.challenge.mockEnabled !== true) {
                         return Response.json({ error: "manual challenge add is only available when mock mode is enabled" }, { status: 400 })
                     }
 
@@ -619,7 +629,12 @@ export async function startWeb(options: WebServerOptions) {
                         ? body.entrypoint.map((item) => String(item)).filter((item) => item.trim().length > 0)
                         : null
                     const rawId = String(body.id ?? "").trim()
-                    const id = rawId.startsWith("mock-") ? rawId : `mock-${rawId}`
+                    if (!rawId) {
+                        // 空 id 会让 challengeDir 解析成 store 根目录，把 challenge.json 写进根、污染列表。
+                        return Response.json({ error: "challenge id is required" }, { status: 400 })
+                    }
+                    // 实战模式用原始 target id；CTF mock 模式保留 mock- 前缀约定。
+                    const id = engagement ? rawId : rawId.startsWith("mock-") ? rawId : `mock-${rawId}`
                     const challenge = await daemon.challenge.createChallenge({
                         id,
                         title: String(body.title ?? ""),
@@ -717,6 +732,26 @@ export async function startWeb(options: WebServerOptions) {
                         solver_stats: statsResult.solver_stats,
                         solvers: solvers.filter((solver) => solver.challengeId === challengeId),
                     })
+                },
+            },
+            "/api/challenges/:id/complete": {
+                async POST(req) {
+                    try {
+                        await daemon.challenge.confirmEngagementComplete(req.params.id)
+                        return Response.json({ ok: true })
+                    } catch (e: any) {
+                        return Response.json({ error: e?.message ?? String(e) }, { status: 500 })
+                    }
+                },
+            },
+            "/api/challenges/:id/revoke-complete": {
+                async POST(req) {
+                    try {
+                        const result = await daemon.challenge.revokeEngagementComplete(req.params.id)
+                        return Response.json({ ok: true, ...result })
+                    } catch (e: any) {
+                        return Response.json({ error: e?.message ?? String(e) }, { status: 500 })
+                    }
                 },
             },
             "/api/challenges/:id/solver-sessions.zip": {
@@ -1012,6 +1047,75 @@ export async function startWeb(options: WebServerOptions) {
                             runtimeSubscribers.delete(controller)
                         },
                     )
+                },
+            },
+            "/api/commander/stream": {
+                GET(req) {
+                    return openSse(
+                        req,
+                        (controller) => {
+                            commanderSubscribers.add(controller)
+                        },
+                        (controller) => {
+                            commanderSubscribers.delete(controller)
+                        },
+                    )
+                },
+            },
+            "/api/commander/message": {
+                async POST(req) {
+                    const body = (await req.json().catch(() => ({}))) as { message?: string }
+                    const message = String(body.message ?? "").trim()
+                    if (!message) return Response.json({ error: "message is required" }, { status: 400 })
+                    if (daemon.commander.isBusy()) return Response.json({ error: "commander busy" }, { status: 409 })
+                    // 不等 agent 跑完——事件经 SSE 推送；立即返回 accepted。
+                    runInBackground("commander-message", daemon.commander.send(message))
+                    return Response.json({ accepted: true })
+                },
+            },
+            "/api/commander/history": {
+                async GET() {
+                    return Response.json({ entries: await daemon.commander.history() })
+                },
+            },
+            "/api/commander/messages": {
+                async GET() {
+                    return Response.json({ messages: await daemon.commander.historyMessages() })
+                },
+            },
+            // busy 真相源：前端在等待回复时用它自愈——若 SSE 断开导致 message_end 丢失，
+            // 前端轮询发现服务端已不忙即可解除"卡在 busy"的状态。
+            "/api/commander/status": {
+                GET() {
+                    return Response.json({ busy: daemon.commander.isBusy() })
+                },
+            },
+            "/api/commander/new-session": {
+                async POST() {
+                    try {
+                        await daemon.commander.startNewSession()
+                        return Response.json({ ok: true })
+                    } catch (e: any) {
+                        return Response.json({ error: e?.message ?? String(e) }, { status: 409 })
+                    }
+                },
+            },
+            "/api/commander/rollback-points": {
+                async GET() {
+                    return Response.json({ points: await daemon.commander.rollbackPoints() })
+                },
+            },
+            "/api/commander/rollback": {
+                async POST(req) {
+                    const body = (await req.json().catch(() => ({}))) as { entryId?: string }
+                    const entryId = String(body.entryId ?? "").trim()
+                    if (!entryId) return Response.json({ error: "entryId is required" }, { status: 400 })
+                    try {
+                        await daemon.commander.rollbackTo(entryId)
+                        return Response.json({ ok: true, messages: await daemon.commander.historyMessages() })
+                    } catch (e: any) {
+                        return Response.json({ error: e?.message ?? String(e) }, { status: 409 })
+                    }
                 },
             },
             "/api/runtime/solvers/:id": {

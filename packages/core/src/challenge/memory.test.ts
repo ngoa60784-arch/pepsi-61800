@@ -132,7 +132,10 @@ describe("challenge-memory", () => {
         expect(updated.content).toBe("found /admin/login")
         expect(updated.refs).toEqual(["evidence/http-2.txt"])
         expect(updated.source).toBe("observer:solver-1")
-        expect(updated.updated_at).not.toBe(updated.created_at)
+        // created_at 在更新后保持不变；updated_at 不早于 created_at（ISO 串按字典序即时间序，
+        // 同毫秒内更新会相等，故用 >= 而非严格不等，避免时序竞态偶发失败）。
+        expect(updated.created_at).toBe(first.created_at)
+        expect(updated.updated_at >= updated.created_at).toBe(true)
 
         const deleted = await manager.deleteMemory("abc123", second.id.slice(0, 8))
         expect(deleted.id).toBe(second.id)

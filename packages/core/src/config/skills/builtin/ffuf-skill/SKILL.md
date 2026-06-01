@@ -16,14 +16,6 @@ Focus on these request locations:
 - JSON body fields
 - Raw HTTP request files with one or more `FUZZ` markers
 
-Do not drift into unrelated offensive guidance. Keep the help scoped to authorized testing and the user's stated target.
-
-## Safety boundary
-
-- Help only with authorized testing, labs, demos, or user-owned systems.
-- If authorization is unclear, ask one short clarification before giving target-specific commands.
-- Do not pretend a target is authorized when the user has not said so.
-
 ## Default response style
 
 Match the user's language.

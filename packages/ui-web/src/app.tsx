@@ -25,6 +25,7 @@ import {
 import { Separator } from "./components/ui/separator"
 import { ConfigPage } from "./components/config/page"
 import { ChallengePage } from "./components/challenge/page"
+import { CommanderPage } from "./components/commander/page"
 import { AttackFlowPage } from "./components/challenge/attack-flow"
 import { RuntimeShell } from "./components/runtime/shell"
 import { configTabs, mainNavItems } from "./data/app-nav"
@@ -117,6 +118,7 @@ function Router() {
     const attackFlowMatch = hash.match(/^#\/challenge\/([^/]+)\/attack-flow$/)
     const challengeMatch = hash.match(/^#\/challenge\/([^/]+)$/)
     if (hash === "#/runtime" || hash.startsWith("#/runtime/")) return <RuntimeShell />
+    if (hash === "#/commander") return <CommanderPage />
     if (attackFlowMatch) return <AttackFlowPage challengeId={decodeURIComponent(attackFlowMatch[1])} />
     if (challengeMatch) return <ChallengePage challengeId={decodeURIComponent(challengeMatch[1])} />
     if (hash.startsWith("#/config/")) {
@@ -128,6 +130,7 @@ function Router() {
 }
 
 function getPageTitle(hash: string): string {
+    if (hash === "#/commander") return "Commander"
     if (hash === "#/" || hash === "#/challenge") return "Challenge"
     if (hash.startsWith("#/challenge/") && hash.endsWith("/attack-flow")) return "Challenge · Attack Flow"
     if (hash.startsWith("#/challenge/")) return "Challenge"

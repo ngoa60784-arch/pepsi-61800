@@ -35,3 +35,9 @@ bin
 # Finder (MacOS) folder config
 .DS_Store
 .agent/
+
+# engagement scope files contain real authorized-target info — never commit
+# (the docs/*.example.json template is intentionally allowed)
+engagement-scope.json
+*.engagement-scope.json
+**/engagement-scope.json

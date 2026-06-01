@@ -326,6 +326,9 @@ export const challenges = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ promptName }),
         }),
+    complete: (id: string) => json<{ ok: boolean }>(`/api/challenges/${encodeURIComponent(id)}/complete`, { method: "POST" }),
+    revokeComplete: (id: string) =>
+        json<{ ok: boolean; resumed: string[] }>(`/api/challenges/${encodeURIComponent(id)}/revoke-complete`, { method: "POST" }),
     addMemory: (id: string, input: { kind: MemoryEntry["kind"]; content: string; refs?: string[]; source?: string }) =>
         json<MemoryEntry>(`/api/challenges/${encodeURIComponent(id)}/memory`, {
             method: "POST",
@@ -398,5 +401,27 @@ export const runtime = {
         }),
     get: (id: string) => json<RuntimeSolverDetails>(`/api/runtime/solvers/${id}`),
     stop: (id: string) => json<{ ok: boolean }>(`/api/runtime/solvers/${id}`, { method: "DELETE" }),
-    send: (id: string, message: Record<string, unknown>) => post(`/api/runtime/solvers/${id}/message`, message),
+    send: (id: string, message: Record<string, unknown>) => post(`/api/runtime/solvers/${id}/command`, message),
+}
+
+// ── Commander (对话式渗透指挥官) ──
+
+export const commander = {
+    send: (message: string) =>
+        json<{ accepted: boolean }>("/api/commander/message", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+        }),
+    history: () => json<{ entries: unknown[] }>("/api/commander/history"),
+    messages: () => json<{ messages: Array<{ role: "user" | "assistant"; text: string }> }>("/api/commander/messages"),
+    status: () => json<{ busy: boolean }>("/api/commander/status"),
+    newSession: () => json<{ ok: boolean }>("/api/commander/new-session", { method: "POST" }),
+    rollbackPoints: () => json<{ points: Array<{ entryId: string; text: string }> }>("/api/commander/rollback-points"),
+    rollback: (entryId: string) =>
+        json<{ ok: boolean; messages: Array<{ role: "user" | "assistant"; text: string }> }>("/api/commander/rollback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entryId }),
+        }),
 }

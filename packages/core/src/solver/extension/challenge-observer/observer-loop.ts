@@ -231,7 +231,11 @@ function buildObserverPayload(
     }
 }
 
-export function attachObserverLoop(pi: ExtensionAPI, options: { observerModel?: string }): void {
+export function attachObserverLoop(
+    pi: ExtensionAPI,
+    options: { observerModel?: string; runReview?: typeof runSolverObserverReview },
+): void {
+    const runReview = options.runReview ?? runSolverObserverReview
     const challengeId = process.env[CHALLENGE_ENV_CHALLENGE_ID]?.trim()
     if (!challengeId) return
     const challengeIdText = challengeId
@@ -263,7 +267,7 @@ export function attachObserverLoop(pi: ExtensionAPI, options: { observerModel?: 
                 const next = await takeNextObserverReview()
                 if (!next) return
                 try {
-                    await runSolverObserverReview(challengeIdText, next, {
+                    await runReview(challengeIdText, next, {
                         observerModel: options.observerModel,
                         sendCorrectionNotice: async (message) => {
                             if (!(await shouldSendEfficiencyReminder(next, message))) {

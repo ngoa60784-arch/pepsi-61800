@@ -587,7 +587,7 @@ export function RuntimeDetailPage({ solverId }: RuntimeDetailPageProps) {
                     </DialogHeader>
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <div className="mb-4 text-sm text-muted-foreground">
-                            这里展示的是当前 solver 持有的 memory / ideas，包含启动时带入的题目背景以及后续 observer 维护的内容。
+                            这里展示的是当前 solver 持有的 memory / ideas，包含启动时带入的目标背景以及后续 observer 维护的内容。
                         </div>
                         <div className="grid gap-4 lg:grid-cols-2">
                             <MemoryBoardSection title="Memory" items={details.memory} />

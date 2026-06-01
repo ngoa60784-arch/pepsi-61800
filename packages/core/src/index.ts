@@ -5,6 +5,7 @@ export type { SolverEventListener } from "./solver/cli"
 
 import { ConfigManager } from "./config/index"
 import { ChallengeManager } from "./challenge/manager"
+import { CommanderManager } from "./challenge/commander"
 import { createChallengeHostBridgeHandler } from "./challenge/host-bridge-handler"
 import { RuntimeManager } from "./runtime/runtime"
 
@@ -14,11 +15,13 @@ export class DaemonManager {
     readonly config: ConfigManager
     readonly challenge: ChallengeManager
     readonly runtime: RuntimeManager
+    readonly commander: CommanderManager
 
-    private constructor(config: ConfigManager, challenge: ChallengeManager, runtime: RuntimeManager) {
+    private constructor(config: ConfigManager, challenge: ChallengeManager, runtime: RuntimeManager, commander: CommanderManager) {
         this.config = config
         this.challenge = challenge
         this.runtime = runtime
+        this.commander = commander
     }
 
     static async getInstance(): Promise<DaemonManager> {
@@ -28,7 +31,8 @@ export class DaemonManager {
             const challenge = new ChallengeManager(config)
             const runtime = new RuntimeManager(config, [createChallengeHostBridgeHandler(challenge)])
             challenge.attachRuntime(runtime)
-            return new DaemonManager(config, challenge, runtime)
+            const commander = new CommanderManager(config, challenge)
+            return new DaemonManager(config, challenge, runtime, commander)
         })()
         this.instance = created.catch((error) => {
             if (this.instance === created) {

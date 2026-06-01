@@ -15,7 +15,14 @@ import {
 import { formatIdeaTable, formatMemoryTable } from "./board-format"
 
 const EmptyParams = Type.Object({})
-const memoryKindToolParam = Type.Union([Type.Literal("fact"), Type.Literal("evidence"), Type.Literal("failure"), Type.Literal("note"), Type.Literal("hint")])
+const memoryKindToolParam = Type.Union([
+    Type.Literal("fact"),
+    Type.Literal("evidence"),
+    Type.Literal("credential"),
+    Type.Literal("failure"),
+    Type.Literal("note"),
+    Type.Literal("hint"),
+])
 const ideaStatusToolParam = Type.Union([Type.Literal("pending"), Type.Literal("testing"), Type.Literal("verified"), Type.Literal("failed"), Type.Literal("skipped")])
 
 const memoryAddToolParams = Type.Object({

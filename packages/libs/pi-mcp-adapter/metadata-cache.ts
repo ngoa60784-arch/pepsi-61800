@@ -65,27 +65,34 @@ export function loadMetadataCache(configPathOverride?: string): MetadataCache | 
 
 export function saveMetadataCache(cache: MetadataCache, configPathOverride?: string): void {
   const cachePath = resolveMetadataCachePath(configPathOverride);
-  const dir = dirname(cachePath);
-  mkdirSync(dir, { recursive: true });
-
-  let merged: MetadataCache = { version: CACHE_VERSION, servers: {} };
+  // 缓存纯属性能优化（避免重复探测 MCP server）。写入失败绝不能让 MCP 初始化崩溃——
+  // 典型场景：solver 跑在容器里，config 目录只读挂载(:ro)，写 mcp-cache.json 会抛 EROFS。
+  // 这里整体兜底：写不进去就跳过持久化，MCP 照常工作（只是每次重新探测）。
   try {
-    if (existsSync(cachePath)) {
-      const existing = JSON.parse(readFileSync(cachePath, "utf-8")) as MetadataCache;
-      if (existing && existing.version === CACHE_VERSION && existing.servers) {
-        merged.servers = { ...existing.servers };
+    const dir = dirname(cachePath);
+    mkdirSync(dir, { recursive: true });
+
+    let merged: MetadataCache = { version: CACHE_VERSION, servers: {} };
+    try {
+      if (existsSync(cachePath)) {
+        const existing = JSON.parse(readFileSync(cachePath, "utf-8")) as MetadataCache;
+        if (existing && existing.version === CACHE_VERSION && existing.servers) {
+          merged.servers = { ...existing.servers };
+        }
       }
+    } catch {
+      // Ignore parse errors and proceed with empty cache
     }
+
+    merged.version = CACHE_VERSION;
+    merged.servers = { ...merged.servers, ...cache.servers };
+
+    const tmpPath = `${cachePath}.${process.pid}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(merged, null, 2), "utf-8");
+    renameSync(tmpPath, cachePath);
   } catch {
-    // Ignore parse errors and proceed with empty cache
+    // 只读文件系统 / 权限不足等：放弃缓存持久化，不影响 MCP 运行。
   }
-
-  merged.version = CACHE_VERSION;
-  merged.servers = { ...merged.servers, ...cache.servers };
-
-  const tmpPath = `${cachePath}.${process.pid}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(merged, null, 2), "utf-8");
-  renameSync(tmpPath, cachePath);
 }
 
 export function computeServerHash(definition: ServerEntry): string {

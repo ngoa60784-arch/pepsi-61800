@@ -38,9 +38,8 @@ Use this skill when you need to research, craft, or refine payloads for vulnerab
 - Blind: `; sleep 5`, `| curl attacker.com`
 
 ## Output Standards
-- Submit canonical machine output through `submit_sub_agent_output` exactly once.
-- Keep `candidate_findings.status` as `candidate` (no final vulnerability verdicts here).
-- If a `hypothesis_id` is provided, all submitted hypotheses/findings must remain on that single hypothesis.
-- If orchestrator state already marks `goal_achieved=true`, default action is stop and hand off to document/report unless deep-dive is explicitly requested.
+- This skill produces payload candidates only — it does not issue final vulnerability verdicts. Record candidates as ideas/notes, not as confirmed findings.
+- Stay on the hypothesis at hand: if you are researching payloads for one entry point / vuln class, keep all candidates scoped to it; don't branch into unrelated targets.
+- Once a payload yields a stable, reproducible result, hand the verification verdict to the targeted-pentest flow rather than declaring success here.
 - Provide ready-to-use payloads with prerequisites and expected success/failure signals.
 - Optional markdown explanation is allowed, but machine ingestion only reads the submitted JSON payload.

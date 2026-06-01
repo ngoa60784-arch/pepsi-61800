@@ -8,6 +8,7 @@ import {
     PlugIcon,
     BrainIcon,
     FileTextIcon,
+    MessageSquareIcon,
     type LucideIcon,
 } from "lucide-react"
 
@@ -26,6 +27,7 @@ export interface ConfigTab {
 }
 
 export const mainNavItems: NavItem[] = [
+    { title: "Commander", hash: "#/commander", icon: MessageSquareIcon },
     { title: "Challenge", hash: "#/", icon: LayoutDashboardIcon },
     { title: "Runtime", hash: "#/runtime", icon: ContainerIcon },
 ]

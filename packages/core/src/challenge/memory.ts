@@ -2,7 +2,7 @@ import { mkdir, readdir, rename, rm } from "fs/promises"
 import { dirname, join } from "path"
 
 export type IdeaStatus = "pending" | "testing" | "verified" | "failed" | "skipped"
-export type MemoryKind = "fact" | "evidence" | "failure" | "note" | "hint"
+export type MemoryKind = "fact" | "evidence" | "credential" | "failure" | "note" | "hint"
 
 export interface MemoryEntry {
     id: string
@@ -82,6 +82,11 @@ function isDirectoryExistsError(error: unknown): boolean {
 function createEntityId(prefix: string): string {
     return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`
 }
+
+// 同一毫秒内可能写入多条 memory；文件名仅靠 Date.now() 前缀会撞毫秒，
+// 此时排序落到随机 entry.id 上，导致 listChallengeMemory 顺序非确定。
+// 用进程内单调递增序号补齐，保证文件名按真实写入顺序排序。
+let memoryWriteSeq = 0
 
 function challengeDir(rootDir: string, challengeId: string): string {
     return join(rootDir, encodeURIComponent(challengeId))
@@ -195,7 +200,7 @@ export async function appendChallengeMemory(rootDir: string, input: AddMemoryInp
         created_at: nowIso(),
         updated_at: nowIso(),
     }
-    const filename = `${Date.now()}-${entry.id}.json`
+    const filename = `${Date.now()}-${String(memoryWriteSeq++).padStart(9, "0")}-${entry.id}.json`
     await atomicWriteJson(join(memoryEntriesDir(rootDir, challengeId), filename), entry)
     return entry
 }

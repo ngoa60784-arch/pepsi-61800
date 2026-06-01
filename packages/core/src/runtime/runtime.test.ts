@@ -7,7 +7,6 @@ import { getAgentEndError, hashDockerfileContent, RuntimeManager } from "./runti
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { ChallengeManager } from "../challenge/manager"
 import { createChallengeHostBridgeHandler } from "../challenge/host-bridge-handler"
-import type { ChallengeInfoRecord } from "../challenge/store"
 import type { ConfigManager } from "../config/index"
 import { solverDir } from "./types"
 
@@ -127,37 +126,14 @@ describe("RuntimeManager host bridge", () => {
         expect(subagentThread?.task).toBe("scan")
     })
 
-    test("challenge_get_hint returns cached hint without remote fetch or broadcast", async () => {
+    test("challenge_get_hint returns empty intel in engagement mode (no remote fetch, no broadcast)", async () => {
         const { runtime, challengeManager } = await createRuntimeManager()
-        const getChallenge = mock(
-            async () =>
-                ({
-                    id: "web-001",
-                    title: "t",
-                    difficulty: "easy",
-                    description: "",
-                    level: 1,
-                    total_score: 100,
-                    total_got_score: 0,
-                    flag_count: 1,
-                    flag_got_count: 0,
-                    hint_viewed: true,
-                    hint_content: "cached hint",
-                    instance_status: "running",
-                    entrypoint: null,
-                    updated_at: new Date().toISOString(),
-                    source: "test",
-                }) satisfies ChallengeInfoRecord,
-        )
         const getHint = mock(async () => {
             throw new Error("should not fetch remote hint")
         })
-        const isChallengeCompleted = mock(async () => false)
         const sendCommand = mock(() => {})
 
-        ;(challengeManager as unknown as { getChallenge: typeof getChallenge }).getChallenge = getChallenge
         ;(challengeManager as unknown as { getHint: typeof getHint }).getHint = getHint
-        ;(challengeManager as unknown as { isChallengeCompleted: typeof isChallengeCompleted }).isChallengeCompleted = isChallengeCompleted
         ;(runtime as unknown as { sendCommand: typeof sendCommand }).sendCommand = sendCommand
         ;(runtime as unknown as { solverEnvs: Map<string, Record<string, string>> }).solverEnvs.set("solver-a", {
             [CHALLENGE_ENV_CHALLENGE_ID]: "web-001",
@@ -171,28 +147,27 @@ describe("RuntimeManager host bridge", () => {
 
         expect(getHint).not.toHaveBeenCalled()
         expect(sendCommand).not.toHaveBeenCalled()
-        expect(data).toEqual({ code: "web-001", hint_content: "cached hint" })
+        expect(data).toEqual({ code: "web-001", hint_content: null })
     })
 
-    test("challenge_get_hint broadcasts fresh hint to running solvers on same challenge", async () => {
+    test("report_finding records objective and broadcasts to same-target solvers", async () => {
         const { runtime, challengeManager } = await createRuntimeManager()
-        const getChallenge = mock(async () => undefined)
-        const getHint = mock(async () => ({
-            remote: { code: "web-001", hint_content: "fresh hint" },
-            challenge: undefined,
-            is_completed: false,
-        }))
+        const recordEngagementObjective = mock(async () => ({ id: "submission-1" }))
+        const listMemory = mock(async () => [])
+        const listIdeas = mock(async () => [])
         const sendCommand = mock(() => {})
 
-        ;(challengeManager as unknown as { getChallenge: typeof getChallenge }).getChallenge = getChallenge
-        ;(challengeManager as unknown as { getHint: typeof getHint }).getHint = getHint
+        ;(challengeManager as unknown as { recordEngagementObjective: typeof recordEngagementObjective }).recordEngagementObjective =
+            recordEngagementObjective
+        ;(challengeManager as unknown as { listMemory: typeof listMemory }).listMemory = listMemory
+        ;(challengeManager as unknown as { listIdeas: typeof listIdeas }).listIdeas = listIdeas
         ;(runtime as unknown as { sendCommand: typeof sendCommand }).sendCommand = sendCommand
         ;(runtime as unknown as { solvers: Map<string, unknown> }).solvers.set("solver-a", {
             id: "solver-a",
             containerId: "solver-a",
             name: "solver-a",
             promptName: "prompt-a",
-            task: "solve",
+            task: "test",
             challengeId: "web-001",
             status: "running",
             createdAt: Date.now(),
@@ -202,77 +177,8 @@ describe("RuntimeManager host bridge", () => {
             containerId: "solver-b",
             name: "solver-b",
             promptName: "prompt-b",
-            task: "solve",
+            task: "test",
             challengeId: "web-001",
-            status: "running",
-            createdAt: Date.now(),
-        })
-        ;(runtime as unknown as { solvers: Map<string, unknown> }).solvers.set("solver-c", {
-            id: "solver-c",
-            containerId: "solver-c",
-            name: "solver-c",
-            promptName: "prompt-c",
-            task: "solve",
-            challengeId: "other",
-            status: "running",
-            createdAt: Date.now(),
-        })
-        ;(runtime as unknown as { solverEnvs: Map<string, Record<string, string>> }).solverEnvs.set("solver-a", {
-            [CHALLENGE_ENV_CHALLENGE_ID]: "web-001",
-        })
-
-        const data = await (
-            runtime as unknown as {
-                executeHostBridgeAction: (solverId: string, action: string, params: unknown) => Promise<Record<string, unknown>>
-            }
-        ).executeHostBridgeAction("solver-a", "challenge_get_hint", {})
-
-        expect(getHint).toHaveBeenCalledWith("web-001")
-        expect(sendCommand).toHaveBeenCalledTimes(2)
-        expect(sendCommand).toHaveBeenNthCalledWith(1, "solver-a", {
-            type: "steer",
-            message:
-                "系统同步：赛题 hint 已更新。\n- 立即吸收这条 hint，并结合当前路线评估是否需要转向。\n- 如果它改变了攻击面理解，优先刷新 memory_list / idea_list。\n- hint:\nfresh hint",
-        })
-        expect(sendCommand).toHaveBeenNthCalledWith(2, "solver-b", {
-            type: "steer",
-            message:
-                "系统同步：赛题 hint 已更新。\n- 立即吸收这条 hint，并结合当前路线评估是否需要转向。\n- 如果它改变了攻击面理解，优先刷新 memory_list / idea_list。\n- hint:\nfresh hint",
-        })
-        expect(data).toEqual({ code: "web-001", hint_content: "fresh hint" })
-    })
-
-    test("challenge_submit_flag uses solver-scoped manager", async () => {
-        const { runtime, challengeManager } = await createRuntimeManager()
-        const fakeResult = {
-            remote: { correct: true },
-            challenge: {
-                id: "web-001",
-                title: "t",
-                difficulty: "easy",
-                description: "",
-                level: 1,
-                total_score: 100,
-                total_got_score: 100,
-                flag_count: 1,
-                flag_got_count: 1,
-                hint_viewed: false,
-                instance_status: "running",
-                entrypoint: null,
-                updated_at: new Date().toISOString(),
-                source: "test",
-            },
-            is_completed: true,
-        }
-        const submitFlag = mock(async () => fakeResult)
-
-        ;(challengeManager as unknown as { submitFlag: typeof submitFlag }).submitFlag = submitFlag
-        ;(runtime as unknown as { solvers: Map<string, unknown> }).solvers.set("solver-a", {
-            id: "solver-a",
-            containerId: "solver-a",
-            name: "solver-a",
-            promptName: "test-prompt",
-            task: "solve it",
             status: "running",
             createdAt: Date.now(),
         })
@@ -285,25 +191,20 @@ describe("RuntimeManager host bridge", () => {
                 executeHostBridgeAction: (solverId: string, action: string, params: unknown) => Promise<Record<string, unknown>>
             }
         ).executeHostBridgeAction("solver-a", "challenge_submit_flag", {
-            flag: "flag{ok}",
-            writeup: "upload polyglot bypass -> webshell -> read flag",
+            flag: "creds: admin:hunter2",
+            writeup: "upload polyglot bypass -> webshell -> dump creds",
         })
 
-        expect(submitFlag).toHaveBeenCalledWith("web-001", "flag{ok}", {
-            solverId: "solver-a",
-            promptName: "test-prompt",
-            modelName: undefined,
-            writeup: "upload polyglot bypass -> webshell -> read flag",
-        })
-        expect(data.challenge_id).toBe("web-001")
-        expect(data.is_completed).toBe(true)
+        expect(recordEngagementObjective).toHaveBeenCalledTimes(1)
+        // 广播给同范围的另一个运行中 solver（solver-b），不含自己。
+        expect(sendCommand).toHaveBeenCalledTimes(1)
+        expect((sendCommand.mock.calls[0] as unknown[])[0]).toBe("solver-b")
+        expect(data.recorded).toBe(true)
+        expect(data.is_completed).toBe(false)
     })
 
-    test("challenge_is_completed uses solver-scoped manager", async () => {
-        const { runtime, challengeManager } = await createRuntimeManager()
-        const isChallengeCompleted = mock(async () => true)
-
-        ;(challengeManager as unknown as { isChallengeCompleted: typeof isChallengeCompleted }).isChallengeCompleted = isChallengeCompleted
+    test("challenge_is_completed always returns false in engagement mode", async () => {
+        const { runtime } = await createRuntimeManager()
         ;(runtime as unknown as { solverEnvs: Map<string, Record<string, string>> }).solverEnvs.set("solver-a", {
             [CHALLENGE_ENV_CHALLENGE_ID]: "web-001",
         })
@@ -314,8 +215,7 @@ describe("RuntimeManager host bridge", () => {
             }
         ).executeHostBridgeAction("solver-a", "challenge_is_completed", {})
 
-        expect(isChallengeCompleted).toHaveBeenCalledWith("web-001")
         expect(data.challenge_id).toBe("web-001")
-        expect(data.is_completed).toBe(true)
+        expect(data.is_completed).toBe(false)
     })
 })

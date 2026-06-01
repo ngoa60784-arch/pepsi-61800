@@ -6,10 +6,7 @@ import type { PromptFile } from "../config/prompts/index"
 import type { SolverInitPayload } from "./rpc/rpc-types"
 import { solverDir, solverSessionDir, solverWorkspaceDir } from "../runtime/types"
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
-import { pentestCompactionExtension } from "./extension/pentest-compaction"
-import { scopeGuardExtension } from "./extension/scope-guard"
-import { largeToolResultExtension } from "./extension/large-tool-result"
-import { rtkRewriteExtension } from "./extension/rtk-rewrite"
+import { isEngagementMode, loadEngagementScope } from "../challenge/engagement"
 
 export interface SolverSession {
     session: AgentSession
@@ -128,11 +125,7 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     const promptModel = typeof prompt.meta.model === "string" && prompt.meta.model.trim() ? prompt.meta.model.trim() : undefined
     const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
 
-    const extensions = [
-        // largeToolResultExtension({ workspaceRoot: workspaceDir }),
-        challengeObserverExtension({ observerEnabled, observerModel }),
-        // rtkRewriteExtension(),
-    ]
+    const extensions = [challengeObserverExtension({ observerEnabled, observerModel })]
 
     const sessionOpts = await config.resolvePromptSession(init.promptName, extensions)
     if (!sessionOpts) {
@@ -148,7 +141,10 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     const { session } = await createAgentSession({
         ...sessionOpts,
         cwd: workspaceDir,
-        sessionManager: SessionManager.create(workspaceDir, sessionDir),
+        // resume:续跑该 solver 落盘的旧 session(带回全部历史/发现);否则新建空 session。
+        sessionManager: init.resume
+            ? SessionManager.continueRecent(workspaceDir, sessionDir)
+            : SessionManager.create(workspaceDir, sessionDir),
     })
     await session.bindExtensions({})
 
@@ -180,12 +176,7 @@ export async function createSubagentSession(promptName: string, task: string): P
     await mkdir(sessionDir, { recursive: true })
     await mkdir(workspaceDir, { recursive: true })
 
-    const extensionFactories: ExtensionFactory[] = [
-        // rtkRewriteExtension(),
-        // largeToolResultExtension({ workspaceRoot: workspaceDir }),
-        // pentestCompactionExtension(),
-        // scopeGuardExtension({ workspaceRoot: workspaceDir, agentRole: "subagent" }),
-    ]
+    const extensionFactories: ExtensionFactory[] = []
 
     const sessionOpts = await config.resolvePromptSession(promptName, extensionFactories)
     if (!sessionOpts) {

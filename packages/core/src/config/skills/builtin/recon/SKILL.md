@@ -7,7 +7,7 @@ tags: [pentest, recon, discovery]
 # 侦察 (Recon)
 
 ## 工作流
-1. 验证 `scope.md` 和 `run-policy.json`。
+1. 从任务上下文读取本次作战目标（allowed_targets）与交战规则，作为侦察对象清单。
 2. 为每个可触达的暴露面建立基准：包括 HTTP 响应头、框架线索、可见流、角色模型和状态转换。
 3. 映射攻击者可控的输入：表单、JSON 字段、查询参数、Header、上传点、WebSocket 消息、postMessage 通道、GraphQL 操作以及 AI 提示词或文件输入。
 4. 映射隐藏表面：JS 路由、旧版本 API、同级端点、备用方法、调试行为、内部标识符、功能开关（feature flags）等。
@@ -36,7 +36,7 @@ tags: [pentest, recon, discovery]
 - 关注异常而非数量：如命名漂移、错误差异、版本差异、缺失的同级项、非预期参数以及状态矛盾。
 - 将每个功能视为一组对象、角色、转换和副作用的集合。
 - 利用失败的测试结果来完善模型，而不是重复相同的角度。
-- 范围（Scope）来源于本地策略文件。
+- 范围（Scope）来源于任务上下文中的授权目标范围。
 
 ## 漏洞覆盖
 在映射功能或某个表面提示存在漏洞类别时，请参阅 `references/vuln-class-matrix.md`。
@@ -63,10 +63,10 @@ tags: [pentest, recon, discovery]
 - 区分已确认的资产与第三方的观察结果。
 - 注明未观察到的内容：缺失的角色对比、未测试的备用方法、受限状态或不可用的账号。
 
-## 提交约定 (Submission Contract)
-仅调用一次 `submit_sub_agent_output`。
-- `assets`: 已确认的主机、路径、端点、参数、角色或工作流节点。
-- `hypotheses`: 包含 `hypothesis_id`、`kind`、`entry_point`、`statement`、`why_plausible`、`next_test`、`priority` 和 `confidence` 的具体记录。
-- `candidate_findings`: 仅限有证据支撑的观察结果；状态必须保持为 `candidate`。
-- `evidence_refs`: 仅限可追溯的文件或捕获的工件。
-- `coverage_gaps`: 具体的未观察表面或对比，用于驱动下一轮循环。
+## 侦察产出规范 (Recon Output Discipline)
+侦察阶段结束时，把以下内容沉淀到 ideas / memory 看板（用 idea_add / memory 工具），供后续验证复用：
+- **assets**: 已确认的主机、路径、端点、参数、角色或工作流节点。
+- **hypotheses**: 每条写成具体 idea——含入口点（`entry_point`）、可能漏洞类别（`kind`）、可证伪的描述、合理性说明、最小化 `next_test`、优先级与置信度。
+- **candidate observations**: 仅限有证据支撑的观察结果，标注为待验证候选，不要当成已确认发现。
+- **evidence**: 仅引用可追溯的文件或捕获的工件（放在 `evidence/` 下），避免明文堆进共享状态。
+- **coverage gaps**: 具体的未观察表面或对比，用于驱动下一轮侦察。

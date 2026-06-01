@@ -11,6 +11,7 @@ import {
     listChallengeSubmissionLogs,
     readChallengeRecord,
     saveChallengeRecord,
+    updateChallengeSubmissionVerification,
 } from "./store"
 
 let challengeDir: string
@@ -103,5 +104,36 @@ describe("challenge-store", () => {
         expect(submissions[0].model_name).toBe("anthropic/claude-sonnet")
         expect(submissions[0].correct).toBe(true)
         expect(submissions[0].writeup).toBe("upload polyglot bypass -> webshell -> read flag")
+    })
+
+    test("updateChallengeSubmissionVerification rewrites verdict on the matching record", async () => {
+        const pending = await appendChallengeSubmissionLog(challengeDir, {
+            challengeId: "verify-1",
+            flag: "uid=0(root)",
+            correct: false,
+            writeup: "rce -> root shell",
+            verificationStatus: "pending",
+        })
+        expect(pending.verification_status).toBe("pending")
+
+        const updated = await updateChallengeSubmissionVerification(challengeDir, "verify-1", pending.id, {
+            verification_status: "verified",
+            verifier_note: "re-ran id, got uid=0 fresh",
+        })
+        expect(updated?.verification_status).toBe("verified")
+        expect(updated?.verifier_note).toBe("re-ran id, got uid=0 fresh")
+        expect(typeof updated?.verified_at).toBe("string")
+
+        // 持久化生效:重新列出应看到 verified。
+        const submissions = await listChallengeSubmissionLogs(challengeDir, "verify-1")
+        expect(submissions).toHaveLength(1)
+        expect(submissions[0].verification_status).toBe("verified")
+    })
+
+    test("updateChallengeSubmissionVerification returns undefined for unknown record id", async () => {
+        const result = await updateChallengeSubmissionVerification(challengeDir, "verify-2", "submission_doesnotexist", {
+            verification_status: "rejected",
+        })
+        expect(result).toBeUndefined()
     })
 })

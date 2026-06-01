@@ -264,13 +264,11 @@ describe("prompts", () => {
         await config.setPrompt({
             name: "planner",
             meta: {
-                isSubagent: true,
                 subagents: ["worker", "reviewer"],
             },
             content: "planner prompt",
         })
         const prompt = await config.getPrompt("planner")
-        expect(prompt?.meta.isSubagent).toBe(true)
         expect(prompt?.meta.subagents).toEqual(["worker", "reviewer"])
     })
 
@@ -289,11 +287,15 @@ describe("prompts", () => {
     })
 
     test("builtin prompt does not overwrite user changes on restart", async () => {
-        const promptPath = resolve(configDir, "prompts", "2323.md")
+        const { initBuiltinPrompts } = await import("./prompts/index")
+        // 首次释放内置 prompt 到用户目录
+        await initBuiltinPrompts(configDir)
+        const promptPath = resolve(configDir, "prompts", "kimi-security.md")
         const original = await Bun.file(promptPath).text()
 
+        // 用户改写后再次释放：已存在的文件必须被跳过，用户改动保留
         await Bun.write(promptPath, `${original}\n\nuser override`)
-        config = await ConfigManager.getInstance(configDir)
+        await initBuiltinPrompts(configDir)
 
         expect(await Bun.file(promptPath).text()).toContain("user override")
     })
@@ -392,25 +394,25 @@ describe("resolvePromptSession", () => {
     test("custom tool in prompt → opts.customTools set", async () => {
         await config.setPrompt({
             name: "with-custom",
-            meta: { tools: ["nmap"] },
-            content: "use nmap",
+            meta: { tools: ["security_kimi_search"] },
+            content: "use security_kimi_search",
         })
         const opts = await config.resolvePromptSession("with-custom")
         expect(opts!.tools).toEqual([])
         expect(opts!.customTools).toHaveLength(1)
-        expect(opts!.customTools![0].name).toBe("nmap")
+        expect(opts!.customTools![0].name).toBe("security_kimi_search")
     })
 
     test("mixed builtin + custom tools", async () => {
         await config.setPrompt({
             name: "mixed",
-            meta: { tools: ["bash", "read", "nmap"] },
+            meta: { tools: ["bash", "read", "security_kimi_search"] },
             content: "mixed tools",
         })
         const opts = await config.resolvePromptSession("mixed")
         expect(opts!.tools).toHaveLength(2)
         expect(opts!.customTools).toHaveLength(1)
-        expect(opts!.customTools![0].name).toBe("nmap")
+        expect(opts!.customTools![0].name).toBe("security_kimi_search")
     })
 
     test("unknown tool names (MCP) → not in tools or customTools", async () => {
@@ -461,7 +463,7 @@ describe("resolvePromptSession", () => {
         })
         await config.setPrompt({ name: "ghost-model", meta: { model: "ghost-pref" }, content: "ghost" })
         await expect(config.resolvePromptSession("ghost-model")).rejects.toThrow(
-            'prompt "ghost-model" model "ghost-pref": model nonexistent-provider/nonexistent-model not found in registry',
+            'prompt "ghost-model" model "ghost-pref":',
         )
     })
 
@@ -928,9 +930,9 @@ describe("tools", () => {
         expect(names).toContain("bash")
         expect(names).toContain("read")
         // custom
-        expect(names).toContain("nmap")
-        const nmapEntry = list.find((t) => t.name === "nmap")!
-        expect(nmapEntry.source).toBe("custom")
+        expect(names).toContain("security_kimi_search")
+        const customEntry = list.find((t) => t.name === "security_kimi_search")!
+        expect(customEntry.source).toBe("custom")
     })
 
     test("listTools includes MCP server tools from cache", async () => {

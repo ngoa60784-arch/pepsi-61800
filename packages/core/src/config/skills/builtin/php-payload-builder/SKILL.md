@@ -9,7 +9,7 @@ description: |
 
 # PHP Payload Builder
 
-你处理的是"如何在 bash/shell 命令中安全构造和写入 PHP 代码"这个问题。PHP payload 在 CTF 中失败的首要原因不是 payload 本身有问题，而是被 bash 的变量展开、引号嵌套、特殊字符解释破坏了。
+你处理的是"如何在 bash/shell 命令中安全构造和写入 PHP 代码"这个问题。PHP payload 在实战中失败的首要原因不是 payload 本身有问题，而是被 bash 的变量展开、引号嵌套、特殊字符解释破坏了。
 
 ## 核心铁律
 

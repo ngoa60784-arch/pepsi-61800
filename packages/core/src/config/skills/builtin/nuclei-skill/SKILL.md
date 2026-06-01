@@ -11,13 +11,6 @@ Keep the answer practical. The user usually wants to scan something, narrow scop
 
 Nuclei is a high-performance scanner powered by YAML templates and supports multiple protocols including HTTP, DNS, SSL, TCP, headless, JavaScript, file, and workflows. The skill should help the user choose the smallest correct command for their job.
 
-## Safety boundary
-
-- Help only with authorized testing, labs, demos, CTFs, internal assets, or systems the user is permitted to scan.
-- If the request is target-specific and authorization is unclear, ask one short clarification before giving scan commands.
-- Do not help hide abusive scanning. Avoid advice whose main purpose is evasion, stealth, or bypassing defenses on third-party systems.
-- Keep guidance aligned with the user's stated scope and rate limits.
-
 ## Default response style
 
 Match the user's language.

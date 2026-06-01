@@ -131,6 +131,8 @@ export function HostPage() {
             })
             setMessage("Saved")
             reload()
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : String(error))
         } finally {
             setSaving(false)
         }
@@ -251,6 +253,7 @@ export function PlannerPage() {
     const [networkMode, setNetworkMode] = useState(DEFAULT_RUNTIME_NETWORK_MODE)
     const [plannerPromptContent, setPlannerPromptContent] = useState("")
     const [plannerModelId, setPlannerModelId] = useState("")
+    const [defaultModelId, setDefaultModelId] = useState("")
     const [plannerTickSeconds, setPlannerTickSeconds] = useState(String(DEFAULT_PLANNER_TICK_SECONDS))
     const [staleTimeoutMinutes, setStaleTimeoutMinutes] = useState(String(DEFAULT_STALE_TIMEOUT_MINUTES))
     const [saving, setSaving] = useState(false)
@@ -261,6 +264,7 @@ export function PlannerPage() {
         setNetworkMode(data?.runtime.networkMode === "bridge" ? "bridge" : DEFAULT_RUNTIME_NETWORK_MODE)
         setPlannerTickSeconds(String(Math.max(5, Math.round((data?.planner.tickIntervalMs ?? DEFAULT_PLANNER_TICK_SECONDS * 1000) / 1000))))
         setStaleTimeoutMinutes(String(Math.max(1, Math.round((data?.planner.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MINUTES * 60 * 1000) / 60000))))
+        setDefaultModelId(normalizeModelPrefId(data?.defaultModelPrefId))
     }, [data])
 
     useEffect(() => {
@@ -283,10 +287,13 @@ export function PlannerPage() {
                     tickIntervalMs: Math.max(5, Number(plannerTickSeconds) || DEFAULT_PLANNER_TICK_SECONDS) * 1000,
                     staleTimeoutMs: Math.max(1, Number(staleTimeoutMinutes) || DEFAULT_STALE_TIMEOUT_MINUTES) * 60 * 1000,
                 },
+                defaultModelPrefId: defaultModelId || undefined,
             })
             setMessage("Saved")
             reload()
             reloadPlannerPrompt()
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : String(error))
         } finally {
             setSaving(false)
         }
@@ -323,6 +330,32 @@ export function PlannerPage() {
                     </Select>
                     <div className="text-sm text-muted-foreground">solver 容器启动时使用的 Docker 网络模式。</div>
                 </div>
+                <div className="space-y-2">
+                    <Label>Default Agent Model（所有 AI 统一使用）</Label>
+                    <Select value={defaultModelId || NONE_MODEL_VALUE} onValueChange={(value) => setDefaultModelId(value === NONE_MODEL_VALUE ? "" : (value ?? ""))}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="选择默认模型">
+                                {(() => {
+                                    const model = models?.find((item) => item.id === defaultModelId)
+                                    if (!defaultModelId) return "（用第一个可用模型）"
+                                    if (!model) return defaultModelId
+                                    return formatPlannerModelLabel(model)
+                                })()}
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value={NONE_MODEL_VALUE}>（用第一个可用模型）</SelectItem>
+                            {(models ?? []).map((model) => (
+                                <SelectItem key={model.id} value={model.id}>
+                                    {formatPlannerModelLabel(model)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <div className="text-sm text-muted-foreground">
+                        调度层(planner)、执行层(solver)、验证(verifier)、指挥官(commander)、观察者(observer)在各自提示词未单独指定模型时，统一使用这个模型。留空则用第一个可用模型。
+                    </div>
+                </div>
                 <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                         <Label htmlFor="planner-tick-seconds">Planner Tick Interval Seconds</Label>
@@ -352,7 +385,7 @@ export function PlannerPage() {
             <div className="space-y-2 rounded-lg border p-4">
                 <div className="space-y-1">
                     <Label htmlFor="planner-prompt-content">Planner System Prompt</Label>
-                    <div className="text-sm text-muted-foreground">配置比赛规划 agent 的系统提示词和默认模型。</div>
+                    <div className="text-sm text-muted-foreground">配置演练规划 agent 的系统提示词和默认模型。</div>
                 </div>
                 <div className="space-y-2">
                     <Label>Planner Model</Label>

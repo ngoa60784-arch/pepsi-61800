@@ -15,22 +15,13 @@ import {
     findToolDefinition,
     lsToolDefinition,
 } from "@mariozechner/pi-coding-agent"
-import { documentFindingTool } from "./document-finding"
-import { ingestSubAgentOutputTool } from "./ingest-sub-agent-output"
-import { submitSubAgentOutputTool } from "./submit-sub-agent-output"
-import { challengeTools } from "./challenge-tools"
+import { engagementTools } from "./engagement-tools"
 import { securityKimiSearchTool } from "./security-kimi-search"
 
 // ── 自定义工具 ──
 
 /** 所有自定义工具定义 */
-export const customTools: ToolDefinition[] = [
-    securityKimiSearchTool,
-    // submitSubAgentOutputTool,
-    // ingestSubAgentOutputTool,
-    // documentFindingTool,
-    ...challengeTools,
-]
+export const customTools: ToolDefinition[] = [securityKimiSearchTool, ...engagementTools]
 
 // ── SDK 内置工具 ──
 

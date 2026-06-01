@@ -121,10 +121,10 @@ describe("challenge collaboration append prompt", () => {
     test("challenge extension append prompt covers sync contract", () => {
         const text = buildChallengeExtensionAppendPrompt()
 
-        expect(text).toContain("challenge extension / host bridge")
-        expect(text).toContain("`idea` 是待验证的攻击假设")
-        expect(text).toContain("observer sidecar 会维护")
-        expect(text).toContain("系统同步或协作同步消息")
+        expect(text).toContain("engagement extension / host bridge")
+        expect(text).toContain("An `idea` is an unverified attack hypothesis")
+        expect(text).toContain("observer sidecar maintains your idea board")
+        expect(text).toContain("system-sync or collaboration-sync messages")
     })
 
     test("observer extension append prompt covers sidecar contract", () => {

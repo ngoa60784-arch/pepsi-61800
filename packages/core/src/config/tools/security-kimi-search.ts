@@ -88,16 +88,16 @@ const KIMI_WEB_SEARCH_TOOLS = [
     },
 ] as const
 
-const SECURITY_SEARCH_SYSTEM_PROMPT = `你是网络安全领域的智能搜索助手，服务于已授权的 CTF 与渗透测试场景。
+const SECURITY_SEARCH_SYSTEM_PROMPT = `You are a cybersecurity intelligence search assistant for an authorized penetration engagement.
 
-你的主要任务：
-1. 联网检索 CVE、PoC、EXP、漏洞利用链、绕过技巧等。
-2. 对检索结果做技术归纳：影响版本、利用前提、关键利用步骤。
-3. 优先给出高价值检索线索：payload 方向、利用条件。
+Your primary tasks:
+1. Search the web for CVEs, PoCs, EXPs, exploitation chains, and bypass techniques.
+2. Technically distill the results: affected versions, exploitation prerequisites, key exploitation steps.
+3. Prioritize high-value leads: payload directions, exploitation conditions, working-exploit references.
 
-输出要求：
-- 先给结论摘要，再给细化要点。
-- 明确区分“已确认事实”和“推测/待验证信息”。`
+Output requirements:
+- Lead with a conclusion summary, then detailed points.
+- Clearly separate "confirmed facts" from "speculative / to-be-verified" information.`
 
 function normalizeBaseUrl(baseUrl?: string): string | undefined {
     const text = baseUrl?.trim()
@@ -291,22 +291,31 @@ async function resolveKimiRequestConfig(state: MountedConfigState, preferredRunt
         throw new Error("No configured Kimi model found")
     }
 
+    // 记录被跳过候选的原因，供最终报错时给出可诊断信息。
+    const skipped: string[] = []
     for (const candidate of candidates) {
         const providerPref = pickProviderPrefById(state.providerPrefs, candidate.providerId)
         const apiKey = await resolveMountedProviderApiKey(state, candidate.runtimeProvider, "kimi", providerPref)
-        if (!apiKey) continue
+        if (!apiKey) {
+            skipped.push(`${candidate.runtimeProvider}: no api key`)
+            continue
+        }
 
         const api = typeof candidate.api === "string" ? candidate.api.trim() : ""
         if (!api) {
-            throw new Error(`Provider "${candidate.runtimeProvider}" api is not configured`)
+            // 不要 throw：一个配错的候选不应短路掉后面有效的 Kimi 模型。继续试下一个。
+            skipped.push(`${candidate.runtimeProvider}: api not configured`)
+            continue
         }
         if (api !== "openai-completions") {
-            throw new Error(`Provider "${candidate.runtimeProvider}" api must be "openai-completions", got "${api}"`)
+            skipped.push(`${candidate.runtimeProvider}: api must be "openai-completions", got "${api}"`)
+            continue
         }
 
         const resolvedBaseUrl = normalizeBaseUrl(candidate.baseUrl)
         if (!resolvedBaseUrl) {
-            throw new Error(`Provider "${candidate.runtimeProvider}" baseUrl is not configured`)
+            skipped.push(`${candidate.runtimeProvider}: baseUrl not configured`)
+            continue
         }
 
         const baseUrl = applyGatewayMapping(resolvedBaseUrl, state.challengeSettings)
@@ -321,7 +330,7 @@ async function resolveKimiRequestConfig(state: MountedConfigState, preferredRunt
     }
 
     throw new Error(
-        `Missing Kimi API key for provider "${candidates[0].runtimeProvider}" (candidates: ${providerCandidates.join(", ") || "none"})`,
+        `No usable Kimi provider (candidates: ${providerCandidates.join(", ") || "none"})${skipped.length > 0 ? `; skipped: ${skipped.join("; ")}` : ""}`,
     )
 }
 

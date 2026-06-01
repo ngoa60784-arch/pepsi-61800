@@ -71,11 +71,41 @@ RUN set -eux; \
         sqlmap \
         proxychains4 \
         seclists \
+        wordlists \
         wfuzz \
         dirsearch \
         redis-tools \
         responder \
-        enum4linux; \
+        enum4linux \
+        \
+        golang-go \
+        nikto \
+        wpscan \
+        joomscan \
+        feroxbuster \
+        wafw00f \
+        commix \
+        masscan \
+        amass \
+        mitmproxy \
+        sslyze \
+        testssl.sh \
+        binwalk \
+        jadx \
+        apktool \
+        exploitdb \
+        arjun \
+        dirb \
+        sublist3r \
+        theharvester \
+        crackmapexec \
+        subfinder \
+        naabu \
+        dnsx \
+        httpx-toolkit \
+        chisel \
+        bind9-dnsutils \
+        dnsrecon; \
     rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install --break-system-packages --ignore-installed --no-cache-dir \
@@ -112,18 +142,45 @@ RUN python -m pip install --break-system-packages --ignore-installed --no-cache-
         tldextract \
         urllib3 \
         coercer \
-        dsinternals
+        dsinternals \
+        asyncssh \
+        "mcp[cli]"
 
 ENV PATH="/root/.local/bin:$PATH"
 RUN pipx install pypykatz \
     && pipx install coercer \
     && pipx install "git+https://github.com/Pennyw0rth/NetExec" \
     && pipx install adidnsdump \
-    && pipx install bloodyAD
+    && pipx install bloodyAD \
+    && pipx install semgrep \
+    && pipx install objection \
+    && pipx install frida-tools \
+    && pipx install dnstwist
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Go 工具：apt 没有的 ProjectDiscovery / Go 系工具，统一装到 /usr/local/bin（在 PATH）。
+ENV GOBIN=/usr/local/bin
+ENV GOPATH=/root/go
+ENV GOPROXY=https://goproxy.cn,direct
+RUN set -eux; \
+    for pkg in \
+        github.com/projectdiscovery/katana/cmd/katana@latest \
+        github.com/projectdiscovery/asnmap/cmd/asnmap@latest \
+        github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest \
+        github.com/hahwul/dalfox/v2@latest \
+        github.com/lc/gau/v2/cmd/gau@latest \
+        github.com/tomnomnom/waybackurls@latest \
+        github.com/tomnomnom/qsreplace@latest \
+        github.com/tomnomnom/assetfinder@latest \
+        github.com/PentestPad/subzy@latest \
+        github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest \
+        ; do \
+        go install "$pkg" || echo "WARN: go install failed for $pkg"; \
+    done; \
+    rm -rf /root/go/pkg /root/.cache/go-build
 
 
 RUN apt-get update \
@@ -182,8 +239,42 @@ RUN git clone --depth 1 https://github.com/dirkjanm/krbrelayx.git /opt/krbrelayx
 RUN git clone --depth 1 https://github.com/dirkjanm/PKINITtools.git /opt/PKINITtools
 RUN git clone --depth 1 https://github.com/GhostPack/Rubeus.git /opt/Rubeus
 
-# rockyou（若未安装 wordlists，此命令会被忽略）
+# GitHub release 二进制（apt/go/pipx 都没有的），统一落到 /usr/local/bin。
+RUN set -eux; \
+    install_tar() { \
+        url="$1"; bin="$2"; out="$3"; \
+        wget -q -O "/tmp/t.tgz" "$url" && tar -xzf /tmp/t.tgz -C /tmp "$bin" \
+            && mv "/tmp/$bin" "/usr/local/bin/$out" && chmod +x "/usr/local/bin/$out" \
+            && echo "installed $out" || echo "WARN: tar install failed for $out ($url)"; \
+        rm -f /tmp/t.tgz; \
+    }; \
+    install_tar "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" gitleaks gitleaks; \
+    install_tar "https://github.com/trufflesecurity/trufflehog/releases/download/v3.83.7/trufflehog_3.83.7_linux_amd64.tar.gz" trufflehog trufflehog; \
+    install_tar "https://github.com/go-gost/gost/releases/download/v3.0.0/gost_3.0.0_linux_amd64.tar.gz" gost gost; \
+    rm -f /tmp/t.tgz
+
+# rustscan + ligolo proxy 走各自 release（deb / tar）
+RUN set -eux; \
+    wget -q -O /tmp/rustscan.deb "https://github.com/RustScan/RustScan/releases/download/2.3.0/rustscan_2.3.0_amd64.deb" \
+        && dpkg -i /tmp/rustscan.deb || echo "WARN: rustscan install failed"; \
+    rm -f /tmp/rustscan.deb; \
+    wget -q -O /tmp/ligolo.tgz "https://github.com/nicocha30/ligolo-ng/releases/download/v0.7.5/ligolo-ng_proxy_0.7.5_linux_amd64.tar.gz" \
+        && tar -xzf /tmp/ligolo.tgz -C /tmp proxy \
+        && mv /tmp/proxy /usr/local/bin/ligolo-proxy && chmod +x /usr/local/bin/ligolo-proxy \
+        || echo "WARN: ligolo-proxy install failed"; \
+    rm -f /tmp/ligolo.tgz
+
+# rockyou：wordlists 包已装，解压 rockyou.txt.gz
 RUN gunzip -f /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true
+
+# 命令名对齐：
+# 1) httpx —— pip 装的 Python httpx 库 CLI 落在 /usr/local/bin/httpx，会盖过 ProjectDiscovery 的
+#    探活工具（apt 包名 httpx-toolkit）。提示词/技能里 `httpx -silent -status-code` 这类用法指的是
+#    探测器，所以把 /usr/local/bin/httpx 强制指向 httpx-toolkit；Python httpx 库 import 不受影响。
+# 2) testssl —— 包可执行名是 testssl，补一个 testssl.sh 软链兼容习惯写法。
+RUN set -eux; \
+    if [ -x /usr/bin/httpx-toolkit ]; then ln -sf /usr/bin/httpx-toolkit /usr/local/bin/httpx; fi; \
+    if [ -x /usr/bin/testssl ]; then ln -sf /usr/bin/testssl /usr/local/bin/testssl.sh; fi
 
 # 如无需自定义安装，建议删除以下两段（可能重新拉入大量工具）
 # COPY build/setup/ /tmp/setup/
