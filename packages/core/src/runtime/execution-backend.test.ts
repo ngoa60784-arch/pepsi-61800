@@ -20,6 +20,26 @@ test("createExecutionBackend defaults to docker", () => {
     expect(b instanceof DockerBackend).toBe(true)
 })
 
+test("DockerBackend omits --memory/--cpus when not configured (no limit)", () => {
+    const argv = new DockerBackend({ image: "tch-agent:latest" }).buildLaunchArgv(SPEC)
+    expect(argv).not.toContain("--memory")
+    expect(argv).not.toContain("--cpus")
+})
+
+test("DockerBackend applies --memory and --cpus when configured", () => {
+    const argv = new DockerBackend({ image: "tch-agent:latest", memory: "2g", cpus: 1.5 }).buildLaunchArgv(SPEC)
+    expect(argv).toContain("--memory")
+    expect(argv[argv.indexOf("--memory") + 1]).toBe("2g")
+    expect(argv).toContain("--cpus")
+    expect(argv[argv.indexOf("--cpus") + 1]).toBe("1.5")
+})
+
+test("DockerBackend ignores non-positive cpus and blank memory", () => {
+    const argv = new DockerBackend({ image: "x", memory: "  ", cpus: 0 }).buildLaunchArgv(SPEC)
+    expect(argv).not.toContain("--memory")
+    expect(argv).not.toContain("--cpus")
+})
+
 test("createExecutionBackend selects ssh when configured", () => {
     const b = createExecutionBackend({ image: "x", backend: "ssh", ssh: { host: "10.0.0.9" } })
     expect(b.kind).toBe("ssh")

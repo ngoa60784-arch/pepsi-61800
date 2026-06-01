@@ -17,6 +17,10 @@ export interface ContainerConfig {
     binds?: string[]
     /** Docker network mode */
     networkMode?: "bridge" | "host"
+    /** 单 solver 容器内存上限（docker `--memory` 语法，如 "2g"）；不设则不限制 */
+    memory?: string
+    /** 单 solver 容器 CPU 上限（docker `--cpus` 语法，如 1.5）；不设则不限制 */
+    cpus?: number
     /**
      * 执行后端：
      * - "docker"（默认）：每个 solver 起一个本地 docker 容器。

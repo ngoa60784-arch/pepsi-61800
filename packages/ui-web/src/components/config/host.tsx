@@ -251,6 +251,8 @@ export function PlannerPage() {
     const { data: models } = useFetch(modelPrefs.list)
     const [maxSolvers, setMaxSolvers] = useState(String(DEFAULT_MAX_SOLVERS))
     const [networkMode, setNetworkMode] = useState(DEFAULT_RUNTIME_NETWORK_MODE)
+    const [memory, setMemory] = useState("")
+    const [cpus, setCpus] = useState("")
     const [plannerPromptContent, setPlannerPromptContent] = useState("")
     const [plannerModelId, setPlannerModelId] = useState("")
     const [defaultModelId, setDefaultModelId] = useState("")
@@ -262,6 +264,8 @@ export function PlannerPage() {
     useEffect(() => {
         setMaxSolvers(String(data?.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS))
         setNetworkMode(data?.runtime.networkMode === "bridge" ? "bridge" : DEFAULT_RUNTIME_NETWORK_MODE)
+        setMemory(data?.runtime.memory ?? "")
+        setCpus(data?.runtime.cpus != null ? String(data.runtime.cpus) : "")
         setPlannerTickSeconds(String(Math.max(5, Math.round((data?.planner.tickIntervalMs ?? DEFAULT_PLANNER_TICK_SECONDS * 1000) / 1000))))
         setStaleTimeoutMinutes(String(Math.max(1, Math.round((data?.planner.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MINUTES * 60 * 1000) / 60000))))
         setDefaultModelId(normalizeModelPrefId(data?.defaultModelPrefId))
@@ -282,6 +286,8 @@ export function PlannerPage() {
                 runtime: {
                     maxSolvers: Math.max(0, Number(maxSolvers) || DEFAULT_MAX_SOLVERS),
                     networkMode: networkMode === "bridge" ? "bridge" : "host",
+                    memory: memory.trim() || undefined,
+                    cpus: cpus.trim() && Number(cpus) > 0 ? Number(cpus) : undefined,
                 },
                 planner: {
                     tickIntervalMs: Math.max(5, Number(plannerTickSeconds) || DEFAULT_PLANNER_TICK_SECONDS) * 1000,
@@ -329,6 +335,31 @@ export function PlannerPage() {
                         </SelectContent>
                     </Select>
                     <div className="text-sm text-muted-foreground">solver 容器启动时使用的 Docker 网络模式。</div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                        <Label htmlFor="runtime-memory">Memory Limit / Solver</Label>
+                        <Input
+                            id="runtime-memory"
+                            placeholder="如 2g、512m（留空 = 不限制）"
+                            value={memory}
+                            onChange={(event) => setMemory(event.target.value)}
+                        />
+                        <div className="text-sm text-muted-foreground">单个 solver 容器内存上限（Docker `--memory`）。防止失控扫描/爆破吃满宿主。仅 docker 后端生效。</div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="runtime-cpus">CPU Limit / Solver</Label>
+                        <Input
+                            id="runtime-cpus"
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            placeholder="如 1.5、2（留空 = 不限制）"
+                            value={cpus}
+                            onChange={(event) => setCpus(event.target.value)}
+                        />
+                        <div className="text-sm text-muted-foreground">单个 solver 容器 CPU 核数上限（Docker `--cpus`）。仅 docker 后端生效。</div>
+                    </div>
                 </div>
                 <div className="space-y-2">
                     <Label>Default Agent Model（所有 AI 统一使用）</Label>

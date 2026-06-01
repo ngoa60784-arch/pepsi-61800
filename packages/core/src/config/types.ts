@@ -10,6 +10,16 @@ export interface HostRuntimeSettings {
     binds?: string[]
     maxSolvers?: number
     networkMode?: "bridge" | "host"
+    /**
+     * 单个 solver 容器的内存上限（仅 docker 后端），Docker `--memory` 语法，如 "2g" / "512m"。
+     * 不设则不限制——一个失控的扫描/爆破可能吃满宿主内存。
+     */
+    memory?: string
+    /**
+     * 单个 solver 容器的 CPU 上限（仅 docker 后端），Docker `--cpus` 语法，如 1.5 / 2。
+     * 不设则不限制。
+     */
+    cpus?: number
     /** 执行后端：docker（默认本地容器）| ssh（远程主机直跑，去 docker） */
     backend?: "docker" | "ssh"
     /** backend="ssh" 时的远程执行配置（host/port/alias/remoteBinary/remoteSolversDir 等） */

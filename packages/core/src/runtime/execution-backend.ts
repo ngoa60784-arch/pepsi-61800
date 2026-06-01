@@ -58,6 +58,12 @@ export class DockerBackend implements ExecutionBackend {
     constructor(private readonly config: ContainerConfig) {}
 
     spawn(spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe"> {
+        const args = this.buildLaunchArgv(spec)
+        return Bun.spawn(args, { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+    }
+
+    /** 构造 `docker run ...` 完整 argv（公开以便测试，与 SshBackend.buildLaunchArgv 对称）。 */
+    buildLaunchArgv(spec: SolverLaunchSpec): string[] {
         const binds = [
             ...(this.config.binds ?? []),
             `${spec.hostBaseDir}:${CONTAINER_RUNTIME_DIR}`,
@@ -78,8 +84,7 @@ export class DockerBackend implements ExecutionBackend {
         }
 
         const command = buildSolverRpcCommand(spec.injectionCmd, containerSolverEnv)
-        const args = this.buildDockerArgs(spec.containerName, binds, command, CONTAINER_WORKSPACE_DIR)
-        return Bun.spawn(args, { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+        return this.buildDockerArgs(spec.containerName, binds, command, CONTAINER_WORKSPACE_DIR)
     }
 
     async stop(spec: { containerName: string }): Promise<void> {
@@ -106,6 +111,10 @@ export class DockerBackend implements ExecutionBackend {
             workdir,
             "--rm",
         ]
+        // 资源上限：防止单个失控 solver（爆破/海量扫描）吃满宿主。不设则不加参数 = 不限制。
+        const memory = this.config.memory?.trim()
+        if (memory) args.push("--memory", memory)
+        if (typeof this.config.cpus === "number" && this.config.cpus > 0) args.push("--cpus", String(this.config.cpus))
         for (const bind of binds) args.push("-v", bind)
         for (const [k, v] of Object.entries(this.config.env ?? {})) args.push("-e", `${k}=${v}`)
         args.push(this.config.image, ...cmd)
