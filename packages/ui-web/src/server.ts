@@ -1,5 +1,6 @@
 import { DaemonManager } from "../../core/src/index"
 import { ARCHIVE_SOLVERS_DIR, solverSessionDir } from "../../core/src/runtime/types"
+import { provisionKaliVps } from "../../core/src/runtime/provision"
 import { readSolverBoardSnapshot } from "../../core/src/solver/board-store"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../core/src/challenge/env"
@@ -1051,6 +1052,49 @@ export async function startWeb(options: WebServerOptions) {
                     } catch (e: any) {
                         return Response.json({ error: e.message }, { status: 500 })
                     }
+                },
+            },
+
+            // 一键把 VPS 配成 solver 远程攻击主机：用前端传来的 SSH 凭据，把预装脚本
+            // 推到远端 `bash -s` 执行，stdout/stderr 逐行经 SSE 流式回显。耗时（10-30 分钟）。
+            "/api/config/kali-ssh-provision": {
+                async POST(req) {
+                    const body = await req.json().catch(() => ({}))
+                    const target = {
+                        host: typeof body.host === "string" ? body.host : undefined,
+                        port: typeof body.port === "number" ? body.port : body.port ? Number(body.port) : undefined,
+                        username: typeof body.username === "string" ? body.username : undefined,
+                        password: typeof body.password === "string" ? body.password : undefined,
+                        alias: typeof body.alias === "string" ? body.alias : undefined,
+                    }
+                    if (!target.alias?.trim() && !target.host?.trim()) {
+                        return Response.json({ error: "需要 SSH 主机或别名" }, { status: 400 })
+                    }
+                    const abort = new AbortController()
+                    const stream = new ReadableStream<Uint8Array>({
+                        async start(controller) {
+                            const send = (event: string, data: unknown) => safeEnqueue(controller, encodeSse(event, data))
+                            send("log", { line: `连接 ${target.alias || `${target.username || "root"}@${target.host}:${target.port ?? 22}`}，开始预装…`, stream: "stdout" })
+                            try {
+                                const { exitCode } = await provisionKaliVps(
+                                    target,
+                                    (line, streamKind) => send("log", { line, stream: streamKind }),
+                                    abort.signal,
+                                )
+                                send("done", { exitCode, ok: exitCode === 0 })
+                            } catch (e: any) {
+                                send("done", { exitCode: -1, ok: false, error: e?.message || String(e) })
+                            } finally {
+                                closeController(controller)
+                            }
+                        },
+                        cancel() {
+                            abort.abort()
+                        },
+                    })
+                    return new Response(stream, {
+                        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+                    })
                 },
             },
 

@@ -1,0 +1,93 @@
+import type { Subprocess } from "bun"
+// 预装脚本作为文本内联进二进制（生产环境无源码目录，必须 import 而非读盘）。
+import PROVISION_SCRIPT from "./assets/provision-pentest-vps.sh" with { type: "text" }
+
+export { PROVISION_SCRIPT }
+
+export interface ProvisionSshTarget {
+    host?: string
+    port?: number
+    username?: string
+    password?: string
+    /** 本地 ~/.ssh/config 别名（优先于 host/password，走密钥/隧道）。 */
+    alias?: string
+}
+
+export interface ProvisionResult {
+    exitCode: number
+}
+
+/** 单引号 shell 转义。 */
+function shq(s: string): string {
+    return `'${s.replace(/'/g, "'\\''")}'`
+}
+
+/**
+ * 构造把脚本喂给远端 `bash -s` 的 ssh argv。脚本经 stdin 传入，无需 scp。
+ * 远端以 `bash -s` 读取标准输入执行；脚本自身会校验 root。
+ */
+export function buildProvisionArgv(target: ProvisionSshTarget): string[] {
+    const common = ["-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=15"]
+    const remote = "bash -s"
+    if (target.alias?.trim()) {
+        return ["ssh", ...common, target.alias.trim(), remote]
+    }
+    if (!target.host?.trim()) {
+        throw new Error("provision requires either ssh alias or host")
+    }
+    const port = String(target.port ?? 22)
+    const dest = `${target.username?.trim() || "root"}@${target.host.trim()}`
+    const base = ["ssh", ...common, "-p", port, dest, remote]
+    if (target.password?.trim()) {
+        // sshpass 走明文密码（本机需装 sshpass）。推荐改用 alias+密钥。
+        return ["sshpass", "-p", target.password, ...base]
+    }
+    return base
+}
+
+/**
+ * 把预装脚本推到远端 VPS 执行，逐行回调 stdout/stderr（供 SSE 流式回显）。
+ * 解析为退出码；非 0 也 resolve（由调用方据 exitCode 判定），spawn 本身失败才 reject。
+ */
+export async function provisionKaliVps(
+    target: ProvisionSshTarget,
+    onLine: (line: string, stream: "stdout" | "stderr") => void,
+    signal?: AbortSignal,
+): Promise<ProvisionResult> {
+    const argv = buildProvisionArgv(target)
+    const proc: Subprocess<"pipe", "pipe", "pipe"> = Bun.spawn(argv, {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+    })
+
+    if (signal) {
+        if (signal.aborted) proc.kill()
+        else signal.addEventListener("abort", () => proc.kill(), { once: true })
+    }
+
+    // 把脚本写进远端 bash 的 stdin，然后关闭，触发执行。
+    proc.stdin.write(PROVISION_SCRIPT)
+    await proc.stdin.end()
+
+    const pump = async (readable: ReadableStream<Uint8Array>, which: "stdout" | "stderr") => {
+        const reader = readable.getReader()
+        const decoder = new TextDecoder()
+        let buf = ""
+        for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += decoder.decode(value, { stream: true })
+            let nl: number
+            while ((nl = buf.indexOf("\n")) >= 0) {
+                onLine(buf.slice(0, nl), which)
+                buf = buf.slice(nl + 1)
+            }
+        }
+        if (buf.trim()) onLine(buf, which)
+    }
+
+    await Promise.all([pump(proc.stdout, "stdout"), pump(proc.stderr, "stderr")])
+    const exitCode = await proc.exited
+    return { exitCode }
+}

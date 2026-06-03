@@ -20,6 +20,44 @@ interface DraftToolItem {
     inputSchema?: unknown
 }
 
+// SSH 命令桥（如 ssh_mcp.py / kali-arsenal）通过这几个 env key 配置连接。
+// 把它们从通用 env 文本框里拆出来，做成专用字段（密码遮罩），其余 env 仍走文本框。
+const SSH_ENV_KEYS = ["SSH_HOST", "SSH_PORT", "SSH_USER", "SSH_PASS"] as const
+
+interface SshFields {
+    host: string
+    port: string
+    user: string
+    pass: string
+}
+
+const EMPTY_SSH: SshFields = { host: "", port: "", user: "", pass: "" }
+
+/** 把 env 拆成 SSH 专用字段 + 其余通用 env。 */
+function splitSshEnv(envObj?: Record<string, string>): { ssh: SshFields; rest: Record<string, string>; hasSsh: boolean } {
+    const ssh: SshFields = { ...EMPTY_SSH }
+    const rest: Record<string, string> = {}
+    let hasSsh = false
+    for (const [k, v] of Object.entries(envObj ?? {})) {
+        if (k === "SSH_HOST") {
+            ssh.host = v
+            hasSsh = true
+        } else if (k === "SSH_PORT") {
+            ssh.port = v
+            hasSsh = true
+        } else if (k === "SSH_USER") {
+            ssh.user = v
+            hasSsh = true
+        } else if (k === "SSH_PASS") {
+            ssh.pass = v
+            hasSsh = true
+        } else {
+            rest[k] = v
+        }
+    }
+    return { ssh, rest, hasSsh }
+}
+
 function normalizeTransport(value?: string | null): "stdio" | "http" {
     return value === "http" ? "http" : "stdio"
 }
@@ -100,6 +138,12 @@ export function McpPage() {
     const [lifecycle, setLifecycle] = useState<"lazy" | "eager" | "keep-alive">("lazy")
     const [directTools, setDirectTools] = useState<string[]>([])
     const [env, setEnv] = useState("")
+    const [ssh, setSsh] = useState<SshFields>(EMPTY_SSH)
+    const [sshEnabled, setSshEnabled] = useState(false)
+    const [provisionOpen, setProvisionOpen] = useState(false)
+    const [provisioning, setProvisioning] = useState(false)
+    const [provisionLog, setProvisionLog] = useState<string[]>([])
+    const [provisionResult, setProvisionResult] = useState<{ ok: boolean; exitCode: number; error?: string } | null>(null)
     const [auth, setAuth] = useState<"none" | "bearer" | "oauth">("none")
     const [bearerToken, setBearerToken] = useState("")
     const [bearerTokenEnv, setBearerTokenEnv] = useState("")
@@ -121,6 +165,8 @@ export function McpPage() {
         setLifecycle("lazy")
         setDirectTools([])
         setEnv("")
+        setSsh(EMPTY_SSH)
+        setSshEnabled(false)
         setAuth("none")
         setBearerToken("")
         setBearerTokenEnv("")
@@ -158,7 +204,10 @@ export function McpPage() {
             inputSchema: tool.parameters,
         }))
         setDirectTools(Array.isArray(s.directTools) ? s.directTools : existingTools.map((tool) => tool.name))
-        setEnv(formatEnv(s.env))
+        const { ssh: sshFields, rest: restEnv, hasSsh } = splitSshEnv(s.env)
+        setEnv(formatEnv(restEnv))
+        setSsh(sshFields)
+        setSshEnabled(hasSsh)
         setAuth(normalizeAuth(s.auth))
         setBearerToken(s.bearerToken ?? "")
         setBearerTokenEnv(s.bearerTokenEnv ?? "")
@@ -195,8 +244,15 @@ export function McpPage() {
                 server.auth = "oauth"
             }
         }
-        const envObj = parseEnv(env)
-        if (envObj) server.env = envObj
+        const envObj = parseEnv(env) ?? {}
+        // SSH 专用字段合并回 env（仅在启用且有值时写入对应 key）。
+        if (sshEnabled) {
+            if (ssh.host.trim()) envObj.SSH_HOST = ssh.host.trim()
+            if (ssh.port.trim()) envObj.SSH_PORT = ssh.port.trim()
+            if (ssh.user.trim()) envObj.SSH_USER = ssh.user.trim()
+            if (ssh.pass) envObj.SSH_PASS = ssh.pass
+        }
+        if (Object.keys(envObj).length > 0) server.env = envObj
         if (!exposeResources) server.exposeResources = false
         if (debug) server.debug = true
         return server
@@ -295,11 +351,39 @@ export function McpPage() {
         }, 400)
 
         return () => clearTimeout(timer)
-    }, [editorOpen, name, transport, command, args, url, auth, bearerToken, bearerTokenEnv, lifecycle, env, exposeResources, debug])
+    }, [editorOpen, name, transport, command, args, url, auth, bearerToken, bearerTokenEnv, lifecycle, env, ssh, sshEnabled, exposeResources, debug])
 
     async function handleRemove(serverName: string) {
         await mcpServers.remove(serverName)
         reload()
+    }
+
+    async function handleProvision() {
+        if (!ssh.host.trim()) {
+            setProvisionResult({ ok: false, exitCode: -1, error: "请先填写 SSH 主机" })
+            setProvisionOpen(true)
+            return
+        }
+        setProvisionOpen(true)
+        setProvisioning(true)
+        setProvisionResult(null)
+        setProvisionLog([`开始预装 ${ssh.user || "root"}@${ssh.host}:${ssh.port || "22"} …（可能 10-30 分钟，请勿关闭弹窗）`])
+        try {
+            const result = await mcpServers.provision(
+                {
+                    host: ssh.host.trim(),
+                    port: ssh.port.trim() ? Number(ssh.port) : undefined,
+                    username: ssh.user.trim() || undefined,
+                    password: ssh.pass || undefined,
+                },
+                (line) => setProvisionLog((prev) => [...prev.slice(-500), line]),
+            )
+            setProvisionResult(result)
+        } catch (e: any) {
+            setProvisionResult({ ok: false, exitCode: -1, error: e?.message || "预装失败" })
+        } finally {
+            setProvisioning(false)
+        }
     }
 
     const [probing, setProbing] = useState<string | true | false>(false)
@@ -511,19 +595,56 @@ export function McpPage() {
                                 高级选项
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mt-3">
-                                    <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
-                                        <Label>环境变量 (每行 KEY=VALUE)</Label>
-                                        <Textarea placeholder={"PATH=/usr/bin\nMY_VAR=hello"} value={env} onChange={(e) => setEnv(e.target.value)} className="font-mono text-xs min-h-[60px]" />
-                                    </div>
-                                    <div className="flex items-center gap-4 pt-4">
-                                        <div className="flex items-center gap-2">
-                                            <Switch checked={exposeResources} onCheckedChange={setExposeResources} />
-                                            <Label>暴露资源</Label>
+                                <div className="mt-3 space-y-4">
+                                    {transport === "stdio" && (
+                                        <div className="rounded-md border p-3 space-y-3">
+                                            <div className="flex items-center gap-2">
+                                                <Switch checked={sshEnabled} onCheckedChange={setSshEnabled} />
+                                                <Label>Kali SSH 连接（命令桥后端，如 kali-arsenal / ssh_mcp.py）</Label>
+                                            </div>
+                                            {sshEnabled && (
+                                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                                    <div className="space-y-1.5 lg:col-span-2">
+                                                        <Label>主机 (SSH_HOST)</Label>
+                                                        <Input placeholder="10.0.0.9" value={ssh.host} onChange={(e) => setSsh((s) => ({ ...s, host: e.target.value }))} />
+                                                    </div>
+                                                    <div className="space-y-1.5">
+                                                        <Label>端口 (SSH_PORT)</Label>
+                                                        <Input placeholder="22" value={ssh.port} onChange={(e) => setSsh((s) => ({ ...s, port: e.target.value }))} />
+                                                    </div>
+                                                    <div className="space-y-1.5">
+                                                        <Label>用户 (SSH_USER)</Label>
+                                                        <Input placeholder="root" value={ssh.user} onChange={(e) => setSsh((s) => ({ ...s, user: e.target.value }))} />
+                                                    </div>
+                                                    <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
+                                                        <Label>密码 (SSH_PASS)</Label>
+                                                        <Input type="password" placeholder="密码（写入 mcp.json env，明文存储）" value={ssh.pass} onChange={(e) => setSsh((s) => ({ ...s, pass: e.target.value }))} />
+                                                    </div>
+                                                    <div className="sm:col-span-2 lg:col-span-4 flex items-center gap-3">
+                                                        <Button type="button" variant="outline" size="sm" disabled={provisioning || !ssh.host.trim()} onClick={handleProvision}>
+                                                            <RefreshCw className={`size-4 mr-1.5 ${provisioning ? "animate-spin" : ""}`} />
+                                                            一键预装工具到此 VPS
+                                                        </Button>
+                                                        <span className="text-xs text-muted-foreground">把渗透常用工具一键装到这台 VPS（普通 Ubuntu/Debian 即可，约 10-30 分钟）。</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <Switch checked={debug} onCheckedChange={setDebug} />
-                                            <Label>调试模式</Label>
+                                    )}
+                                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                        <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                                            <Label>其他环境变量 (每行 KEY=VALUE)</Label>
+                                            <Textarea placeholder={"PATH=/usr/bin\nMY_VAR=hello"} value={env} onChange={(e) => setEnv(e.target.value)} className="font-mono text-xs min-h-[60px]" />
+                                        </div>
+                                        <div className="flex items-center gap-4 pt-4">
+                                            <div className="flex items-center gap-2">
+                                                <Switch checked={exposeResources} onCheckedChange={setExposeResources} />
+                                                <Label>暴露资源</Label>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Switch checked={debug} onCheckedChange={setDebug} />
+                                                <Label>调试模式</Label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -644,6 +765,35 @@ export function McpPage() {
             )}
 
             {list && list.length === 0 && <p className="text-sm text-muted-foreground">暂无 MCP 服务配置。</p>}
+
+            <Dialog open={provisionOpen} onOpenChange={(open) => (!open && !provisioning ? setProvisionOpen(false) : setProvisionOpen(true))}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>预装工具到 VPS</DialogTitle>
+                        <DialogDescription>
+                            {provisioning ? "正在远程执行预装脚本，请勿关闭…" : provisionResult ? (provisionResult.ok ? "预装完成。" : `预装结束（退出码 ${provisionResult.exitCode}）。`) : ""}
+                        </DialogDescription>
+                    </DialogHeader>
+                    {provisionResult?.error && (
+                        <div className="rounded-md border border-destructive bg-destructive/10 text-destructive px-3 py-2 text-sm">{provisionResult.error}</div>
+                    )}
+                    {provisionResult && !provisionResult.error && (
+                        <div
+                            className={`rounded-md border px-3 py-2 text-sm ${provisionResult.ok ? "border-green-600 bg-green-600/10 text-green-700 dark:text-green-400" : "border-yellow-600 bg-yellow-600/10 text-yellow-700 dark:text-yellow-400"}`}
+                        >
+                            {provisionResult.ok ? "✓ 工具已就绪，可用上方刷新按钮探测 kali-arsenal 工具。" : "部分工具未装上 — 详见日志末尾汇总；agent 运行时会按需补装。"}
+                        </div>
+                    )}
+                    <pre className="max-h-96 overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+                        {provisionLog.length > 0 ? provisionLog.join("\n") : "（等待输出…）"}
+                    </pre>
+                    <div className="flex justify-end">
+                        <Button type="button" variant="outline" disabled={provisioning} onClick={() => setProvisionOpen(false)}>
+                            {provisioning ? "执行中…" : "关闭"}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={!!selectedTool} onOpenChange={(open) => !open && setSelectedTool(null)}>
                 <DialogContent className="sm:max-w-md">

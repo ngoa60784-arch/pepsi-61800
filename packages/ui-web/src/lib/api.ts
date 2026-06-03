@@ -269,6 +269,47 @@ export const mcpServers = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, server }),
         }),
+    // 一键预装：把 VPS 配成 solver 远程攻击主机。流式回显脚本输出。
+    // onLog 每行回调；返回 Promise 在脚本结束时 resolve（exitCode）。
+    provision: async (
+        target: { host?: string; port?: number; username?: string; password?: string; alias?: string },
+        onLog: (line: string, stream: "stdout" | "stderr") => void,
+        signal?: AbortSignal,
+    ): Promise<{ exitCode: number; ok: boolean; error?: string }> => {
+        const res = await fetch("/api/config/kali-ssh-provision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(target),
+            signal,
+        })
+        if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`)
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ""
+        let result: { exitCode: number; ok: boolean; error?: string } = { exitCode: -1, ok: false }
+        for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += decoder.decode(value, { stream: true })
+            // 解析 SSE 帧（event: X\ndata: {...}\n\n）
+            let sep: number
+            while ((sep = buf.indexOf("\n\n")) >= 0) {
+                const frame = buf.slice(0, sep)
+                buf = buf.slice(sep + 2)
+                const evMatch = frame.match(/^event:\s*(.+)$/m)
+                const dataMatch = frame.match(/^data:\s*(.+)$/m)
+                if (!dataMatch) continue
+                const data = safeParseJson(dataMatch[1]) as Record<string, unknown>
+                const ev = evMatch?.[1]?.trim()
+                if (ev === "log" && typeof data.line === "string") {
+                    onLog(data.line, data.stream === "stderr" ? "stderr" : "stdout")
+                } else if (ev === "done") {
+                    result = { exitCode: Number(data.exitCode ?? -1), ok: data.ok === true, error: typeof data.error === "string" ? data.error : undefined }
+                }
+            }
+        }
+        return result
+    },
 }
 
 // ── MCP Settings ──
