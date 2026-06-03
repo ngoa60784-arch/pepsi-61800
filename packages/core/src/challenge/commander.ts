@@ -29,6 +29,7 @@ The operator gives you engagement targets in natural language. Your job is to tu
 - Use create_target to register the target, then launch_solver to dispatch a solver. Carry the operator's emphasis (e.g. "focus on upload and SSRF", "leave the login endpoint alone") into the solver handoff brief.
 - Default to acting immediately — do not repeatedly ask for confirmation. Only ask a short clarifying question if you genuinely cannot extract any usable target from the operator's message.
 - When the operator asks for progress, check real state with list_solvers / get_solver_progress before answering — never fabricate.
+- When the operator asks how a target is doing overall ("打到哪了 / 进展如何 / 该不该继续"), call get_target_overview — it gives the derived phase (untouched/recon/foothold/breakthrough), success rate, prune recommendation, obtained assets, attack-graph edges, and what each running solver is focused on. This is the fastest way to answer "整体进度". get_solver_progress only has the raw memory/ideas/findings summary.
 - When the operator asks about the DETAILED process — what commands a solver ran, a tool's raw output, why it's stuck, or which step it's on — use get_solver_trace (NOT get_solver_progress, which only has the memory/findings summary). get_solver_progress = "what's concluded"; get_solver_trace = "what it actually did, step by step".
 - When the operator tells you to stop a solver, change direction, or add more force, use the matching tool.
 
@@ -53,6 +54,7 @@ NEVER launch a solver before the import completes. If you launched one too early
 - list_solvers(): list all current solvers and their status.
 - stop_solver(solverId): stop a solver.
 - get_solver_progress(targetId): view the memory / findings summary for a target's solvers.
+- get_target_overview(targetId): view the full progress overview of a target — derived phase (untouched/recon/foothold/breakthrough), success rate, prune recommendation, obtained assets (host/service/credential/session), attack-graph edges, confirmed facts, dead-ends, live hypotheses, findings, and each running solver's current focus. Use for "整体进度/进展/该不该继续投入". Richer than get_solver_progress.
 - get_solver_trace(solverId, limit?, thread?): view a solver's DETAILED execution trace — the actual commands/tool calls it ran and their raw output, step by step. Use for "what is it doing / what did that command output / why is it stuck". Get the solverId from list_solvers first.
 
 ## Operational discipline
@@ -529,6 +531,38 @@ export class CommanderManager {
                         content: [{ type: "text", text }],
                         details: { solverId, found: true, status: details.solver.status, threadCount: details.threads.length } as Record<string, unknown>,
                     }
+                },
+            }),
+            defineTool({
+                name: "get_target_overview",
+                label: "Get Target Overview",
+                description:
+                    "查看某个目标的进度全景：派生阶段（untouched/recon/foothold/breakthrough）、成功率、是否建议剪枝、已得资产（主机/服务/凭据/会话）、攻击图谱边、确认事实、失败边界、活跃假设、战果，以及每个在跑的 solver 此刻在干嘛。当操作员问『这个目标整体打到哪了 / 进展如何 / 该不该继续投入』时用这个——它比 get_solver_progress 更全（progress 只有 memory/ideas/findings 三类原始摘要，没有 phase/资产/图谱/各 solver 焦点）。",
+                parameters: Type.Object({ targetId: Type.String({ minLength: 1 }) }),
+                execute: async (_id, params) => {
+                    const targetId = params.targetId.trim()
+                    if (!targetId) throw new Error("targetId is required")
+                    const ov = await challenge.buildTargetOverview(targetId)
+                    const lines: string[] = [
+                        `目标 ${ov.title} (${ov.challengeId}) — 实例状态: ${ov.instanceStatus}`,
+                        `阶段: ${ov.progressPhase} | 成功率: ${ov.successRate.toFixed(2)} | 死路线: ${ov.failedRouteCount} | 战果: ${ov.findingCount} | 活跃 solver: ${ov.activeSolverCount}${ov.pruneRecommended ? " | ⚠ 建议剪枝（对当前打法过难）" : ""}`,
+                        "",
+                        `已得资产 (host/service/credential/session):`,
+                        ...(ov.stateAssets.length > 0 ? ov.stateAssets.map((l) => `  - ${l}`) : ["  - (无)"]),
+                        `攻击图谱边:`,
+                        ...(ov.relations.length > 0 ? ov.relations.map((l) => `  - ${l}`) : ["  - (无)"]),
+                        `确认事实 / 凭据:`,
+                        ...(ov.memoryFacts.length > 0 ? ov.memoryFacts.map((l) => `  - ${l}`) : ["  - (无)"]),
+                        `失败 / 死路边界:`,
+                        ...(ov.failureBoundaries.length > 0 ? ov.failureBoundaries.map((l) => `  - ${l}`) : ["  - (无)"]),
+                        `活跃假设 (verified/testing/pending):`,
+                        ...(ov.liveIdeas.length > 0 ? ov.liveIdeas.map((l) => `  - ${l}`) : ["  - (无)"]),
+                        `战果:`,
+                        ...(ov.findings.length > 0 ? ov.findings.map((l) => `  - ${l}`) : ["  - (无)"]),
+                        `在跑的 solver 此刻焦点:`,
+                        ...(ov.activeSolvers.length > 0 ? ov.activeSolvers.map((s) => `  - ${s.id} [${s.status}]: ${s.currentFocus}`) : ["  - (无在跑 solver)"]),
+                    ]
+                    return { content: [{ type: "text", text: lines.join("\n") }], details: ov as unknown as Record<string, unknown> }
                 },
             }),
         ]

@@ -195,6 +195,38 @@ interface PlannerSnapshotChallenge {
 // 由战果派生的进度阶段，驱动难度感知调度（广度侦察 vs 深度利用/横向）。
 type PlannerProgressPhase = "untouched" | "recon" | "foothold" | "breakthrough"
 
+/** Commander 用的目标进度全景（与 planner 快照同源派生信号，单目标版）。 */
+export interface TargetOverview {
+    challengeId: string
+    title: string
+    instanceStatus: string
+    /** 派生阶段：untouched / recon / foothold / breakthrough。 */
+    progressPhase: PlannerProgressPhase
+    /** Laplace 平滑成功率（0..1）。 */
+    successRate: number
+    /** 已撞死的路线数（failed ideas + failure memories）。 */
+    failedRouteCount: number
+    /** 是否建议剪枝（对当前打法过难）。 */
+    pruneRecommended: boolean
+    /** 真实战果（findings）数量。 */
+    findingCount: number
+    activeSolverCount: number
+    /** 确认的事实/凭据要点（credential 优先）。 */
+    memoryFacts: string[]
+    /** 已撞死/被防御挡掉的边界。 */
+    failureBoundaries: string[]
+    /** 活跃假设（verified/testing/pending）。 */
+    liveIdeas: string[]
+    /** 战果摘要。 */
+    findings: string[]
+    /** 结构化资产（host/service/credential/session）单行摘要。 */
+    stateAssets: string[]
+    /** 攻击图谱边 source--relation-->target 单行摘要。 */
+    relations: string[]
+    /** 各 running solver 此刻在干嘛（从其本地 board 派生）。 */
+    activeSolvers: Array<{ id: string; status: string; currentFocus: string }>
+}
+
 interface PlannerSnapshot {
     generatedAt: string
     constraints: {
@@ -2377,6 +2409,83 @@ export class ChallengeManager {
         const latestMemory = [...board.memory].sort((a, b) => (parseTimestamp(b.updated_at) ?? 0) - (parseTimestamp(a.updated_at) ?? 0))[0]
         if (latestMemory) return `latest note [${latestMemory.kind}]: ${clipTaskText(latestMemory.content, 120)}`
         return "(no board signal yet — just started or spinning)"
+    }
+
+    /**
+     * 目标进度全景（给 Commander 用）：复用 planner 同款派生信号，但聚焦单个目标。
+     * 让人驱动的指挥官能一把拿到 phase / 成功率 / 剪枝建议 / 资产 / 图谱 / 各 solver 在干嘛，
+     * 而不只是 memory/ideas/findings 三类原始摘要。
+     */
+    async buildTargetOverview(challengeId: string): Promise<TargetOverview> {
+        const id = requireText(challengeId, "challengeId")
+        const challenge = await this.getChallenge(id)
+        if (!challenge) throw new Error(`challenge "${id}" not found`)
+
+        const [attempts, submissions, memory, ideas, stateAssets, relations] = await Promise.all([
+            this.listAttemptLogs(id).catch(() => [] as ChallengeAttemptLogRecord[]),
+            this.listSubmissionLogs(id).catch(() => [] as ChallengeSubmissionLogRecord[]),
+            this.listMemory(id).catch(() => [] as MemoryEntry[]),
+            this.listIdeas(id).catch(() => [] as IdeaRecord[]),
+            this.listStateAssets(id).catch(() => [] as StateAsset[]),
+            this.listRelations(id).catch(() => [] as MemoryRelation[]),
+        ])
+
+        const memoryFacts = buildPlannerMemoryFacts(memory)
+        const failureBoundaries = buildPlannerFailureBoundaries(memory)
+        const liveIdeas = buildPlannerLiveIdeas(ideas)
+        const ideaStatusCounts = buildPlannerIdeaStatusCounts(ideas)
+        const findings = buildPlannerFindings(submissions)
+        const correctSubmissionCount = submissions.filter(isRealFinding).length
+        const hasCredentialAsset = stateAssets.some((a) => a.kind === "credential" || a.kind === "session")
+        const hasCredentialMemory = memory.some((item) => item.kind === "credential")
+        const footholdSignal = hasCredentialAsset || hasCredentialMemory || hasFootholdSignal(memoryFacts, liveIdeas)
+        const progressPhase = derivePlannerProgressPhase({
+            untouched: attempts.length === 0,
+            correctSubmissionCount,
+            verifiedIdeaCount: ideaStatusCounts.verified,
+            hasFootholdSignal: footholdSignal,
+        })
+        const successRate = laplaceSuccessRate(correctSubmissionCount, submissions.length)
+        const failureMemoryCount = memory.filter((item) => item.kind === "failure").length
+        const failedRouteCount = ideaStatusCounts.failed + failureMemoryCount
+        const hasLiveHypothesis = ideaStatusCounts.testing > 0 || ideaStatusCounts.pending > 0 || ideaStatusCounts.verified > 0
+        const pruneRecommended = failedRouteCount >= PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD && !footholdSignal && !hasLiveHypothesis && correctSubmissionCount === 0
+
+        const stateAssetLines = [...stateAssets]
+            .sort((a, b) => {
+                const rank = (kind: StateAsset["kind"]) => (kind === "credential" ? 3 : kind === "session" ? 2 : kind === "service" ? 1 : 0)
+                return rank(b.kind) - rank(a.kind) || (parseTimestamp(b.updated_at) ?? 0) - (parseTimestamp(a.updated_at) ?? 0)
+            })
+            .map((asset) => formatStateAssetLine(asset))
+        const relationLines = relations.slice(0, SOLVER_RELATION_LIMIT).map((rel) => formatRelationLine(rel))
+
+        const activeSolvers = (this.getRuntime()?.list() ?? []).filter((s) => s.challengeId === id && isActiveSolver(s))
+        const activeSolverFocus = await Promise.all(
+            activeSolvers.map(async (solver) => ({
+                id: solver.id,
+                status: solver.status,
+                currentFocus: await this.deriveSolverFocus(solver).catch(() => "(no board signal yet)"),
+            })),
+        )
+
+        return {
+            challengeId: id,
+            title: challenge.title,
+            instanceStatus: challenge.instance_status,
+            progressPhase,
+            successRate,
+            failedRouteCount,
+            pruneRecommended,
+            findingCount: correctSubmissionCount,
+            activeSolverCount: activeSolvers.length,
+            memoryFacts,
+            failureBoundaries,
+            liveIdeas,
+            findings,
+            stateAssets: stateAssetLines,
+            relations: relationLines,
+            activeSolvers: activeSolverFocus,
+        }
     }
 
     /**

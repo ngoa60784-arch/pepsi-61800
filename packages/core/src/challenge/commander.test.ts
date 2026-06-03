@@ -175,3 +175,47 @@ describe("commander get_solver_trace", () => {
         expect(text).not.toContain("echo step-0")
     })
 })
+
+describe("commander get_target_overview", () => {
+    test("returns derived phase + assets + relations + findings for a target", async () => {
+        // 建目标 + 灌入各类共享态。
+        await manager.createChallenge({
+            id: "ov-target",
+            title: "ov-target",
+            difficulty: "-",
+            description: "",
+            level: 0,
+            total_score: 0,
+            total_got_score: 0,
+            flag_count: 0,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: null,
+            instance_status: "running",
+            entrypoint: ["http://t"],
+            flags: [],
+        })
+        await manager.appendMemory({ challengeId: "ov-target", kind: "credential", content: "admin:Pass123 on web01", source: "test" })
+        await manager.upsertStateAsset("ov-target", { kind: "credential", label: "admin@web01", account: "admin", secretRef: "finding:x" })
+        await manager.appendRelation({ challengeId: "ov-target", source: "Host:web01", relation: "exploitable_via", target: "Vuln:CVE-1" })
+        // 一条 attempt 记录：phase 的 untouched 判定基于 attempts.length===0，有动作才会进入 recon/foothold。
+        await manager.appendAttemptLog({ challengeId: "ov-target", solverId: "s1", promptName: "kimi-security", task: "t" })
+        // 无 runtime 也应工作（activeSolvers 为空）。
+        manager.attachRuntime({ list: () => [] } as never)
+
+        const ov = getTool("get_target_overview")
+        const result = (await ov.execute("call-ov-1", { targetId: "ov-target" })) as {
+            content: Array<{ text: string }>
+            details: { progressPhase: string; stateAssets: string[]; relations: string[] }
+        }
+        const text = result.content[0].text
+        // 有凭据信号 → foothold 阶段。
+        expect(result.details.progressPhase).toBe("foothold")
+        expect(text).toContain("foothold")
+        // 资产 / 图谱 / 凭据事实都进了概览。
+        expect(text).toContain("admin@web01")
+        expect(text).toContain("Host:web01 --exploitable_via--> Vuln:CVE-1")
+        expect(result.details.stateAssets.length).toBeGreaterThan(0)
+        expect(result.details.relations.length).toBeGreaterThan(0)
+    })
+})
