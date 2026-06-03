@@ -111,7 +111,7 @@ python3 -m pip install -r requirements.txt
 python3 jwt_tool.py -h
 ```
 
-When giving Docker examples that reference local files, remember they appear under `/tmp/...` inside the container.
+When running jwt_tool against files, remember they live on the remote Kali host where `ssh_execute` runs (e.g. under `/tmp/...`), not on your local control plane — upload local files with `ssh_upload` first if needed.
 
 ## High-Value Command Patterns
 

@@ -31,13 +31,13 @@ description: |
 未获用户明确同意前，不得覆盖 `index.*`、默认首页、已知业务文件，不得执行 `FLUSHALL` 或 `FLUSHDB`。
 
 3. 只走两条链路。
-默认只保留 `6379 -> 当前容器/执行环境内直接运行的 redis-cli` 和 `80 -> 本地 HTTP GET/POST` 两条链路。这里的 `redis-cli` 指的是在当前容器里直接调用的工具，不是让跳板机远程执行 `redis-cli`，也不是先把命令包进目标机的 `cmd/powershell/sh` 再转一层。不要把 `execcmd`、PowerShell、下载器、HTTP 验证混成一条长链。
+默认只保留 `6379 -> 用 ssh_execute 在远程 Kali 上直接运行的 redis-cli` 和 `80 -> ssh_execute 里直接发的 HTTP GET/POST` 两条链路。这里的 `redis-cli` 指的是在远程 Kali 上经 ssh_execute 直接调用的工具，不是让跳板机再远程执行 `redis-cli`，也不是先把命令包进目标机的 `cmd/powershell/sh` 再转一层。不要把 `execcmd`、PowerShell、下载器、HTTP 验证混成一条长链。
 
 4. 一旦拿到稳定 `whoami`，立即转 NPS。
 WebShell 只是过渡控制面，不是长期通道。
 
 5. 代理污染立即回退。
-如果本地封装请求被错误导向 SOCKS/代理，统一退回当前容器里直接执行的原始 `redis-cli`、`curl --noproxy '*'` 或二进制读取脚本。
+如果封装请求被错误导向 SOCKS/代理，统一退回在远程 Kali 上经 ssh_execute 直接执行的原始 `redis-cli`、`curl --noproxy '*'` 或二进制读取脚本。
 
 ## 标准流程
 
@@ -53,7 +53,7 @@ redis-cli -h 127.0.0.1 -p <mapped_redis_port> --raw CONFIG GET dbfilename
 curl --noproxy '*' http://127.0.0.1:<mapped_http_port>/
 ```
 
-这里的 `redis-cli` 默认在当前容器环境中直接执行，目标是拿到 Redis 原始响应，避免再次引入跳板远程命令、Shell 转义或代理污染。
+这里的 `redis-cli` 默认在远程 Kali 上经 ssh_execute 直接执行，目标是拿到 Redis 原始响应，避免再次引入跳板远程命令、Shell 转义或代理污染。
 
 必须明确输出中的：
 

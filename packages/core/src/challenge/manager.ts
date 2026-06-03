@@ -552,9 +552,11 @@ function derivePlannerProgressPhase(input: {
     verifiedIdeaCount: number
     hasFootholdSignal: boolean
 }): PlannerProgressPhase {
-    if (input.untouched) return "untouched"
+    // 战果/立足点优先于 untouched 判定：operator 通过 import_findings 灌入凭据/战果但还没派 solver
+    // （attempts 为空）时，目标显然不是"未触碰"。先认实质进展，再退到 untouched。
     if (input.correctSubmissionCount > 0) return "breakthrough"
     if (input.hasFootholdSignal || input.verifiedIdeaCount > 0) return "foothold"
+    if (input.untouched) return "untouched"
     return "recon"
 }
 

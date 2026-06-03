@@ -198,8 +198,8 @@ describe("commander get_target_overview", () => {
         await manager.appendMemory({ challengeId: "ov-target", kind: "credential", content: "admin:Pass123 on web01", source: "test" })
         await manager.upsertStateAsset("ov-target", { kind: "credential", label: "admin@web01", account: "admin", secretRef: "finding:x" })
         await manager.appendRelation({ challengeId: "ov-target", source: "Host:web01", relation: "exploitable_via", target: "Vuln:CVE-1" })
-        // 一条 attempt 记录：phase 的 untouched 判定基于 attempts.length===0，有动作才会进入 recon/foothold。
-        await manager.appendAttemptLog({ challengeId: "ov-target", solverId: "s1", promptName: "kimi-security", task: "t" })
+        // 注意：没有 attempt 日志。凭据立足点应让 phase=foothold（而非被 untouched 盖掉）——
+        // 这正是 #4 修复的点：实质进展优先于 attempt-count 的 untouched 判定。
         // 无 runtime 也应工作（activeSolvers 为空）。
         manager.attachRuntime({ list: () => [] } as never)
 
