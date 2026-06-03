@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises"
 import type { ConfigManager } from "../config/index"
 import { DEFAULT_CONFIG_DIR } from "../config/index"
 import type { ChallengeManager } from "./manager"
+import type { RuntimeSolverDetails } from "../runtime/types"
 import { isEngagementMode } from "./engagement"
 
 /**
@@ -28,6 +29,7 @@ The operator gives you engagement targets in natural language. Your job is to tu
 - Use create_target to register the target, then launch_solver to dispatch a solver. Carry the operator's emphasis (e.g. "focus on upload and SSRF", "leave the login endpoint alone") into the solver handoff brief.
 - Default to acting immediately — do not repeatedly ask for confirmation. Only ask a short clarifying question if you genuinely cannot extract any usable target from the operator's message.
 - When the operator asks for progress, check real state with list_solvers / get_solver_progress before answering — never fabricate.
+- When the operator asks about the DETAILED process — what commands a solver ran, a tool's raw output, why it's stuck, or which step it's on — use get_solver_trace (NOT get_solver_progress, which only has the memory/findings summary). get_solver_progress = "what's concluded"; get_solver_trace = "what it actually did, step by step".
 - When the operator tells you to stop a solver, change direction, or add more force, use the matching tool.
 
 ## Resuming a half-finished target (operator hands you a prior pentest document) — STRICT ORDER
@@ -51,6 +53,7 @@ NEVER launch a solver before the import completes. If you launched one too early
 - list_solvers(): list all current solvers and their status.
 - stop_solver(solverId): stop a solver.
 - get_solver_progress(targetId): view the memory / findings summary for a target's solvers.
+- get_solver_trace(solverId, limit?, thread?): view a solver's DETAILED execution trace — the actual commands/tool calls it ran and their raw output, step by step. Use for "what is it doing / what did that command output / why is it stuck". Get the solverId from list_solvers first.
 
 ## Operational discipline
 - Only register and dispatch against the target the operator actually gave you. Do not invent or expand targets, and never treat the solver's own Kali container or BreachWeave's own host/API as a target.
@@ -82,6 +85,115 @@ function extractEntryText(content: unknown): string {
         .map((part) => part.text)
         .join("")
         .trim()
+}
+
+// ── Solver 执行轨迹提取（让 Commander 看到详细渗透过程，而非只看 memory/ideas/findings 摘要） ──
+
+interface TraceToolCall {
+    name: string
+    argSummary: string
+    output: string
+    isError: boolean
+}
+
+function clipTrace(value: string, maxChars: number): string {
+    const text = value.trim()
+    if (text.length <= maxChars) return text
+    return `${text.slice(0, maxChars)}\n… [truncated, ${text.length - maxChars} more chars — view the full transcript in the Runtime detail page]`
+}
+
+/** 把一次工具调用的参数压成一行人类可读摘要：bash 显示命令本身，文件类显示路径，其余降级为 JSON。 */
+function summarizeToolArgs(name: string, args: unknown): string {
+    if (!args || typeof args !== "object" || Array.isArray(args)) return ""
+    const record = args as Record<string, unknown>
+    if (typeof record.command === "string") return record.command.trim()
+    const path = record.path ?? record.file_path
+    if (typeof path === "string") {
+        const pattern = typeof record.pattern === "string" ? `  pattern=${record.pattern}` : ""
+        return `${path}${pattern}`
+    }
+    if (name === "record_relation" && typeof record.source === "string") {
+        return `${record.source} --${String(record.relation ?? "")}--> ${String(record.target ?? "")}`
+    }
+    if (name === "find_attack_path") return `${String(record.start ?? "")} -> ${String(record.end ?? "")}`
+    if ((name === "report_finding" || name === "record_asset") && typeof record.label === "string") return record.label
+    try {
+        return JSON.stringify(record)
+    } catch {
+        return String(record)
+    }
+}
+
+/** 走一条线程的消息，把 assistant 的 toolCall 与其对应 toolResult 配对成有序的执行动作。 */
+function extractThreadActions(messages: unknown[]): { actions: TraceToolCall[]; lastReasoning: string } {
+    const results = new Map<string, { text: string; isError: boolean }>()
+    for (const raw of messages) {
+        if (!raw || typeof raw !== "object") continue
+        const message = raw as { role?: unknown; toolCallId?: unknown; content?: unknown; isError?: unknown }
+        if (message.role !== "toolResult" || typeof message.toolCallId !== "string") continue
+        results.set(message.toolCallId, { text: extractEntryText(message.content), isError: message.isError === true })
+    }
+
+    const actions: TraceToolCall[] = []
+    let lastReasoning = ""
+    for (const raw of messages) {
+        if (!raw || typeof raw !== "object") continue
+        const message = raw as { role?: unknown; content?: unknown }
+        if (message.role !== "assistant" || !Array.isArray(message.content)) continue
+        const text = extractEntryText(message.content)
+        if (text) lastReasoning = text
+        for (const part of message.content) {
+            if (!part || typeof part !== "object" || (part as { type?: unknown }).type !== "toolCall") continue
+            const call = part as { id?: unknown; name?: unknown; arguments?: unknown }
+            const id = typeof call.id === "string" ? call.id : ""
+            const result = id ? results.get(id) : undefined
+            actions.push({
+                name: typeof call.name === "string" ? call.name : "(unknown tool)",
+                argSummary: summarizeToolArgs(typeof call.name === "string" ? call.name : "", call.arguments),
+                output: result?.text || "(no output captured yet — tool may still be running)",
+                isError: result?.isError ?? false,
+            })
+        }
+    }
+    return { actions, lastReasoning }
+}
+
+/** 把 solver 详情格式化成 Commander 可读的执行轨迹：最近 N 步「命令 + 输出」+ 最新推理。 */
+function formatSolverTrace(
+    details: RuntimeSolverDetails,
+    options: { limit: number; threadKind: "main" | "subagent" | "observer" | "all" },
+): string {
+    const matched = options.threadKind === "all" ? details.threads : details.threads.filter((thread) => thread.kind === options.threadKind)
+    if (matched.length === 0) {
+        return `solver ${details.solver.id} has no "${options.threadKind}" thread yet (status: ${details.solver.status}).`
+    }
+
+    const allMessages = matched.flatMap((thread) => thread.messages as unknown[])
+    const { actions, lastReasoning } = extractThreadActions(allMessages)
+    const recent = actions.slice(-options.limit)
+
+    const header = [
+        `Solver ${details.solver.id} on target "${details.solver.challengeId ?? "-"}" — status: ${details.solver.status}`,
+        `Thread: ${options.threadKind}; showing last ${recent.length} of ${actions.length} tool actions (each = a command/tool call + its output).`,
+        details.solver.error ? `Solver error: ${details.solver.error}` : "",
+    ]
+        .filter((line) => line.length > 0)
+        .join("\n")
+
+    const body =
+        recent.length > 0
+            ? recent
+                  .map((action, index) => {
+                      const tag = action.isError ? " [ERROR]" : ""
+                      return [`### Step ${actions.length - recent.length + index + 1}. ${action.name}${tag}`, `cmd/args: ${clipTrace(action.argSummary, 400) || "(none)"}`, `output:`, clipTrace(action.output, 800)].join(
+                          "\n",
+                      )
+                  })
+                  .join("\n\n")
+            : "(this solver has not executed any tool calls yet)"
+
+    const tail = lastReasoning ? `\n\n--- Latest solver reasoning ---\n${clipTrace(lastReasoning, 600)}` : ""
+    return `${header}\n\n${body}${tail}`
 }
 
 export class CommanderManager {
@@ -382,6 +494,41 @@ export class CommanderManager {
                         findings: findings.map((f) => ({ proof: f.flag, writeup: f.writeup })),
                     }
                     return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }], details: summary }
+                },
+            }),
+            defineTool({
+                name: "get_solver_trace",
+                label: "Get Solver Trace",
+                description:
+                    "查看某个 solver 的详细渗透执行过程——它实际跑了哪些命令/工具调用及其输出（nmap/ffuf/sqlmap/bash 等的真实输出、一步步的 kill chain），而不只是 memory/findings 摘要。当操作员问『它具体在做什么 / 跑到哪一步了 / 为什么卡住 / 那条命令输出是什么』时用这个。需要 solverId（先用 list_solvers 拿到目标的 solver id）。",
+                parameters: Type.Object({
+                    solverId: Type.String({ minLength: 1, description: "solver id（来自 list_solvers）" }),
+                    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 60, description: "返回最近多少步工具调用，默认 20" })),
+                    thread: Type.Optional(
+                        Type.Union([Type.Literal("main"), Type.Literal("subagent"), Type.Literal("observer"), Type.Literal("all")], {
+                            description: "看哪条线程：main=solver 主执行(默认)、subagent=子代理、observer=旁路监督、all=全部",
+                        }),
+                    ),
+                }),
+                execute: async (_id, params) => {
+                    const solverId = params.solverId.trim()
+                    if (!solverId) throw new Error("solverId is required")
+                    const runtime = challenge.getRuntime()
+                    if (!runtime) throw new Error("runtime is not attached")
+                    const details = await runtime.getDetails(solverId)
+                    if (!details) {
+                        return {
+                            content: [{ type: "text", text: `no solver found with id "${solverId}" (use list_solvers to see valid ids)` }],
+                            details: { solverId, found: false } as Record<string, unknown>,
+                        }
+                    }
+                    const limit = typeof params.limit === "number" ? params.limit : 20
+                    const threadKind = params.thread ?? "main"
+                    const text = formatSolverTrace(details, { limit, threadKind })
+                    return {
+                        content: [{ type: "text", text }],
+                        details: { solverId, found: true, status: details.solver.status, threadCount: details.threads.length } as Record<string, unknown>,
+                    }
                 },
             }),
         ]

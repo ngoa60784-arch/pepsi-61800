@@ -96,3 +96,82 @@ describe("commander import_findings", () => {
         expect(result.details.assets).toBe(0)
     })
 })
+
+describe("commander get_solver_trace", () => {
+    function attachMockRuntimeWithThread(messages: unknown[]) {
+        const runtime = {
+            getDetails: async (solverId: string) => ({
+                solver: { id: solverId, challengeId: "tgt-1", status: "running" as const, promptName: "kimi-security", task: "", containerId: "c", name: "n", createdAt: 0 },
+                threads: [{ id: `${solverId}:main`, solverId, kind: "main" as const, label: "Main", messages }],
+                startup: undefined,
+            }),
+        }
+        manager.attachRuntime(runtime as never)
+    }
+
+    test("pairs assistant tool calls with their tool results into a readable trace (commands + output)", async () => {
+        // 主线程消息：助手发起 bash 调用 → toolResult 回输出，再发起一次 record_relation。
+        attachMockRuntimeWithThread([
+            {
+                role: "assistant",
+                content: [
+                    { type: "text", text: "Let me port-scan the target." },
+                    { type: "toolCall", id: "tc-1", name: "bash", arguments: { command: "nmap -sV 10.0.0.5" } },
+                ],
+            },
+            {
+                role: "toolResult",
+                toolCallId: "tc-1",
+                toolName: "bash",
+                content: [{ type: "text", text: "PORT   STATE SERVICE\n22/tcp open  ssh\n80/tcp open  http" }],
+                isError: false,
+            },
+            {
+                role: "assistant",
+                content: [{ type: "toolCall", id: "tc-2", name: "record_relation", arguments: { source: "Host:10.0.0.5", relation: "exposes", target: "Service:ssh" } }],
+            },
+        ])
+
+        const trace = getTool("get_solver_trace")
+        const result = (await trace.execute("call-trace-1", { solverId: "solver-x" })) as { content: Array<{ text: string }>; details: { found: boolean } }
+        const text = result.content[0].text
+
+        expect(result.details.found).toBe(true)
+        // 命令本身（不是 JSON 参数）被提取出来。
+        expect(text).toContain("nmap -sV 10.0.0.5")
+        // 工具输出被带出来。
+        expect(text).toContain("22/tcp open  ssh")
+        // record_relation 的参数被压成 source--relation-->target。
+        expect(text).toContain("Host:10.0.0.5 --exposes--> Service:ssh")
+        // 最新推理被附在末尾。
+        expect(text).toContain("Let me port-scan the target.")
+        // 两次工具调用都计入。
+        expect(text).toContain("2 of 2 tool actions")
+    })
+
+    test("returns found:false for an unknown solver id", async () => {
+        attachMockRuntimeWithThread([])
+        const runtime = { getDetails: async () => undefined }
+        manager.attachRuntime(runtime as never)
+        const trace = getTool("get_solver_trace")
+        const result = (await trace.execute("call-trace-2", { solverId: "nope" })) as { content: Array<{ text: string }>; details: { found: boolean } }
+        expect(result.details.found).toBe(false)
+        expect(result.content[0].text).toContain("no solver found")
+    })
+
+    test("limit caps the number of returned steps", async () => {
+        const messages = Array.from({ length: 5 }, (_, i) => ({
+            role: "assistant",
+            content: [{ type: "toolCall", id: `tc-${i}`, name: "bash", arguments: { command: `echo step-${i}` } }],
+        }))
+        attachMockRuntimeWithThread(messages)
+        const trace = getTool("get_solver_trace")
+        const result = (await trace.execute("call-trace-3", { solverId: "solver-y", limit: 2 })) as { content: Array<{ text: string }> }
+        const text = result.content[0].text
+        // 只保留最近 2 步（step-3 / step-4），最早的被裁掉。
+        expect(text).toContain("last 2 of 5 tool actions")
+        expect(text).toContain("echo step-4")
+        expect(text).toContain("echo step-3")
+        expect(text).not.toContain("echo step-0")
+    })
+})
