@@ -1787,6 +1787,19 @@ export class ChallengeManager {
             throw new Error(`subagent prompt cannot be started as solver: ${promptNameText}`)
         }
 
+        // 并发硬门禁：UI 配的 maxSolvers 此前只作为文字喂给 planner（软约束），planner 可能不守、
+        // Commander 完全无视。这里在唯一的 solver 启动咽喉做代码层强制——按全局活跃 solver 数(starting|running)
+        // 与上限比对，达到上限就拒绝(plannerHandoff?.allowOverflow 不存在，两条路径一视同仁)。这样 UI 的数字才真正生效。
+        const hostSettings = await this.config.getHostSettings()
+        const maxSolvers = clampInt(hostSettings.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS, 0, 64)
+        const activeSolverCount = this.runtime.list().filter(isActiveSolver).length
+        if (activeSolverCount >= maxSolvers) {
+            this.log("challenge:solver", "launch rejected: at solver capacity", { challengeId, activeSolverCount, maxSolvers })
+            throw new Error(
+                `solver capacity reached: ${activeSolverCount}/${maxSolvers} active solvers. Raise maxSolvers in Config → 调度器, or stop a running solver before launching another.`,
+            )
+        }
+
         const current = await this.getChallenge(challengeId)
         if (!current) {
             throw new Error(`challenge "${challengeId}" not found`)

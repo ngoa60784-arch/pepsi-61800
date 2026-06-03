@@ -250,7 +250,7 @@ describe("challenge-manager mock api", () => {
             status: "running" as const,
             createdAt: Date.now(),
         }))
-        manager.attachRuntime({ launch } as never)
+        manager.attachRuntime({ launch, list: () => [] } as never)
 
         const solver = await manager.launchSolver("mock-launch", "pentest-orchestrator", {
             plannerHandoff: "优先检查上传链；只有明确需要时再看 hint。",
@@ -337,7 +337,7 @@ describe("challenge-manager mock api", () => {
             status: "running" as const,
             createdAt: Date.now(),
         }))
-        manager.attachRuntime({ launch } as never)
+        manager.attachRuntime({ launch, list: () => [] } as never)
 
         const solver = await manager.launchSolver("mock-compact", "pentest-orchestrator")
 
@@ -349,6 +349,60 @@ describe("challenge-manager mock api", () => {
         expect(solver.task).not.toContain("idea-0")
         expect(solver.task).toContain("call memory_list for the full set")
         expect(solver.task).toContain("call idea_list or idea_search for the full board")
+    })
+
+    test("launchSolver enforces maxSolvers as a hard cap (rejects when at capacity)", async () => {
+        const config = {
+            // maxSolvers=2：UI 配的并发上限。
+            getHostSettings: async () => ({ runtime: { maxSolvers: 2 }, challenge: { mockEnabled: true }, planner: {} }),
+            getPrompt: async () => ({ meta: { isSubagent: false } }),
+            listAgentPrompts: async () => [],
+            listModelPrefs: async () => [],
+        } as unknown as ConfigManager
+        manager = new ChallengeManager(config)
+        await manager.createChallenge({
+            id: "mock-cap-target",
+            title: "mock-cap-target",
+            difficulty: "-",
+            description: "",
+            level: 0,
+            total_score: 0,
+            total_got_score: 0,
+            flag_count: 0,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: null,
+            instance_status: "running",
+            entrypoint: ["127.0.0.1:9000"],
+            flags: [],
+        })
+
+        const launch = mock(async (_p: string, task: string, env?: Record<string, string>, options?: { solverId?: string }) => ({
+            id: options?.solverId ?? "s",
+            containerId: "c",
+            name: "n",
+            promptName: "kimi-security",
+            task,
+            challengeId: env?.TCH_CHALLENGE_ID,
+            status: "running" as const,
+            createdAt: Date.now(),
+        }))
+        // 已有 2 个活跃 solver（starting|running 都算），正好等于上限。
+        const activeSolvers = [
+            { id: "live-1", challengeId: "mock-cap-target", status: "running" },
+            { id: "live-2", challengeId: "mock-cap-target", status: "starting" },
+        ]
+        manager.attachRuntime({ launch, list: () => activeSolvers } as never)
+
+        // 第 3 个启动请求必须被代码层硬拒，且绝不调用 runtime.launch。
+        await expect(manager.launchSolver("mock-cap-target", "kimi-security")).rejects.toThrow(/solver capacity reached: 2\/2/)
+        expect(launch).not.toHaveBeenCalled()
+
+        // 降到 1 个活跃（一个停了）→ 还有空位 → 放行。
+        activeSolvers.pop()
+        const solver = await manager.launchSolver("mock-cap-target", "kimi-security")
+        expect(solver.challengeId).toBe("mock-cap-target")
+        expect(launch).toHaveBeenCalledTimes(1)
     })
 
     test("appendMemory broadcasts challenge memory updates to running solvers on same challenge", async () => {
