@@ -7,7 +7,6 @@ import type { SolverInitPayload } from "./rpc/rpc-types"
 import { solverDir, solverSessionDir, solverWorkspaceDir } from "../runtime/types"
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
 import { largeToolResultExtension } from "./extension/large-tool-result"
-import { isEngagementMode, loadEngagementScope } from "../challenge/engagement"
 
 export interface SolverSession {
     session: AgentSession

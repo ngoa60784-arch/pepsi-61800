@@ -5,8 +5,8 @@ import { AuthStorage, ModelRegistry, SettingsManager, DefaultResourceLoader, Ses
 import type { Skill, ToolDefinition, CreateAgentSessionOptions, ExtensionFactory } from "@mariozechner/pi-coding-agent"
 import { createMcpAdapter } from "pi-mcp-adapter"
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core"
-import { getProviders, getApiProviders, supportsXhigh, completeSimple } from "@mariozechner/pi-ai"
-import type { Model, Api, KnownProvider, Context, ThinkingLevel as PiAiThinkingLevel } from "@mariozechner/pi-ai"
+import { getProviders, getApiProviders, supportsXhigh } from "@mariozechner/pi-ai"
+import type { Model, Api, KnownProvider, ThinkingLevel as PiAiThinkingLevel } from "@mariozechner/pi-ai"
 import * as prompts from "./prompts/index"
 import type { PromptFile } from "./prompts/index"
 import { customProviders } from "./providers/custom"
@@ -18,10 +18,10 @@ import { engagementToolNames } from "./tools/engagement-tools"
 import { createSubagentTool } from "./tools/subagent"
 import type { ToolEntry } from "./tools/index"
 import * as skills from "./skills/index"
-import type { ServerEntry, McpConfig, McpSettings } from "pi-mcp-adapter/types.js"
+import type { ServerEntry, McpSettings } from "pi-mcp-adapter/types.js"
 import { formatToolName } from "pi-mcp-adapter/types.js"
 import * as mcp from "./mcp/index"
-import type { McpServerItem, McpToolCache } from "./mcp/index"
+import type { McpToolCache } from "./mcp/index"
 import type { AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
 export type { AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
@@ -187,16 +187,6 @@ function applyProviderTransport<T extends Record<string, unknown>>(model: T, pro
 
 function toPiAiThinkingLevel(value?: string): PiAiThinkingLevel | undefined {
     if (value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") return value
-}
-
-function removeBaseUrlMappings(
-    mappings: HostChallengeSettings["baseUrlMappings"] | undefined,
-    sourceBaseUrl: string | undefined,
-): HostChallengeSettings["baseUrlMappings"] | undefined {
-    const normalized = normalizeBaseUrl(sourceBaseUrl)
-    if (!normalized || !mappings || mappings.length === 0) return mappings
-    const next = mappings.filter((item) => normalizeBaseUrl(item.sourceBaseUrl) !== normalized)
-    return next.length > 0 ? next : undefined
 }
 
 function collectProviderBaseUrls(providerPrefs: ProviderPrefEntry[]): string[] {

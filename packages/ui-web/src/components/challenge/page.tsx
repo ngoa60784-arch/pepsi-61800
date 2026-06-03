@@ -106,6 +106,7 @@ const IDEA_STATUS_OPTIONS: IdeaRecord["status"][] = ["pending", "testing", "veri
 const MEMORY_KIND_LABELS: Record<MemoryEntry["kind"], string> = {
     fact: "发现",
     evidence: "证据",
+    credential: "凭据",
     failure: "失败边界",
     note: "笔记",
     hint: "提示",

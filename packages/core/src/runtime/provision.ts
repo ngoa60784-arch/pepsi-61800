@@ -24,11 +24,6 @@ export interface ProvisionResult {
     exitCode: number
 }
 
-/** 单引号 shell 转义。 */
-function shq(s: string): string {
-    return `'${s.replace(/'/g, "'\\''")}'`
-}
-
 /**
  * 构造把脚本喂给远端 `bash -s` 的 ssh argv。脚本经 stdin 传入，无需 scp。
  * 远端以 `bash -s` 读取标准输入执行；脚本自身会校验 root。

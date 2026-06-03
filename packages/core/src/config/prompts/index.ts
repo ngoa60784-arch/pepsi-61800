@@ -174,18 +174,6 @@ export async function removePrompt(configDir: string, name: string): Promise<voi
     }
 }
 
-/** 恢复已删除的内置 prompt */
-export async function restoreBuiltinPrompt(configDir: string, name: string): Promise<void> {
-    if (!isBuiltin(name)) return
-    const deleted = await loadDeletedBuiltins(configDir)
-    deleted.delete(name)
-    await saveDeletedBuiltins(configDir, deleted)
-    const dest = promptPath(configDir, name)
-    const builtinPrompts = BUILTIN_PROMPTS as unknown as Record<string, string>
-    const sourcePath = builtinPrompts[`${name}.md`]
-    await Bun.write(dest, Bun.file(sourcePath))
-}
-
 export async function listPrompts(configDir: string): Promise<PromptFile[]> {
     const dir = promptsDir(configDir)
     let results: PromptFile[] = []

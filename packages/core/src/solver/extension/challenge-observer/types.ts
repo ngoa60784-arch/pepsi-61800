@@ -37,8 +37,3 @@ export interface ObserverMemoryAction {
     source?: string
 }
 
-export interface ObserverReviewResult {
-    new_ideas: string[]
-    idea_updates: ObserverIdeaUpdate[]
-    memory_actions: ObserverMemoryAction[]
-}

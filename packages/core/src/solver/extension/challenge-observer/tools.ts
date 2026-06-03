@@ -353,10 +353,6 @@ const observerSidecarBoardTools = [
     }),
 ]
 
-export function createObserverSidecarTools(sendCorrectionNotice?: (message: string) => Promise<boolean> | boolean) {
-    return createObserverSidecarToolsWithOptions({ sendCorrectionNotice })
-}
-
 export function createObserverSidecarToolsWithOptions(options?: {
     sendCorrectionNotice?: (message: string) => Promise<boolean> | boolean
     getSolverEntries?: () => Promise<unknown[]> | unknown[]
