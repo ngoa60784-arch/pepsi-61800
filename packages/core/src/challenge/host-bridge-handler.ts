@@ -2,6 +2,7 @@ import type { ChallengeManager } from "./manager"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "./env"
 import { loadEngagementScope } from "./engagement"
 import { validateObjectiveEvidence } from "./finding-validation"
+import { lookupComponentVulns, formatVulnBroadcast, splitServiceVersion } from "./vuln-intel"
 import type { HostBridgeHandleContext, HostBridgeHandleResult, HostBridgeHandler, SolverInstance } from "../runtime/types"
 
 function getObjectValue(value: unknown): Record<string, unknown> {
@@ -288,6 +289,21 @@ async function handleEngagementAction(
                 note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
                 sourceRefs: Array.isArray(data.source_refs) ? data.source_refs.filter((item): item is string => typeof item === "string") : undefined,
             })
+            // 进度驱动的漏洞发现：记录了带版本的 service 资产 → 异步查 NVD+KEV，命中的可利用 CVE
+            // 广播回该 solver（不阻塞本次工具返回；查询失败/无命中静默）。这是"测出新组件即自动找最新漏洞"的闭环。
+            const svc = typeof data.service === "string" ? data.service.trim() : ""
+            if (kindRaw === "service" && svc) {
+                void (async () => {
+                    try {
+                        const { component, version } = splitServiceVersion(svc)
+                        const lookup = await lookupComponentVulns(component, version)
+                        const message = formatVulnBroadcast(lookup)
+                        if (message) sendFollowUpToSolver(context, solverId, message)
+                    } catch (error) {
+                        console.error(`[engagement] auto vuln lookup failed for "${svc}": ${error instanceof Error ? error.message : String(error)}`)
+                    }
+                })()
+            }
             return {
                 handled: true,
                 data: {
