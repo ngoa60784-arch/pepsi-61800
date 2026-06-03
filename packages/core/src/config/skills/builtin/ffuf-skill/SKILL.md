@@ -56,28 +56,22 @@ If the prompt is missing one essential detail, ask one short question first. Goo
 
 If the request is already clear enough, do not pause to ask extra questions.
 
-## Local dictionaries
+## Wordlists (on the remote Kali host)
 
-`dicts/` is the local dictionary directory for this skill.
+ffuf runs on the **remote Kali host** via `ssh_execute`, and that host has **SecLists + the standard wordlists pre-installed**. Use those absolute paths directly — do NOT use this skill's local `dicts/` directory (it lives on the control plane, not where ffuf runs, so its relative paths won't resolve).
 
-How to use it:
-- Prefer dictionaries from `ffuf-skill/dicts/` when generating commands.
-- Do not assume `SecLists` or other external wordlists are installed.
-- If the user does not specify a dictionary, recommend a likely file from `dicts/` based on the fuzz target.
-- If `dicts/` does not yet contain a suitable file, say what category is needed, such as parameter names, headers, JSON keys, paths, or payload values.
+Default paths to use in commands (all on the remote Kali):
 
-Dictionary inventory placeholder:
+| Fuzz target | Recommended wordlist (remote Kali path) |
+| --- | --- |
+| Paths / directories / files | `/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt` (or `.../common.txt`, `/usr/share/wordlists/dirb/common.txt`) |
+| Parameter names (query/form) | `/usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt` |
+| Header names | `/usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt` (reuse) or `/usr/share/seclists/Miscellaneous/web/http-request-headers/` |
+| Subdomains / vhosts | `/usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt` |
+| Passwords | `/usr/share/wordlists/rockyou.txt` |
+| API endpoints | `/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt` |
 
-| File | Purpose | Typical use | Notes |
-| --- | --- | --- | --- |
-
-Suggested dictionary categories for this directory:
-- `params.txt`: common query or form parameter names
-- `json-fields.txt`: common JSON field names
-- `header-names.txt`: common header names
-- `header-values.txt`: header payloads or candidate values
-- `paths.txt`: common directories, endpoints, or filenames
-- `values.txt`: common IDs, roles, flags, or payload values
+If a needed path is missing on the host, `ssh_execute("ls /usr/share/seclists/Discovery/Web-Content/")` to discover the actual file, or install more via `apt-get install -y seclists`. For values/payloads not in SecLists, grep the bundled corpus (`~/.tch-agent/config/skills/payloads-everything/`) on the control plane and `ssh_upload` the snippet you need.
 
 ## Core workflow
 
@@ -123,7 +117,7 @@ Use when the unknown part is a directory, endpoint, or filename in the URL path.
 Example:
 
 ```bash
-ffuf -w ffuf-skill/dicts/paths.txt -u 'https://target.example/FUZZ' -mc all -fs 1234
+ffuf -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -u 'https://target.example/FUZZ' -mc all -fs 1234
 ```
 
 ### Query parameter name fuzzing
@@ -135,7 +129,7 @@ This is one of the highest-value defaults when the user says "fuzz this request 
 Example:
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/search?FUZZ=test' -mc all -fs 4242
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/search?FUZZ=test' -mc all -fs 4242
 ```
 
 ### Query parameter value fuzzing
@@ -145,7 +139,7 @@ Use when the parameter name is known and the interesting part is its value.
 Example:
 
 ```bash
-ffuf -w ffuf-skill/dicts/values.txt -u 'https://target.example/api/items?id=FUZZ' -mc all -fw 87
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/api/items?id=FUZZ' -mc all -fw 87
 ```
 
 ### Header fuzzing
@@ -161,13 +155,13 @@ Typical cases:
 Example header value fuzzing:
 
 ```bash
-ffuf -w ffuf-skill/dicts/header-values.txt -u 'https://target.example/profile' -H 'X-Forwarded-For: FUZZ' -mc all -fl 52
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/profile' -H 'X-Forwarded-For: FUZZ' -mc all -fl 52
 ```
 
 Example header name fuzzing:
 
 ```bash
-ffuf -w ffuf-skill/dicts/header-names.txt -u 'https://target.example/profile' -H 'FUZZ: 127.0.0.1' -mc all -fl 52
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/profile' -H 'FUZZ: 127.0.0.1' -mc all -fl 52
 ```
 
 ### Form body fuzzing
@@ -177,7 +171,7 @@ Use when the request body is form-encoded.
 Example:
 
 ```bash
-ffuf -w ffuf-skill/dicts/form-fields.txt -u 'https://target.example/login' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'FUZZ=test' -mc all -fs 3010
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/login' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'FUZZ=test' -mc all -fs 3010
 ```
 
 ### JSON body fuzzing
@@ -187,13 +181,13 @@ Use when the request body is JSON. Remember to keep `Content-Type: application/j
 Example field value fuzzing:
 
 ```bash
-ffuf -w ffuf-skill/dicts/json-values.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"role":"FUZZ"}' -mc all -fw 91
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"role":"FUZZ"}' -mc all -fw 91
 ```
 
 Example field name fuzzing:
 
 ```bash
-ffuf -w ffuf-skill/dicts/json-fields.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"FUZZ":"test"}' -mc all -fw 91
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"FUZZ":"test"}' -mc all -fw 91
 ```
 
 ### Raw request fuzzing
@@ -203,7 +197,7 @@ Use `-request` when the user already has a complete request captured in Burp or 
 Example:
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -request request.txt -mc all -fs 4242
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -request request.txt -mc all -fs 4242
 ```
 
 If the request is plain HTTP rather than HTTPS, add `-request-proto http`.

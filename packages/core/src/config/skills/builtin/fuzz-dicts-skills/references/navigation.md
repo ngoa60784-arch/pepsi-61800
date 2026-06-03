@@ -2,7 +2,7 @@
 
 This file is the navigation source of truth for the `fuzz-dicts-navigator` skill.
 
-Paths are relative to the repository root.
+Paths below are relative to this skill dir on the control plane (`~/.tch-agent/config/skills/fuzz-dicts-skills/`). Since ffuf/gobuster run on the remote Kali, `ssh_upload` the chosen file to the Kali host first, then use the uploaded path. Use these (vs Kali's `/usr/share/seclists`) when you need their CN/enterprise-specific content.
 
 ## Quick Routing Matrix
 

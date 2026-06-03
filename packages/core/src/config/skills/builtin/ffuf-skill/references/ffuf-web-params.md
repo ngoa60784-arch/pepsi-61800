@@ -11,7 +11,7 @@ Every `ffuf` run needs two things:
 Simple example:
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test'
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test'
 ```
 
 ## High-value flags
@@ -36,55 +36,55 @@ ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test'
 ### Path
 
 ```bash
-ffuf -w ffuf-skill/dicts/paths.txt -u 'https://target.example/FUZZ' -mc all -fs 1234
+ffuf -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -u 'https://target.example/FUZZ' -mc all -fs 1234
 ```
 
 ### Query parameter names
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/search?FUZZ=test' -mc all -fw 87
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/search?FUZZ=test' -mc all -fw 87
 ```
 
 ### Query parameter values
 
 ```bash
-ffuf -w ffuf-skill/dicts/values.txt -u 'https://target.example/api/items?id=FUZZ' -mc all -fw 87
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/api/items?id=FUZZ' -mc all -fw 87
 ```
 
 ### Header values
 
 ```bash
-ffuf -w ffuf-skill/dicts/header-values.txt -u 'https://target.example/profile' -H 'X-Forwarded-For: FUZZ' -mc all -fl 52
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/profile' -H 'X-Forwarded-For: FUZZ' -mc all -fl 52
 ```
 
 ### Header names
 
 ```bash
-ffuf -w ffuf-skill/dicts/header-names.txt -u 'https://target.example/profile' -H 'FUZZ: 127.0.0.1' -mc all -fl 52
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/profile' -H 'FUZZ: 127.0.0.1' -mc all -fl 52
 ```
 
 ### Form body fields
 
 ```bash
-ffuf -w ffuf-skill/dicts/form-fields.txt -u 'https://target.example/login' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'FUZZ=test' -mc all -fs 3010
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/login' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'FUZZ=test' -mc all -fs 3010
 ```
 
 ### JSON field names
 
 ```bash
-ffuf -w ffuf-skill/dicts/json-fields.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"FUZZ":"test"}' -mc all -fw 91
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"FUZZ":"test"}' -mc all -fw 91
 ```
 
 ### JSON field values
 
 ```bash
-ffuf -w ffuf-skill/dicts/json-values.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"role":"FUZZ"}' -mc all -fw 91
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/api/user' -X POST -H 'Content-Type: application/json' -d '{"role":"FUZZ"}' -mc all -fw 91
 ```
 
 ### Raw request file
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -request request.txt -mc all -fs 4242
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -request request.txt -mc all -fs 4242
 ```
 
 ## Matchers and filters cheat sheet
@@ -103,8 +103,8 @@ ffuf processes responses like this:
 Examples:
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc 200,204,301,302,403
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc all -fc 400
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test' -mc 200,204,301,302,403
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test' -mc all -fc 400
 ```
 
 ### Response size
@@ -115,7 +115,7 @@ ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc a
 Good when all responses are the same status code but the baseline body size is stable.
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc all -fs 4242
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test' -mc all -fs 4242
 ```
 
 ### Word count
@@ -126,7 +126,7 @@ ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc a
 Good when the server reflects user input and size changes slightly, but the overall template stays similar.
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc all -fw 87
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test' -mc all -fw 87
 ```
 
 ### Line count
@@ -137,7 +137,7 @@ ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc a
 Good when layout is stable and line count separates noise from signal.
 
 ```bash
-ffuf -w ffuf-skill/dicts/header-values.txt -u 'https://target.example/profile' -H 'X-Forwarded-For: FUZZ' -mc all -fl 52
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/profile' -H 'X-Forwarded-For: FUZZ' -mc all -fl 52
 ```
 
 ### Regex
@@ -148,7 +148,7 @@ ffuf -w ffuf-skill/dicts/header-values.txt -u 'https://target.example/profile' -
 Use when you want to look for a specific string or header pattern.
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/redirect?FUZZ=https://example.org' -mr '(?i)location:'
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/redirect?FUZZ=https://example.org' -mr '(?i)location:'
 ```
 
 ### Timing
@@ -159,7 +159,7 @@ ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/redirect?FUZZ=htt
 Use for delay-based differences. Values are milliseconds.
 
 ```bash
-ffuf -w ffuf-skill/dicts/json-values.txt -u 'https://target.example/api/item' -X POST -H 'Content-Type: application/json' -d '{"id":"FUZZ"}' -mt >5000
+ffuf -w /usr/share/seclists/Fuzzing/special-chars.txt -u 'https://target.example/api/item' -X POST -H 'Content-Type: application/json' -d '{"id":"FUZZ"}' -mt >5000
 ```
 
 ## Practical filtering habits
@@ -187,7 +187,7 @@ Use only when the task really needs multiple changing inputs.
 Tries all combinations.
 
 ```bash
-ffuf -mode clusterbomb -w ffuf-skill/dicts/hosts.txt:HOST -w ffuf-skill/dicts/paths.txt:PATH -u 'https://HOST/PATH'
+ffuf -mode clusterbomb -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt:HOST -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt:PATH -u 'https://HOST/PATH'
 ```
 
 ### Pitchfork
@@ -195,7 +195,7 @@ ffuf -mode clusterbomb -w ffuf-skill/dicts/hosts.txt:HOST -w ffuf-skill/dicts/pa
 Walks lists in lockstep.
 
 ```bash
-ffuf -mode pitchfork -w ffuf-skill/dicts/users.txt:USER -w ffuf-skill/dicts/ids.txt:ID -u 'https://target.example/u/ID/profile/USER'
+ffuf -mode pitchfork -w /usr/share/seclists/Usernames/top-usernames-shortlist.txt:USER -w /usr/share/seclists/Fuzzing/special-chars.txt:ID -u 'https://target.example/u/ID/profile/USER'
 ```
 
 ## Replay and output
@@ -203,19 +203,19 @@ ffuf -mode pitchfork -w ffuf-skill/dicts/users.txt:USER -w ffuf-skill/dicts/ids.
 Replay only matched, non-filtered hits to a proxy:
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -mc all -fs 4242 -replay-proxy 'http://127.0.0.1:8080'
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test' -mc all -fs 4242 -replay-proxy 'http://127.0.0.1:8080'
 ```
 
 Write JSON output:
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -o results.json -of json
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test' -o results.json -of json
 ```
 
 Use machine-readable stdout:
 
 ```bash
-ffuf -w ffuf-skill/dicts/params.txt -u 'https://target.example/?FUZZ=test' -json
+ffuf -w /usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt -u 'https://target.example/?FUZZ=test' -json
 ```
 
 ## Advanced notes

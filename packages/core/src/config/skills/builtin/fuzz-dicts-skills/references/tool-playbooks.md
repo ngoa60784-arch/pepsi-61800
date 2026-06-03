@@ -28,14 +28,16 @@ ffuf -u https://target.example/api/FUZZ -w apiDict/api.txt -mc all -fc 404
 
 ## feroxbuster
 
+> Not preinstalled on the remote Kali — install once with `ssh_execute("apt-get install -y feroxbuster")` (or use `ffuf -recursion` / `gobuster dir` which ARE installed). Wordlist paths below assume you `ssh_upload`-ed the dict to the Kali host first (or swap in `/usr/share/seclists/...`).
+
 ### General content discovery
 ```bash
-feroxbuster -u https://target.example -w directoryDicts/top7000.txt -x php,txt,bak
+feroxbuster -u https://target.example -w /tmp/top7000.txt -x php,txt,bak
 ```
 
 ### Deep rescan
 ```bash
-feroxbuster -u https://target.example -w directoryDicts/Filenames_or_Directories_All.txt
+feroxbuster -u https://target.example -w /tmp/Filenames_or_Directories_All.txt
 ```
 
 ## gobuster

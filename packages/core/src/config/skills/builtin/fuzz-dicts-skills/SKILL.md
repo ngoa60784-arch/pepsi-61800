@@ -64,7 +64,7 @@ Provide one or two commands using the files you recommended. Prefer `ffuf`, `fer
 
 ## Command behavior
 
-- Use repository-relative paths in examples unless the user gives an absolute path.
+- **These dict files live on the control plane (`~/.tch-agent/config/skills/fuzz-dicts-skills/`), but ffuf/gobuster run on the remote Kali via `ssh_execute`.** So before using one, `ssh_upload` it to the Kali host (e.g. to `/tmp/`), then reference the uploaded path in the command. For generic English wordlists, prefer the Kali-preinstalled SecLists (`/usr/share/seclists/...`) and skip the upload — only upload these bundled dicts when you specifically need their CN/enterprise-flavored content (中文弱口令、国内常见路径、厂商默认口令) that SecLists lacks.
 - Keep command templates short and editable.
 - For directory brute force, include extensions only when they fit the stack.
 - For parameter fuzzing, show where `FUZZ` should go.
