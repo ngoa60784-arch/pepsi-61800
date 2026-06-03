@@ -26,7 +26,7 @@ export interface SolverLaunchSpec {
 }
 
 export interface ExecutionBackend {
-    readonly kind: "docker" | "ssh"
+    readonly kind: "docker" | "ssh" | "local"
     /** 构造并启动 solver 子进程（stdin/stdout/stderr 均为 pipe） */
     spawn(spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe">
     /** 停止一个 solver */
@@ -215,10 +215,71 @@ function reEscape(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+// ──────────────────────────────────────────────────────────────
+// Local 后端：solver 进程跑在控制面本地（不进容器、不 ssh）
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Local 后端：在控制面本机以 `<execPath> [cliEntry] solver rpc --env ...` 直接起 solver 进程。
+ *
+ * 关键差异（vs docker/ssh）：
+ * - 不做任何路径转换——TCH_SOLVER_*_DIR 直接用 host 路径，因为进程就在本机、读写的就是这些目录。
+ *   host 侧 getDetails/readStream 读的也是同一批本地目录，天然同视图，无需 sshfs。
+ * - 攻击面不靠本地 bash，而是由 solver 会话启用的 MCP server（如 kali-arsenal/ssh_mcp.py）的
+ *   ssh_execute 工具够到远程 Kali。本地进程只承载「大脑+状态」。
+ * - stop 是 no-op：RuntimeManager 持有子进程句柄，stopSolver 的 finally 会直接 .kill()。
+ */
+export class LocalBackend implements ExecutionBackend {
+    readonly kind = "local" as const
+
+    spawn(spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe"> {
+        const argv = this.buildLaunchArgv(spec)
+        return Bun.spawn(argv, {
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "pipe",
+            // 子进程读写的就是这些本地目录；env 直接透传 host 路径，不做容器化改写。
+            env: {
+                ...process.env,
+                ...spec.solverEnv,
+                TCH_SOLVER_BASE_DIR: spec.hostBaseDir,
+                TCH_SOLVER_SESSION_DIR: spec.hostSessionDir,
+                TCH_SOLVER_WORKSPACE: spec.hostWorkspaceDir,
+                ...(spec.hostScopePath ? { TCH_ENGAGEMENT_SCOPE: spec.hostScopePath } : {}),
+            },
+        })
+    }
+
+    /** 构造本地 solver rpc 启动 argv（纯函数，便于测试）。 */
+    buildLaunchArgv(spec: SolverLaunchSpec): string[] {
+        const execPath = process.execPath
+        const execName = execPath.split("/").pop()?.toLowerCase() ?? ""
+        const isBun = execName === "bun" || execName === "bun.exe"
+        // bun 运行时：execPath 是 bun 本体，需带上 CLI 入口脚本（process.argv[1]）。
+        // 编译二进制：execPath 自身即 tch-agent，直接跟子命令。
+        const base = isBun && process.argv[1] ? [execPath, process.argv[1], "solver", "rpc"] : [execPath, "solver", "rpc"]
+        // env 主要通过 Bun.spawn 的 env 注入（见 spawn）；这里附带 --env 让 rpc-server 的
+        // readEnvArgsFromArgv 兜底，并与 docker/ssh 的 cmdline 风格保持一致。
+        const argv = [...base]
+        for (const [k, v] of Object.entries(spec.solverEnv)) {
+            if (!k.trim() || typeof v !== "string" || !v.trim()) continue
+            argv.push("--env", `${k}=${v}`)
+        }
+        return argv
+    }
+
+    async stop(_spec: { solverId: string; containerName: string }): Promise<void> {
+        // no-op：本地子进程由 RuntimeManager 持有句柄，stopSolver 的 finally 直接 .kill()。
+    }
+}
+
 export function createExecutionBackend(config: ContainerConfig): ExecutionBackend {
     if (config.backend === "ssh") {
         if (!config.ssh) throw new Error('runtime.backend="ssh" requires runtime.ssh config')
         return new SshBackend(config.ssh)
+    }
+    if (config.backend === "local") {
+        return new LocalBackend()
     }
     return new DockerBackend(config)
 }

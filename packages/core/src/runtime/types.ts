@@ -25,8 +25,11 @@ export interface ContainerConfig {
      * 执行后端：
      * - "docker"（默认）：每个 solver 起一个本地 docker 容器。
      * - "ssh"：solver 直接在远程主机（如云 kali）上跑，去掉 docker。
+     * - "local"：solver 进程跑在控制面本地（不进容器、不 ssh），攻击面通过 MCP 工具
+     *   （如 kali-arsenal 的 ssh_execute）够到远程 Kali。session/workspace 天然本地，
+     *   无需 sshfs 同视图、无需注入 158MB 二进制。这是「solver=大脑在本地，MCP=双手在远端」模型。
      */
-    backend?: "docker" | "ssh"
+    backend?: "docker" | "ssh" | "local"
     /** backend="ssh" 时的远程执行配置 */
     ssh?: SshBackendConfig
 }

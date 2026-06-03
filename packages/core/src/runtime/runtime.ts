@@ -237,10 +237,14 @@ export class RuntimeManager {
 
     async init(onProgress?: (message: string) => void) {
         await this.ensureReady()
-        await this.ensureImage(onProgress)
-        const execName = basename(process.execPath).toLowerCase()
-        if (execName === "bun" || execName === "bun.exe") {
-            await ensureSolverBinary(onProgress)
+        // 只有 docker 后端需要本地镜像 + 编译注入二进制。
+        // ssh：远端用自己的 remoteBinary；local：solver 直接跑控制面进程，都不需要镜像/编译。
+        if (this.backend.kind === "docker") {
+            await this.ensureImage(onProgress)
+            const execName = basename(process.execPath).toLowerCase()
+            if (execName === "bun" || execName === "bun.exe") {
+                await ensureSolverBinary(onProgress)
+            }
         }
     }
 
@@ -490,8 +494,8 @@ export class RuntimeManager {
     /** Start a new solver for a given prompt (docker container or remote ssh process) */
     async launch(promptName: string, task: string, solverEnv?: Record<string, string>, options?: { solverId?: string; resume?: boolean }): Promise<SolverInstance> {
         await this.ensureReady()
-        // ssh 后端：solver 在远程主机跑，本地无需构建/检查 docker 镜像。
-        if (this.backend.kind !== "ssh") {
+        // 只有 docker 后端需要本地镜像。ssh：solver 在远程主机跑；local：solver 跑控制面进程。
+        if (this.backend.kind === "docker") {
             await this.ensureImage()
         }
 
@@ -520,9 +524,9 @@ export class RuntimeManager {
         await mkdir(sessionDir, { recursive: true })
         await mkdir(workspaceDir, { recursive: true })
 
-        // ssh 后端在远程主机用自己的 remoteBinary，injectionCmd/extraBinds 都用不到；
-        // 跳过 resolveSolverInjection() 以免每次启动都白白触发一次 solver 二进制编译。
-        const injection = this.backend.kind === "ssh" ? { cmd: [], binds: [] } : await resolveSolverInjection()
+        // 只有 docker 后端需要把编译好的 solver 二进制注入容器（resolveSolverInjection 触发编译）。
+        // ssh 用远端 remoteBinary；local 直接用控制面 execPath 起进程。两者都跳过注入，避免无谓编译。
+        const injection = this.backend.kind === "docker" ? await resolveSolverInjection() : { cmd: [], binds: [] }
         const hostScopePath = normalizedSolverEnv[ENGAGEMENT_ENV_SCOPE]?.trim() || undefined
 
         try {

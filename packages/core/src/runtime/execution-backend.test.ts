@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test"
-import { createExecutionBackend, SshBackend, DockerBackend } from "./execution-backend"
+import { createExecutionBackend, SshBackend, DockerBackend, LocalBackend } from "./execution-backend"
 import type { SolverLaunchSpec } from "./execution-backend"
 
 const SPEC: SolverLaunchSpec = {
@@ -84,4 +84,29 @@ test("SshBackend defaults remote binary path", () => {
     const b = new SshBackend({ host: "h" })
     const remote = b.buildLaunchArgv(SPEC).at(-1)!
     expect(remote).toContain("/opt/tch-agent/tch-agent")
+})
+
+test("createExecutionBackend selects local when configured", () => {
+    const b = createExecutionBackend({ image: "x", backend: "local" })
+    expect(b.kind).toBe("local")
+    expect(b instanceof LocalBackend).toBe(true)
+})
+
+test("LocalBackend builds a local solver-rpc argv ending in 'solver rpc' with env flags", () => {
+    const b = new LocalBackend()
+    const argv = b.buildLaunchArgv(SPEC)
+    // argv 以当前进程 execPath 开头，含 solver rpc 子命令
+    const joined = argv.join(" ")
+    expect(joined).toContain("solver rpc")
+    // env 以 --env K=V 附带（兜底；主注入走 Bun.spawn 的 env）
+    expect(joined).toContain("--env TCH_ENGAGEMENT_MODE=1")
+    expect(joined).toContain("--env TCH_CHALLENGE_ID=t1")
+    // 不做容器/远程路径转换，也不出现 docker/ssh 关键字
+    expect(argv).not.toContain("docker")
+    expect(argv).not.toContain("ssh")
+})
+
+test("LocalBackend.stop is a no-op (RuntimeManager kills the local proc)", async () => {
+    const b = new LocalBackend()
+    await expect(b.stop({ solverId: "abc123", containerName: "tch-solver-abc123" })).resolves.toBeUndefined()
 })
