@@ -102,8 +102,10 @@ async function ensureBuiltinAssetsGenerated(): Promise<void> {
 async function ensureHostStaticConfig(configDir: string): Promise<void> {
     const { initBuiltinSkills } = await import("../../../packages/core/src/config/skills/index")
     const { initBuiltinPrompts } = await import("../../../packages/core/src/config/prompts/index")
+    const { initBuiltinMcpServers } = await import("../../../packages/core/src/config/mcp/index")
     await initBuiltinSkills(configDir)
     await initBuiltinPrompts(configDir)
+    await initBuiltinMcpServers(configDir)
 }
 
 function shouldPrepareHostStaticConfig(argv: string[]): boolean {

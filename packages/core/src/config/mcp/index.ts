@@ -50,6 +50,46 @@ export function getMcpConfig(dir: string): McpConfig {
     return loadMcpConfig(mcpJsonPath(dir))
 }
 
+/**
+ * 内置 MCP server 默认配置。首次启动时 seed 进 mcp.json，让 clone 下来开箱即有
+ * solver 攻击工具（kali-arsenal）和漏洞情报（vuln-intel），不必手填。
+ *
+ * - command/args 指向仓库内 vendor 的脚本（mcp/ 目录），绝对路径在 seed 时按本模块
+ *   位置解析（主部署形态是从仓库源码树跑 bun run web）。
+ * - env 留空占位：SSH 凭据、API key 由用户在 Config → MCP 填（绝不内置任何凭据）。
+ * - 仅 seed 缺失的条目，已存在的（用户已配/已填凭据）一律不动。
+ */
+function builtinMcpServers(): Record<string, ServerEntry> {
+    // 本模块在 packages/core/src/config/mcp/index.ts，仓库根在上 5 层；vendor 脚本在 <root>/mcp/。
+    const repoMcpDir = resolve(import.meta.dir, "../../../../../mcp")
+    return {
+        "kali-arsenal": {
+            command: "python3",
+            args: [resolve(repoMcpDir, "ssh_mcp.py")],
+            env: { SSH_HOST: "", SSH_PORT: "22", SSH_USER: "root", SSH_PASS: "", SSH_ALIAS: "" },
+            lifecycle: "keep-alive",
+        },
+        "vuln-intel": {
+            command: "python3",
+            args: [resolve(repoMcpDir, "vuln_intel_mcp.py")],
+            env: { NVD_API_KEY: "", GITHUB_TOKEN: "" },
+            lifecycle: "keep-alive",
+        },
+    }
+}
+
+/** 首次启动 seed 内置 MCP server（只补缺失，不覆盖用户已有配置/凭据）。 */
+export async function initBuiltinMcpServers(dir: string) {
+    const config = getMcpConfig(dir)
+    let changed = false
+    for (const [name, server] of Object.entries(builtinMcpServers())) {
+        if (name in config.mcpServers) continue // 已存在（含用户填好凭据的）→ 绝不覆盖
+        config.mcpServers[name] = server
+        changed = true
+    }
+    if (changed) await writeMcpConfig(dir, config)
+}
+
 async function writeMcpConfig(dir: string, config: McpConfig) {
     await Bun.write(mcpJsonPath(dir), JSON.stringify(config, null, 2))
 }
