@@ -1319,11 +1319,10 @@ export class ConfigManager {
         const runtime = tch.runtime ?? {}
         const planner = tch.planner ?? {}
         return {
-            // 默认强制开启自动调度 + 默认 3 路并行 solver。
-            // 仅当配置里显式写了 planner.enabled=false / 自定义 maxSolvers 时才覆盖默认。
-            runtime: { ...runtime, maxSolvers: runtime.maxSolvers ?? 3 },
+            // Planner 强制开启；maxSolvers 默认 1（可在 UI 调高，不可关闭调度）。
+            runtime: { ...runtime, maxSolvers: runtime.maxSolvers ?? 1 },
             challenge: tch.challenge ?? {},
-            planner: { ...planner, enabled: planner.enabled ?? true },
+            planner: { ...planner, enabled: true },
             defaultModelPrefId: typeof tch.defaultModelPrefId === "string" && tch.defaultModelPrefId.trim() ? tch.defaultModelPrefId.trim() : undefined,
         }
     }
@@ -1344,7 +1343,7 @@ export class ConfigManager {
                     providerBaseUrls,
                 ),
             },
-            planner: { ...current.planner, ...(patch.planner ?? {}) },
+            planner: { ...current.planner, ...(patch.planner ?? {}), enabled: true },
             defaultModelPrefId:
                 "defaultModelPrefId" in patch
                     ? (typeof patch.defaultModelPrefId === "string" && patch.defaultModelPrefId.trim() ? patch.defaultModelPrefId.trim() : undefined)

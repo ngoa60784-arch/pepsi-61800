@@ -1,6 +1,6 @@
 # BreachWeave
 
-BreachWeave 面向智能渗透测试场景的多 Agent 协作架构。
+BreachWeave（`tch-agent`）是面向**授权渗透测试与攻防演练**的多 Agent 协作系统。多个 Solver 在隔离 Kali 环境中并行推进 kill chain，由编排中枢统一调度、旁路 Observer 维护作战态，Commander 与 Planner 分别承担人机协同与自动调度。
 
 ## 第一次启动
 
@@ -8,92 +8,76 @@ BreachWeave 面向智能渗透测试场景的多 Agent 协作架构。
 bun run install && bun run web
 ```
 
-## 竞赛成绩
-
-| 起始日期   | 结束日期   | 竞赛                                                                                                            | 赛段     | 获奖情况 | 排名    |
-| ---------- | ---------- | --------------------------------------------------------------------------------------------------------------- | -------- | -------- | ------- |
-| 2026-04-13 | 2026-04-17 | [腾讯云黑客松智能渗透测试挑战赛（第二期）](https://zc.tencent.com/competition/competitionHackathon?code=cha004) | 线上初赛 | N/A      | 1 / 613 |
-| 2026-04-25 | 2026-04-25 | [腾讯云黑客松智能渗透测试挑战赛（第二期）](https://zc.tencent.com/competition/competitionHackathon?code=cha004) | 线下决赛 | 一等奖   | 1 / 613 |
-
-<a href="https://zc.tencent.com/competition/competitionHackathon?code=cha004">
-    <img width="1604" height="460" alt="dc25eea9efae81999d4660a747aa0b9c" src="https://github.com/user-attachments/assets/2cda17c3-e668-4459-abc0-e46a745860be" />
-</a>
+部署与 scope 配置见 [docs/deployment.md](docs/deployment.md)、[docs/engagement-mode.md](docs/engagement-mode.md)。完整工程说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ![](./docs/design.png)
 
-
-https://github.com/user-attachments/assets/b051927e-b64f-4bdf-833d-d542e328ad20
-
-
-
 ## 架构核心
 
-项目整体采用 `Manager / Solver / Observer` 的多角色架构。
+项目采用 **编排中枢 / Solver / Observer** 多角色架构。
 
-### Manager
+### 编排中枢（ChallengeManager）
 
-`Manager` 负责全局编排。
+负责全局编排，**不亲自执行利用链**，而是站在**目标（target）**视角做统一调度：
 
-它的职责不是亲自执行利用链，而是站在 challenge 视角做统一调度：
-
-- 管理题目推进节奏
-- 分配和回收 Solver
-- 汇总运行状态
-- 组织多 Agent 协作
+- 管理多目标推进节奏与优先级
+- 分配、回收、纠偏 Solver
+- 汇总运行状态与 findings
+- 维护跨 Solver 共享作战态（memory / ideas / state assets）
 
 可以把它理解成整套系统的控制平面。
 
 ### Solver
 
-`Solver` 是真正执行任务的主体。
+真正在 Kali 容器（或远程 SSH 主机）里执行 kill chain 的主体，面向具体攻击路线推进：
 
-它面向具体攻击路线推进实际动作，例如：
+- 信息收集与资产测绘
+- 漏洞验证与利用链推进
+- 通过 `report_finding` 记录已验证发现
+- 通过 `record_asset` 沉淀可复用资产
 
-- 信息收集
-- 漏洞验证
-- 利用链推进
-- 结果提交
-
-一个题目可以同时存在多个 Solver，并行探索不同方向。
+一个目标可同时运行多个 Solver，并行探索不同方向。
 
 ### Observer
 
-`Observer` 不直接代替 Solver 解题，而是作为旁路监督角色持续观察任务执行过程。
-
-它重点解决的是复杂任务里最容易出现的几个问题：
+不直接代替 Solver 做决策，而是作为**旁路监督 sidecar** 持续观察执行过程，解决复杂任务里常见的问题：
 
 - 执行路径逐渐偏移
-- 状态不断累积后变得混杂
+- 状态累积后变得混杂
 - 模型在阶段性停顿时过早结束任务
-- 上下文越来越重，影响后续推进
+- 上下文越来越重，稀释后续决策信号
 
-Observer 的作用，是让系统具备持续监督、轻量纠偏和状态维护能力。
+Observer 维护 solver 本地策略看板（ideas / memory），并在必要时通过 steer 做轻量纠偏。
 
 ## 系统能力概览
 
-围绕上面的架构，项目重点构建了几类能力：
-
 ### 1. 多 Agent 协作
 
-系统支持多个 Solver 并发探索不同方向，由 Manager 在全局视角统一调度，避免重复试错，并让有效结果能够继续沉淀和复用。
+多个 Solver 并发探索不同方向，由 Planner / Commander 在全局视角统一调度，避免重复试错，并让有效结果继续沉淀和复用。
 
 ### 2. 运行态监督
 
-Observer 持续检查最近几轮执行轨迹和反馈，不替代 Solver 做决定，而是在发现明显低效或偏移时进行轻量纠偏。
+Observer 持续检查最近几轮执行轨迹，不替代 Solver 做决定，而是在发现明显低效或偏移时进行轻量纠偏。
 
 ### 3. 状态分层维护
 
-系统把“方向”和“事实”拆开维护：
+系统把「方向」和「事实」拆开维护：
 
-- `Idea` 关注当前值得继续推进的方向
-- `Memory` 保留可复用的事实、证据与约束
+- **思路（ideas）** — 当前值得继续验证的假设与路线
+- **记忆（memory）** — 可复用的事实、证据与约束
 
-这样可以避免状态混在一起，导致后续决策越来越模糊。
+避免状态混在一起，导致后续决策越来越模糊。
 
 ### 4. 结束条件外置
 
-任务是否结束，不完全交给模型主观判断，而是由系统结合任务状态统一约束，避免复杂任务在中途被过早结束。
+任务是否结束，不完全交给模型主观判断：续跑机制结合目标完成状态统一约束；关键发现经 Verifier 复验后，才由系统收尾。
 
 ### 5. 上下文压缩与降噪
 
-系统不会把原始工具输出和历史会话无限堆进上下文，而是通过改写、压缩、摘要等方式，尽量让后续决策始终建立在高信号、低噪音的信息之上。
+大体积工具输出落盘到 workspace，上下文只保留预览与路径指引，让后续决策建立在高信号、低噪音的信息之上。
+
+## 实战模式
+
+系统**默认以实战（engagement）模式运行**：通过 scope 白名单约束授权范围，findings 写入本地日志，完成判定依赖操作员或 Verifier 确认，**不连接任何远程评分平台**。
+
+详见 [docs/engagement-mode.md](docs/engagement-mode.md)。

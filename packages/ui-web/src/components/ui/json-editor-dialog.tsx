@@ -28,7 +28,7 @@ export function JsonEditorDialog({ label, value, onSave }: { label: string; valu
             if (label === "headers") {
                 for (const [k, v] of Object.entries(parsed)) {
                     if (typeof v !== "string") {
-                        setError(`Value for "${k}" must be a string`)
+                        setError(`"${k}" 的值必须是字符串`)
                         return
                     }
                 }
@@ -36,7 +36,7 @@ export function JsonEditorDialog({ label, value, onSave }: { label: string; valu
             onSave(parsed)
             setOpen(false)
         } catch {
-            setError("Invalid JSON")
+            setError("JSON 无效")
         }
     }
 
@@ -44,18 +44,18 @@ export function JsonEditorDialog({ label, value, onSave }: { label: string; valu
         <>
             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={handleOpen}>
                 {label}
-                {hasValue && <span className="ml-1 text-[10px] opacity-60">set</span>}
+                {hasValue && <span className="ml-1 text-[10px] opacity-60">已设</span>}
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Edit {label}</DialogTitle>
+                        <DialogTitle>编辑 {label}</DialogTitle>
                     </DialogHeader>
                     <Textarea className="font-mono text-xs" rows={8} value={text} onChange={(e) => { setText(e.target.value); setError("") }} />
                     {error && <p className="text-xs text-destructive">{error}</p>}
                     <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
-                        <Button size="sm" onClick={handleSave}>Save</Button>
+                        <Button variant="outline" size="sm" onClick={() => setOpen(false)}>取消</Button>
+                        <Button size="sm" onClick={handleSave}>保存</Button>
                     </div>
                 </DialogContent>
             </Dialog>

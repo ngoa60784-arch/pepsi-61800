@@ -7,14 +7,14 @@ import { McpPage } from "./mcp"
 import { HostPage, PlannerPage } from "./host"
 
 const configPages: Record<string, { title: string; component: () => React.JSX.Element }> = {
-    host: { title: "Challenge", component: HostPage },
-    planner: { title: "Planner", component: PlannerPage },
-    providers: { title: "Providers", component: ProvidersPage },
-    models: { title: "Models", component: ModelsPage },
-    tools: { title: "Tools", component: ToolsPage },
-    mcp: { title: "MCP Servers", component: McpPage },
-    skills: { title: "Skills", component: SkillsPage },
-    prompts: { title: "Prompts", component: PromptsPage },
+    host: { title: "目标", component: HostPage },
+    planner: { title: "调度器", component: PlannerPage },
+    providers: { title: "提供商", component: ProvidersPage },
+    models: { title: "模型", component: ModelsPage },
+    tools: { title: "工具", component: ToolsPage },
+    mcp: { title: "MCP 服务", component: McpPage },
+    skills: { title: "技能", component: SkillsPage },
+    prompts: { title: "提示词", component: PromptsPage },
 }
 
 export function ConfigPage({ activeTab }: { activeTab: string }) {

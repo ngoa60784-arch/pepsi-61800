@@ -311,8 +311,8 @@ export function PromptsPage() {
                 <div className="flex items-center justify-between gap-3">
                     <Tabs value={promptTab} onValueChange={(value) => setPromptTab((value as "agent" | "subagent") ?? "agent")}>
                         <TabsList>
-                            <TabsTrigger value="agent">Agent</TabsTrigger>
-                            <TabsTrigger value="subagent">Subagent</TabsTrigger>
+                            <TabsTrigger value="agent">主 Agent</TabsTrigger>
+                            <TabsTrigger value="subagent">子 Agent</TabsTrigger>
                         </TabsList>
                     </Tabs>
                     <Button size="sm" onClick={openNew}>
@@ -322,7 +322,7 @@ export function PromptsPage() {
                 </div>
 
                 {agentLoading || subagentLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading...</p>
+                    <p className="text-sm text-muted-foreground">加载中…</p>
                 ) : visiblePrompts.length > 0 ? (
                     <div className="space-y-2">
                         {visiblePrompts.map((p) => (
@@ -336,17 +336,17 @@ export function PromptsPage() {
                                         <span className="text-sm font-medium">{p.name}</span>
                                         {p.meta.isSubagent && (
                                             <Badge variant="outline" className="text-[10px]">
-                                                Subagent
+                                                子 Agent
                                             </Badge>
                                         )}
                                         {p.meta.disabled === true && (
                                             <Badge variant="destructive" className="text-[10px]">
-                                                Disabled
+                                                已禁用
                                             </Badge>
                                         )}
                                         {p.meta.observerEnabled === true && (
                                             <Badge variant="outline" className="text-[10px]">
-                                                Observer
+                                                观察者
                                             </Badge>
                                         )}
                                         {p.builtin && (
@@ -365,9 +365,9 @@ export function PromptsPage() {
                                                     </Badge>
                                                 )
                                             })()}
-                                        <span>{p.meta.tools?.length ?? 0} tools</span>
-                                        <span>{p.meta.skills?.length ?? 0} skills</span>
-                                        <span>{p.meta.subagents?.length ?? 0} subagents</span>
+                                        <span>{p.meta.tools?.length ?? 0} 工具</span>
+                                        <span>{p.meta.skills?.length ?? 0} skill</span>
+                                        <span>{p.meta.subagents?.length ?? 0} 子 Agent</span>
                                     </div>
                                 </div>
                                 <div className="ml-6 grid w-52 shrink-0 grid-cols-[1fr_2rem_2rem] items-center gap-2">
@@ -416,7 +416,7 @@ export function PromptsPage() {
                         ))}
                     </div>
                 ) : (
-                    <p className="text-sm text-muted-foreground">暂无{promptTab === "subagent" ? " Subagent " : " "}Prompt。</p>
+                    <p className="text-sm text-muted-foreground">暂无{promptTab === "subagent" ? "子 Agent " : ""}Prompt。</p>
                 )}
             </div>
         )
@@ -433,7 +433,7 @@ export function PromptsPage() {
                 </Button>
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">Enabled</span>
+                        <span className="text-xs text-muted-foreground">启用</span>
                         <Switch checked={!form.disabled} onCheckedChange={(checked) => setForm((f) => (f ? { ...f, disabled: !checked } : f))} />
                     </div>
                     <Button variant="outline" size="sm" onClick={() => openCopy(toPrompt(form))}>
@@ -456,7 +456,7 @@ export function PromptsPage() {
                     <div className="space-y-4">
                         {/* Name */}
                         <div className="space-y-1.5">
-                            <Label>Name</Label>
+                            <Label>名称</Label>
                             <Input
                                 value={form.name}
                                 onChange={(e) => {
@@ -470,13 +470,13 @@ export function PromptsPage() {
 
                         {/* Description */}
                         <div className="space-y-1.5">
-                            <Label>Description</Label>
+                            <Label>描述</Label>
                             <Input value={form.description} onChange={(e) => patch("description", e.target.value)} />
                         </div>
 
                         {/* Model */}
                         <div className="space-y-1.5">
-                            <Label>Model</Label>
+                            <Label>模型</Label>
                             <Select value={form.model} onValueChange={(val) => patch("model", val ?? "")} disabled={(modelList?.length ?? 0) === 0}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="选择模型">
@@ -502,7 +502,7 @@ export function PromptsPage() {
                             <>
                                 <div className="space-y-1.5">
                                     <div className="flex items-center justify-between">
-                                        <Label>Observer</Label>
+                                        <Label>观察者</Label>
                                         <Switch
                                             checked={form.observerEnabled}
                                             onCheckedChange={(checked) =>
@@ -518,12 +518,12 @@ export function PromptsPage() {
                                             }
                                         />
                                     </div>
-                                    <p className="text-[10px] text-muted-foreground">启用后，challenge solver 会附加 observer sidecar。</p>
+                                    <p className="text-[10px] text-muted-foreground">启用后，目标 Solver 会附加观察者 sidecar。</p>
                                 </div>
 
                                 {form.observerEnabled && (
                                     <div className="space-y-1.5">
-                                        <Label>Observer Model</Label>
+                                        <Label>观察者模型</Label>
                                         <Select
                                             value={form.observerModel || NONE_MODEL_VALUE}
                                             onValueChange={(val) =>
@@ -564,7 +564,7 @@ export function PromptsPage() {
                         {/* Tools */}
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
-                                <Label>MCP Servers</Label>
+                                <Label>MCP 服务</Label>
                                 <span className="text-[10px] text-muted-foreground">{enabledMcpServers.size} 已启用</span>
                             </div>
                             <div className="rounded-md border p-2 max-h-32 overflow-y-auto space-y-0.5">
@@ -576,13 +576,13 @@ export function PromptsPage() {
                                         </div>
                                     </label>
                                 ))}
-                                {availableMcpServers.length === 0 && <p className="text-xs text-muted-foreground">暂无 MCP Server</p>}
+                                {availableMcpServers.length === 0 && <p className="text-xs text-muted-foreground">暂无 MCP 服务</p>}
                             </div>
                         </div>
 
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
-                                <Label>Tools ({form.tools.length} 已选)</Label>
+                                <Label>工具 ({form.tools.length} 已选)</Label>
                                 <div className="flex gap-1">
                                     <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5" onClick={selectAllFiltered}>
                                         全选
@@ -630,7 +630,7 @@ export function PromptsPage() {
                         {/* Skills */}
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
-                                <Label>Skills ({form.skills.length} 已选)</Label>
+                                <Label>技能 ({form.skills.length} 已选)</Label>
                                 <div className="flex gap-1">
                                     <Button
                                         variant="ghost"
@@ -658,14 +658,14 @@ export function PromptsPage() {
                                         </div>
                                     </label>
                                 ))}
-                                {(!skillList || skillList.length === 0) && <p className="text-xs text-muted-foreground">暂无 Skill</p>}
+                                {(!skillList || skillList.length === 0) && <p className="text-xs text-muted-foreground">暂无技能</p>}
                             </div>
                         </div>
 
                         {!form.isSubagent && (
                             <div className="space-y-1.5">
                                 <div className="flex items-center justify-between">
-                                    <Label>Subagents ({form.subagents.length} 已选)</Label>
+                                    <Label>子 Agent ({form.subagents.length} 已选)</Label>
                                     <div className="flex gap-1">
                                         <Button
                                             variant="ghost"
@@ -692,7 +692,7 @@ export function PromptsPage() {
                                                 </div>
                                             </label>
                                         ))}
-                                    {subagentPrompts.filter((p) => p.name !== form.name).length === 0 && <p className="text-xs text-muted-foreground">暂无 Subagent Prompt</p>}
+                                    {subagentPrompts.filter((p) => p.name !== form.name).length === 0 && <p className="text-xs text-muted-foreground">暂无子 Agent 提示词</p>}
                                 </div>
                             </div>
                         )}
@@ -701,7 +701,7 @@ export function PromptsPage() {
 
                 {/* Right: System Prompt */}
                 <div className="flex flex-col gap-1.5 min-h-0">
-                    <Label>System Prompt</Label>
+                    <Label>系统提示词</Label>
                     <Textarea value={form.content} onChange={(e) => patch("content", e.target.value)} className="flex-1 font-mono text-xs resize-none" />
                 </div>
             </div>

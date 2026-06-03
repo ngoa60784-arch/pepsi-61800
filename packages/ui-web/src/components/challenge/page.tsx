@@ -18,12 +18,12 @@ import { Textarea } from "../ui/textarea"
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 function formatTime(value?: string) {
-    if (!value) return "unknown"
+    if (!value) return "未知"
     return new Date(value).toLocaleString()
 }
 
 function formatSolverTime(value?: number) {
-    if (!value) return "unknown"
+    if (!value) return "未知"
     return new Date(value).toLocaleString()
 }
 
@@ -103,6 +103,28 @@ function formatShortDuration(value?: number) {
 const MEMORY_KIND_OPTIONS: MemoryEntry["kind"][] = ["fact", "evidence", "failure", "note", "hint"]
 const IDEA_STATUS_OPTIONS: IdeaRecord["status"][] = ["pending", "testing", "verified", "failed", "skipped"]
 
+const MEMORY_KIND_LABELS: Record<MemoryEntry["kind"], string> = {
+    fact: "发现",
+    evidence: "证据",
+    failure: "失败边界",
+    note: "笔记",
+    hint: "提示",
+}
+
+const IDEA_STATUS_LABELS: Record<IdeaRecord["status"], string> = {
+    pending: "待验证",
+    testing: "验证中",
+    verified: "已验证",
+    failed: "已失败",
+    skipped: "已跳过",
+}
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+    easy: "简单",
+    medium: "中等",
+    hard: "困难",
+}
+
 interface MemoryFormState {
     kind: MemoryEntry["kind"]
     content: string
@@ -165,14 +187,14 @@ function StatsRankingTable(props: { items: ChallengeStatsOverviewBucket[]; empty
             <Table>
                 <TableHeader className="sticky top-0 bg-background">
                     <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Challenges</TableHead>
-                        <TableHead>Flags</TableHead>
-                        <TableHead>Flag Rate</TableHead>
-                        <TableHead>Error</TableHead>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Tokens</TableHead>
-                        <TableHead>Quality</TableHead>
+                        <TableHead>名称</TableHead>
+                        <TableHead>目标数</TableHead>
+                        <TableHead>Flag</TableHead>
+                        <TableHead>Flag 率</TableHead>
+                        <TableHead>错误</TableHead>
+                        <TableHead>时间</TableHead>
+                        <TableHead>Token</TableHead>
+                        <TableHead>质量</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -219,26 +241,26 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
     return (
         <div className="space-y-4">
             <div className="rounded-lg border border-dashed p-4">
-                <div className="mb-3 text-sm font-medium text-muted-foreground">{title} · Summary</div>
+                <div className="mb-3 text-sm font-medium text-muted-foreground">{title} · 摘要</div>
                 <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-4">
                     <div className="rounded-md border px-3 py-2">
-                        <div className="text-xs">Items</div>
+                        <div className="text-xs">条目</div>
                         <div className="mt-1 text-base font-medium text-foreground">{items.length}</div>
                     </div>
                     <div className="rounded-md border px-3 py-2">
-                        <div className="text-xs">Avg Flag Rate</div>
+                        <div className="text-xs">平均 Flag 率</div>
                         <div className="mt-1 text-base font-medium text-foreground">
                             {formatPercent(items.reduce((sum, item) => sum + item.completion_rate, 0) / items.length)}
                         </div>
                     </div>
                     <div className="rounded-md border px-3 py-2">
-                        <div className="text-xs">Avg Time</div>
+                        <div className="text-xs">平均时间</div>
                         <div className="mt-1 text-base font-medium text-foreground">
                             {formatMinutes(items.reduce((sum, item) => sum + item.total_duration_ms, 0) / items.length)}
                         </div>
                     </div>
                     <div className="rounded-md border px-3 py-2">
-                        <div className="text-xs">Avg Tokens</div>
+                        <div className="text-xs">平均 Token</div>
                         <div className="mt-1 text-base font-medium text-foreground">
                             {formatTokenCount(Math.round(items.reduce((sum, item) => sum + item.total_tokens, 0) / items.length))}
                         </div>
@@ -248,14 +270,14 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
 
             <Tabs value={tab} onValueChange={setTab} className="space-y-4">
                 <TabsList>
-                    <TabsTrigger value="success">Success</TabsTrigger>
-                    <TabsTrigger value="time">Time</TabsTrigger>
-                    <TabsTrigger value="tokens">Tokens</TabsTrigger>
-                    <TabsTrigger value="quality">Quality</TabsTrigger>
+                    <TabsTrigger value="success">成功</TabsTrigger>
+                    <TabsTrigger value="time">时间</TabsTrigger>
+                    <TabsTrigger value="tokens">Token</TabsTrigger>
+                    <TabsTrigger value="quality">质量</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="success" className="rounded-lg border p-4">
-                    <div className="mb-3 text-sm font-medium">{title} · Flags</div>
+                    <div className="mb-3 text-sm font-medium">{title} · Flag</div>
                     <div style={{ height }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
@@ -264,14 +286,14 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
                                 <YAxis type="category" dataKey="name" width={220} />
                                 <Tooltip />
                                 <Legend />
-                                <Bar dataKey="flagCount" name="Flags" fill="#2563eb" radius={[0, 4, 4, 0]} />
+                                <Bar dataKey="flagCount" name="Flag" fill="#2563eb" radius={[0, 4, 4, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
                 </TabsContent>
 
                 <TabsContent value="time" className="rounded-lg border p-4">
-                    <div className="mb-3 text-sm font-medium">{title} · Time</div>
+                    <div className="mb-3 text-sm font-medium">{title} · 时间</div>
                     <div style={{ height }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
@@ -279,7 +301,7 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
                                 <XAxis type="number" />
                                 <YAxis type="category" dataKey="name" width={220} />
                                 <Tooltip />
-                                <Bar dataKey="totalMinutes" name="Time (min)" radius={[0, 4, 4, 0]}>
+                                <Bar dataKey="totalMinutes" name="时间（分钟）" radius={[0, 4, 4, 0]}>
                                     {data.map((entry) => (
                                         <Cell key={`${entry.name}-time`} fill={entry.completed ? "#16a34a" : "#7c3aed"} />
                                     ))}
@@ -290,7 +312,7 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
                 </TabsContent>
 
                 <TabsContent value="tokens" className="rounded-lg border p-4">
-                    <div className="mb-3 text-sm font-medium">{title} · Tokens</div>
+                    <div className="mb-3 text-sm font-medium">{title} · Token</div>
                     <div style={{ height }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
@@ -298,7 +320,7 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
                                 <XAxis type="number" />
                                 <YAxis type="category" dataKey="name" width={220} />
                                 <Tooltip />
-                                <Bar dataKey="totalTokens" name="Tokens (k)" radius={[0, 4, 4, 0]}>
+                                <Bar dataKey="totalTokens" name="Token (k)" radius={[0, 4, 4, 0]}>
                                     {data.map((entry) => (
                                         <Cell key={`${entry.name}-tokens`} fill={entry.completed ? "#16a34a" : "#ea580c"} />
                                     ))}
@@ -309,7 +331,7 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
                 </TabsContent>
 
                 <TabsContent value="quality" className="rounded-lg border p-4">
-                    <div className="mb-3 text-sm font-medium">{title} · Quality</div>
+                    <div className="mb-3 text-sm font-medium">{title} · 质量</div>
                     <div style={{ height }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
@@ -317,7 +339,7 @@ function StatsBucketCharts(props: { title: string; items: ChallengeStatsOverview
                                 <XAxis type="number" />
                                 <YAxis type="category" dataKey="name" width={220} />
                                 <Tooltip />
-                                <Bar dataKey="quality" name="Quality" radius={[0, 4, 4, 0]}>
+                                <Bar dataKey="quality" name="质量" radius={[0, 4, 4, 0]}>
                                     {data.map((entry) => (
                                         <Cell key={`${entry.name}-quality`} fill={entry.completed ? "#16a34a" : "#0f766e"} />
                                     ))}
@@ -343,8 +365,8 @@ function StatsOverviewDialog(props: {
 
     const pieData = statsOverview
         ? [
-              { name: "Solved Flags", value: statsOverview.flags_solved, color: "#16a34a" },
-              { name: "Remaining Flags", value: Math.max(statsOverview.flags_total - statsOverview.flags_solved, 0), color: "#d4d4d8" },
+              { name: "已解 Flag", value: statsOverview.flags_solved, color: "#16a34a" },
+              { name: "剩余 Flag", value: Math.max(statsOverview.flags_total - statsOverview.flags_solved, 0), color: "#d4d4d8" },
           ]
         : []
     const challengeMetricData = (statsOverview?.challenge_series ?? []).map((item) => ({
@@ -368,7 +390,7 @@ function StatsOverviewDialog(props: {
     })
     const challengeMetricHeight = statsChartHeight(challengeMetricData.length)
     const challengeMetricKey = challengeMetric === "tokens" ? "tokensK" : challengeMetric === "quality" ? "quality" : "durationMinutes"
-    const challengeMetricLabel = challengeMetric === "tokens" ? "Tokens (k)" : challengeMetric === "quality" ? "Quality" : "Solve Time (min)"
+    const challengeMetricLabel = challengeMetric === "tokens" ? "Token (k)" : challengeMetric === "quality" ? "质量" : "解题时间（分钟）"
     const challengeMetricColor = challengeMetric === "tokens" ? "#ea580c" : challengeMetric === "quality" ? "#0f766e" : "#2563eb"
 
     return (
@@ -377,42 +399,42 @@ function StatsOverviewDialog(props: {
                 {loading || !statsOverview ? (
                     <>
                         <DialogHeader>
-                            <DialogTitle>Challenge Stats</DialogTitle>
-                            <DialogDescription>图表化展示目标完成情况，以及模型 / Prompt 维度统计。</DialogDescription>
+                            <DialogTitle>目标统计</DialogTitle>
+                            <DialogDescription>图表化展示目标完成情况，以及模型 / 提示词维度统计。</DialogDescription>
                         </DialogHeader>
-                        <div className="text-sm text-muted-foreground">Loading stats...</div>
+                        <div className="text-sm text-muted-foreground">加载统计中…</div>
                     </>
                 ) : (
                     <Tabs value={tab} onValueChange={setTab} className="space-y-4">
                         <DialogHeader>
-                            <DialogTitle>Challenge Stats</DialogTitle>
-                            <DialogDescription>图表化展示目标完成情况，以及模型 / Prompt 维度统计。</DialogDescription>
+                            <DialogTitle>目标统计</DialogTitle>
+                            <DialogDescription>图表化展示目标完成情况，以及模型 / 提示词维度统计。</DialogDescription>
                         </DialogHeader>
                         <TabsList>
-                            <TabsTrigger value="overview">Overview</TabsTrigger>
-                            <TabsTrigger value="models">Models</TabsTrigger>
-                            <TabsTrigger value="prompts">Prompts</TabsTrigger>
+                            <TabsTrigger value="overview">概览</TabsTrigger>
+                            <TabsTrigger value="models">模型</TabsTrigger>
+                            <TabsTrigger value="prompts">提示词</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="overview" className="space-y-4">
                             <div className="grid gap-4 md:grid-cols-7">
                                 <div className="rounded-lg border px-4 py-3">
-                                    <div className="text-xs text-muted-foreground">Completion</div>
+                                    <div className="text-xs text-muted-foreground">完成率</div>
                                     <div className="mt-1 text-lg font-semibold">{formatPercent(statsOverview.flag_completion_rate)}</div>
-                                    <div className="text-xs text-muted-foreground">{statsOverview.flags_solved}/{statsOverview.flags_total} flags</div>
+                                    <div className="text-xs text-muted-foreground">{statsOverview.flags_solved}/{statsOverview.flags_total} 个 Flag</div>
                                 </div>
                                 <div className="rounded-lg border px-4 py-3">
-                                    <div className="text-xs text-muted-foreground">Error Rate</div>
+                                    <div className="text-xs text-muted-foreground">错误率</div>
                                     <div className="mt-1 text-lg font-semibold">{formatPercent(statsOverview.error_rate)}</div>
-                                    <div className="text-xs text-muted-foreground">{statsOverview.correct_submission_count}/{statsOverview.submission_count} correct</div>
+                                    <div className="text-xs text-muted-foreground">{statsOverview.correct_submission_count}/{statsOverview.submission_count} 正确</div>
                                 </div>
                                 <div className="rounded-lg border px-4 py-3">
-                                    <div className="text-xs text-muted-foreground">Total Solver Time</div>
+                                    <div className="text-xs text-muted-foreground">Solver 总时长</div>
                                     <div className="mt-1 text-lg font-semibold">{formatMinutes(statsOverview.solver_active_duration_ms_total)}</div>
-                                    <div className="text-xs text-muted-foreground">wall {formatMinutes(statsOverview.wall_time_ms_total)}</div>
+                                    <div className="text-xs text-muted-foreground">墙钟 {formatMinutes(statsOverview.wall_time_ms_total)}</div>
                                 </div>
                                 <div className="rounded-lg border px-4 py-3">
-                                    <div className="text-xs text-muted-foreground">Average Solve Time</div>
+                                    <div className="text-xs text-muted-foreground">平均解题时间</div>
                                     <div className="mt-1 text-lg font-semibold">
                                         {formatMinutes(
                                             statsOverview.challenges_solved > 0
@@ -420,31 +442,31 @@ function StatsOverviewDialog(props: {
                                                 : 0,
                                         )}
                                     </div>
-                                    <div className="text-xs text-muted-foreground">solved only</div>
+                                    <div className="text-xs text-muted-foreground">仅已解</div>
                                 </div>
                                 <div className="rounded-lg border px-4 py-3">
-                                    <div className="text-xs text-muted-foreground">Total Tokens</div>
+                                    <div className="text-xs text-muted-foreground">总 Token</div>
                                     <div className="mt-1 text-lg font-semibold">{formatTokenCount(statsOverview.total_tokens)}</div>
-                                    <div className="text-xs text-muted-foreground">all solvers</div>
+                                    <div className="text-xs text-muted-foreground">全部 Solver</div>
                                 </div>
                                 <div className="rounded-lg border px-4 py-3">
-                                    <div className="text-xs text-muted-foreground">Average Tokens</div>
+                                    <div className="text-xs text-muted-foreground">平均 Token</div>
                                     <div className="mt-1 text-lg font-semibold">
                                         {formatTokenCount(
                                             statsOverview.solver_count > 0 ? Math.round(statsOverview.total_tokens / statsOverview.solver_count) : 0,
                                         )}
                                     </div>
-                                    <div className="text-xs text-muted-foreground">per solver</div>
+                                    <div className="text-xs text-muted-foreground">每个 Solver</div>
                                 </div>
                                 <div className="rounded-lg border px-4 py-3">
-                                    <div className="text-xs text-muted-foreground">Quality</div>
+                                    <div className="text-xs text-muted-foreground">质量</div>
                                     <div className="mt-1 text-lg font-semibold">{Math.round(statsOverview.quality_score)}</div>
-                                    <div className="text-xs text-muted-foreground">weighted by solved progress</div>
+                                    <div className="text-xs text-muted-foreground">按完成进度加权</div>
                                 </div>
                             </div>
                             <div className="grid gap-4 lg:grid-cols-2">
                                 <div className="rounded-lg border p-4">
-                                    <div className="mb-3 text-sm font-medium">Flag Completion</div>
+                                    <div className="mb-3 text-sm font-medium">Flag 完成度</div>
                                     <div className="h-72">
                                         <ResponsiveContainer width="100%" height="100%">
                                             <PieChart>
@@ -461,12 +483,12 @@ function StatsOverviewDialog(props: {
                                 </div>
                                 <div className="rounded-lg border p-4">
                                     <div className="mb-3 flex items-center justify-between gap-3">
-                                        <div className="text-sm font-medium">Challenge Metrics</div>
+                                        <div className="text-sm font-medium">目标指标</div>
                                         <Tabs value={challengeMetric} onValueChange={setChallengeMetric}>
                                             <TabsList>
-                                                <TabsTrigger value="time">Time</TabsTrigger>
-                                                <TabsTrigger value="tokens">Tokens</TabsTrigger>
-                                                <TabsTrigger value="quality">Quality</TabsTrigger>
+                                                <TabsTrigger value="time">时间</TabsTrigger>
+                                                <TabsTrigger value="tokens">Token</TabsTrigger>
+                                                <TabsTrigger value="quality">质量</TabsTrigger>
                                             </TabsList>
                                         </Tabs>
                                     </div>
@@ -503,13 +525,13 @@ function StatsOverviewDialog(props: {
                         </TabsContent>
 
                         <TabsContent value="models" className="space-y-4">
-                            <StatsBucketCharts title="Model Performance" items={statsOverview.models} />
-                            <StatsRankingTable items={statsOverview.models} empty="No model stats yet." />
+                            <StatsBucketCharts title="模型表现" items={statsOverview.models} />
+                            <StatsRankingTable items={statsOverview.models} empty="暂无模型统计。" />
                         </TabsContent>
 
                         <TabsContent value="prompts" className="space-y-4">
-                            <StatsBucketCharts title="Prompt Performance" items={statsOverview.prompts} />
-                            <StatsRankingTable items={statsOverview.prompts} empty="No prompt stats yet." />
+                            <StatsBucketCharts title="提示词表现" items={statsOverview.prompts} />
+                            <StatsRankingTable items={statsOverview.prompts} empty="暂无提示词统计。" />
                         </TabsContent>
                     </Tabs>
                 )}
@@ -535,7 +557,6 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const [startDialogOpen, setStartDialogOpen] = useState(false)
     const [detailTab, setDetailTab] = useState("solvers")
     const [plannerDialogOpen, setPlannerDialogOpen] = useState(false)
-    const [plannerEnabled, setPlannerEnabled] = useState(false)
     const [answerModeEnabled, setAnswerModeEnabled] = useState(false)
     const [plannerStrategy, setPlannerStrategy] = useState("")
     const [plannerSaving, setPlannerSaving] = useState(false)
@@ -575,10 +596,9 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const { data: agentPrompts, loading: promptsLoading } = useFetch(prompts.listAgents)
 
     useEffect(() => {
-        setPlannerEnabled(hostConfig?.planner.enabled === true)
         setAnswerModeEnabled(hostConfig?.challenge.answerModeEnabled === true)
         setPlannerStrategy(hostConfig?.planner.strategy ?? "")
-    }, [hostConfig?.challenge.answerModeEnabled, hostConfig?.planner.enabled, hostConfig?.planner.strategy])
+    }, [hostConfig?.challenge.answerModeEnabled, hostConfig?.planner.strategy])
 
     const difficultyOptions = [...new Set(challengeItems.map((challenge) => challenge.difficulty).filter(Boolean))].sort()
     const levelOptions = [...new Set(challengeItems.map((challenge) => `${challenge.level}`).filter(Boolean))].sort((a, b) => Number(a) - Number(b))
@@ -706,25 +726,6 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
         }
     }
 
-    async function handleTogglePlanner() {
-        const nextEnabled = !plannerEnabled
-        setPlannerSaving(true)
-        setPlannerMessage("")
-        try {
-            await hostSettings.set({
-                planner: {
-                    enabled: nextEnabled,
-                },
-            })
-            setPlannerEnabled(nextEnabled)
-            setPlannerMessage(nextEnabled ? "Planner enabled" : "Planner disabled")
-        } catch (error) {
-            setPlannerMessage(error instanceof Error ? error.message : String(error))
-        } finally {
-            setPlannerSaving(false)
-        }
-    }
-
     async function handleToggleAnswerMode() {
         const nextEnabled = !answerModeEnabled
         setPlannerSaving(true)
@@ -743,8 +744,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                     : {}),
             })
             setAnswerModeEnabled(nextEnabled)
-            if (nextEnabled) setPlannerEnabled(true)
-            setPlannerMessage(nextEnabled ? "Answer mode enabled" : "Answer mode disabled")
+            setPlannerMessage(nextEnabled ? "答题模式已启用" : "答题模式已禁用")
         } catch (error) {
             setPlannerMessage(error instanceof Error ? error.message : String(error))
         } finally {
@@ -761,7 +761,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                     strategy: plannerStrategy.trim() || undefined,
                 },
             })
-            setPlannerMessage("Planner strategy saved")
+            setPlannerMessage("调度策略已保存")
             setPlannerDialogOpen(false)
         } catch (error) {
             setPlannerMessage(error instanceof Error ? error.message : String(error))
@@ -880,7 +880,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
     async function handleDeleteMemory(entry: MemoryEntry) {
         if (!challengeId) return
-        if (!window.confirm(`删除 memory ${entry.id}？`)) return
+        if (!window.confirm(`删除记忆 ${entry.id}？`)) return
         setBoardBusyKey(`memory-delete:${entry.id}`)
         setBoardError("")
         try {
@@ -980,16 +980,16 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                     <CardHeader>
                         <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2">
-                                <CardTitle>Challenges</CardTitle>
+                                <CardTitle>目标</CardTitle>
                                 <Button variant="outline" size="sm" onClick={() => setPlannerDialogOpen(true)}>
-                                    Planner Strategy
+                                    调度策略
                                 </Button>
                                 <div className="flex h-7 items-center gap-2 rounded-[min(var(--radius-md),12px)] border px-2.5 text-[0.8rem]">
-                                    <span className="text-muted-foreground">Planner</span>
-                                    <Switch checked={plannerEnabled} onCheckedChange={() => void handleTogglePlanner()} disabled={plannerSaving} />
+                                    <span className="text-muted-foreground">调度器</span>
+                                    <span className="font-medium text-green-600 dark:text-green-400">始终开启</span>
                                 </div>
                                 <div className="flex h-7 items-center gap-2 rounded-[min(var(--radius-md),12px)] border px-2.5 text-[0.8rem]">
-                                    <span className="text-muted-foreground">Answer Mode</span>
+                                    <span className="text-muted-foreground">答题模式</span>
                                     <Switch checked={answerModeEnabled} onCheckedChange={() => void handleToggleAnswerMode()} disabled={plannerSaving} />
                                 </div>
                             </div>
@@ -998,23 +998,23 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     <BarChart3Icon className="size-4" />
                                 </Button>
                                 <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)} disabled={!manualAddEnabled}>
-                                    Add Challenge
+                                    添加目标
                                 </Button>
                                 <Button variant="outline" size="sm" onClick={() => reload()}>
-                                    Refresh
+                                    刷新
                                 </Button>
                             </div>
                         </div>
                     </CardHeader>
                     <CardContent>
                         <div className="mb-4 flex flex-wrap items-center gap-3">
-                            <Input className="w-64" placeholder="Search challenge" value={search} onChange={(event) => setSearch(event.target.value)} />
+                            <Input className="w-64" placeholder="搜索目标" value={search} onChange={(event) => setSearch(event.target.value)} />
                             <Select value={difficultyFilter} onValueChange={(value) => setDifficultyFilter(value ?? "all")}>
                                 <SelectTrigger className="w-40">
-                                    <SelectValue>{filterLabel(difficultyFilter, "All Difficulty")}</SelectValue>
+                                    <SelectValue>{filterLabel(difficultyFilter, "全部难度")}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Difficulty</SelectItem>
+                                    <SelectItem value="all">全部难度</SelectItem>
                                     {difficultyOptions.map((option) => (
                                         <SelectItem key={option} value={option}>
                                             {option}
@@ -1024,23 +1024,23 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             </Select>
                             <Select value={levelFilter} onValueChange={(value) => setLevelFilter(value ?? "all")}>
                                 <SelectTrigger className="w-32">
-                                    <SelectValue>{filterLabel(levelFilter, "All Level")}</SelectValue>
+                                    <SelectValue>{filterLabel(levelFilter, "全部等级")}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Level</SelectItem>
+                                    <SelectItem value="all">全部等级</SelectItem>
                                     {levelOptions.map((option) => (
                                         <SelectItem key={option} value={option}>
-                                            Level {option}
+                                            等级 {option}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? "all")}>
                                 <SelectTrigger className="w-40">
-                                    <SelectValue>{filterLabel(statusFilter, "All Status")}</SelectValue>
+                                    <SelectValue>{filterLabel(statusFilter, "全部状态")}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Status</SelectItem>
+                                    <SelectItem value="all">全部状态</SelectItem>
                                     {statusOptions.map((option) => (
                                         <SelectItem key={option} value={option}>
                                             {option}
@@ -1050,12 +1050,12 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             </Select>
                             <Select value={hintFilter} onValueChange={(value) => setHintFilter(value ?? "all")}>
                                 <SelectTrigger className="w-40">
-                                    <SelectValue>{filterLabel(hintFilter, "All Hint")}</SelectValue>
+                                    <SelectValue>{filterLabel(hintFilter, "全部提示")}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Hint</SelectItem>
-                                    <SelectItem value="viewed">Viewed</SelectItem>
-                                    <SelectItem value="not-viewed">Not Viewed</SelectItem>
+                                    <SelectItem value="all">全部提示</SelectItem>
+                                    <SelectItem value="viewed">已查看</SelectItem>
+                                    <SelectItem value="not-viewed">未查看</SelectItem>
                                 </SelectContent>
                             </Select>
                             <Button
@@ -1069,27 +1069,27 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     setHintFilter("all")
                                 }}
                             >
-                                Reset
+                                重置
                             </Button>
                         </div>
                         {!manualAddEnabled && (
-                            <div className="mb-4 text-sm text-muted-foreground">Manual add is only available when mock mode is enabled.</div>
+                            <div className="mb-4 text-sm text-muted-foreground">手动添加仅在启用 Mock 模式时可用。</div>
                         )}
                         {(loading || filteredChallenges.length > 0) && (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>ID</TableHead>
-                                        <TableHead>Title</TableHead>
-                                        <TableHead>Difficulty</TableHead>
-                                        <TableHead>Level</TableHead>
-                                        <TableHead>Hint</TableHead>
-                                        <TableHead>Hint Content</TableHead>
-                                        <TableHead>Entrypoint</TableHead>
-                                        <TableHead>Score</TableHead>
-                                        <TableHead>Flags</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>Actions</TableHead>
+                                        <TableHead>标题</TableHead>
+                                        <TableHead>难度</TableHead>
+                                        <TableHead>等级</TableHead>
+                                        <TableHead>提示</TableHead>
+                                        <TableHead>提示内容</TableHead>
+                                        <TableHead>入口</TableHead>
+                                        <TableHead>分数</TableHead>
+                                        <TableHead>Flag</TableHead>
+                                        <TableHead>状态</TableHead>
+                                        <TableHead>操作</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1121,11 +1121,11 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                 <TableCell className="font-mono text-xs">{challenge.id}</TableCell>
                                                 <TableCell className="max-w-[32rem]">
                                                     <div className="truncate font-medium">{challenge.title}</div>
-                                                    <div className="truncate text-xs text-muted-foreground">{challenge.description || "No description."}</div>
+                                                    <div className="truncate text-xs text-muted-foreground">{challenge.description || "无描述。"}</div>
                                                 </TableCell>
                                                 <TableCell>{challenge.difficulty}</TableCell>
                                                 <TableCell>{challenge.level}</TableCell>
-                                                <TableCell>{challenge.hint_viewed ? "Yes" : "No"}</TableCell>
+                                                <TableCell>{challenge.hint_viewed ? "是" : "否"}</TableCell>
                                                 <TableCell className="max-w-[20rem]">
                                                     <div className="truncate text-xs text-muted-foreground">{hintPreview(challenge.hint_content)}</div>
                                                 </TableCell>
@@ -1155,7 +1155,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                             openStartSolverDialog(challenge.id)
                                                         }}
                                                     >
-                                                        {startingChallengeId === challenge.id ? "Starting..." : "Start Solver"}
+                                                        {startingChallengeId === challenge.id ? "启动中…" : "启动 Solver"}
                                                     </Button>
                                                 </TableCell>
                                             </TableRow>
@@ -1165,50 +1165,50 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         )}
                         {startSolverError && <div className="mt-4 text-sm text-red-500">{startSolverError}</div>}
                         {plannerMessage && <div className="mt-4 text-sm text-muted-foreground">{plannerMessage}</div>}
-                        {!loading && challengeItems.length === 0 && <div className="text-sm text-muted-foreground">No challenges.</div>}
-                        {!loading && challengeItems.length > 0 && filteredChallenges.length === 0 && <div className="text-sm text-muted-foreground">No matching challenges.</div>}
+                        {!loading && challengeItems.length === 0 && <div className="text-sm text-muted-foreground">暂无目标。</div>}
+                        {!loading && challengeItems.length > 0 && filteredChallenges.length === 0 && <div className="text-sm text-muted-foreground">无匹配目标。</div>}
                     </CardContent>
                 </Card>
 
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                     <DialogContent className="max-w-2xl">
                         <DialogHeader>
-                            <DialogTitle>Add Challenge</DialogTitle>
-                            <DialogDescription>One challenge creates one directory with `challenge.json`, memory, ideas, attempts, and submissions.</DialogDescription>
+                            <DialogTitle>添加目标</DialogTitle>
+                            <DialogDescription>每个目标会创建一个目录，包含 `challenge.json`、记忆、思路、尝试记录和提交记录。</DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-3 md:grid-cols-2">
                             <div className="space-y-2">
-                                <Label htmlFor="challenge-id">Challenge ID</Label>
+                                <Label htmlFor="challenge-id">目标 ID</Label>
                                 <Input id="challenge-id" placeholder="web-001" value={draftId} onChange={(event) => setDraftId(event.target.value)} />
-                                <div className="text-xs text-muted-foreground">Stored id will always use the `mock-` prefix.</div>
+                                <div className="text-xs text-muted-foreground">存储 ID 将始终带 `mock-` 前缀。</div>
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="challenge-title">Title</Label>
-                                <Input id="challenge-title" placeholder="Login Panel" value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} />
+                                <Label htmlFor="challenge-title">标题</Label>
+                                <Input id="challenge-title" placeholder="登录面板" value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="challenge-difficulty">Difficulty</Label>
+                                <Label htmlFor="challenge-difficulty">难度</Label>
                                 <Select value={draftDifficulty} onValueChange={(value) => setDraftDifficulty(value ?? "easy")}>
                                     <SelectTrigger id="challenge-difficulty">
-                                        <SelectValue>{draftDifficulty}</SelectValue>
+                                        <SelectValue>{DIFFICULTY_LABELS[draftDifficulty] ?? draftDifficulty}</SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="easy">easy</SelectItem>
-                                        <SelectItem value="medium">medium</SelectItem>
-                                        <SelectItem value="hard">hard</SelectItem>
+                                        <SelectItem value="easy">简单</SelectItem>
+                                        <SelectItem value="medium">中等</SelectItem>
+                                        <SelectItem value="hard">困难</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="challenge-level">Level</Label>
+                                <Label htmlFor="challenge-level">等级</Label>
                                 <Input id="challenge-level" placeholder="1" value={draftLevel} onChange={(event) => setDraftLevel(event.target.value)} />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="challenge-total-score">Total Score</Label>
+                                <Label htmlFor="challenge-total-score">总分</Label>
                                 <Input id="challenge-total-score" placeholder="100" value={draftTotalScore} onChange={(event) => setDraftTotalScore(event.target.value)} />
                             </div>
                             <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-entrypoint">Entrypoint</Label>
+                                <Label htmlFor="challenge-entrypoint">入口</Label>
                                 <div className="space-y-2">
                                     {draftEntrypoints.map((entrypoint, index) => (
                                         <div key={`entrypoint-${index}`} className="flex items-center gap-2">
@@ -1231,17 +1231,17 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                 }}
                                                 disabled={draftEntrypoints.length === 1}
                                             >
-                                                Remove
+                                                删除
                                             </Button>
                                         </div>
                                     ))}
                                     <Button variant="outline" size="sm" type="button" onClick={() => setDraftEntrypoints([...draftEntrypoints, ""])}>
-                                        Add Entrypoint
+                                        添加入口
                                     </Button>
                                 </div>
                             </div>
                             <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-flags">Flags</Label>
+                                <Label htmlFor="challenge-flags">Flag</Label>
                                 <div className="space-y-2">
                                     {draftFlags.map((flag, index) => (
                                         <div key={`flag-${index}`} className="flex items-center gap-2">
@@ -1264,39 +1264,39 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                 }}
                                                 disabled={draftFlags.length === 1}
                                             >
-                                                Remove
+                                                删除
                                             </Button>
                                         </div>
                                     ))}
                                     <Button variant="outline" size="sm" type="button" onClick={() => setDraftFlags([...draftFlags, ""])}>
-                                        Add Flag
+                                        添加 Flag
                                     </Button>
                                 </div>
                             </div>
                             <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-hint-content">Hint Content</Label>
+                                <Label htmlFor="challenge-hint-content">提示内容</Label>
                                 <Textarea
                                     id="challenge-hint-content"
-                                    placeholder="Optional hint returned by mock challenge API"
+                                    placeholder="mock 目标 API 返回的可选提示"
                                     value={draftHintContent}
                                     onChange={(event) => setDraftHintContent(event.target.value)}
                                 />
                             </div>
                             <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-description">Description</Label>
-                                <Textarea id="challenge-description" placeholder="Challenge description" value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} />
+                                <Label htmlFor="challenge-description">描述</Label>
+                                <Textarea id="challenge-description" placeholder="目标描述" value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} />
                             </div>
                         </div>
                         {createError && <div className="text-sm text-red-500">{createError}</div>}
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                                Cancel
+                                取消
                             </Button>
                             <Button
                                 onClick={() => void handleCreateChallenge()}
                                 disabled={creating || !manualAddEnabled || !draftId.trim() || !draftTitle.trim() || draftFlags.every((item) => item.trim().length === 0)}
                             >
-                                {creating ? "Creating..." : "Create"}
+                                {creating ? "创建中…" : "创建"}
                             </Button>
                         </DialogFooter>
                     </DialogContent>
@@ -1311,14 +1311,14 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                 <Dialog open={startDialogOpen} onOpenChange={setStartDialogOpen}>
                     <DialogContent className="max-w-md">
                         <DialogHeader>
-                            <DialogTitle>Start Solver</DialogTitle>
-                            <DialogDescription>手动启动必须显式选择一个 agent prompt。</DialogDescription>
+                            <DialogTitle>启动 Solver</DialogTitle>
+                            <DialogDescription>手动启动必须显式选择一个 agent 提示词。</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-2">
-                            <Label htmlFor="challenge-start-prompt">Prompt</Label>
+                            <Label htmlFor="challenge-start-prompt">提示词</Label>
                             <Select value={startPromptName} onValueChange={(value) => setStartPromptName(value ?? "")}>
                                 <SelectTrigger id="challenge-start-prompt">
-                                    <SelectValue>{startPromptName || "Select prompt"}</SelectValue>
+                                    <SelectValue>{startPromptName || "选择提示词"}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
                                     {(agentPrompts ?? []).map((prompt) => (
@@ -1328,15 +1328,15 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     ))}
                                 </SelectContent>
                             </Select>
-                            {promptsLoading && <div className="text-xs text-muted-foreground">Loading prompts...</div>}
+                            {promptsLoading && <div className="text-xs text-muted-foreground">加载提示词中…</div>}
                         </div>
                         {startSolverError && <div className="text-sm text-red-500">{startSolverError}</div>}
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setStartDialogOpen(false)}>
-                                Cancel
+                                取消
                             </Button>
                             <Button onClick={() => void handleConfirmStartSolver()} disabled={!startPromptName || promptsLoading || startingSolver}>
-                                {startingSolver ? "Starting..." : "Start"}
+                                {startingSolver ? "启动中…" : "启动"}
                             </Button>
                         </DialogFooter>
                     </DialogContent>
@@ -1344,11 +1344,11 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                 <Dialog open={plannerDialogOpen} onOpenChange={setPlannerDialogOpen}>
                     <DialogContent className="max-w-2xl">
                         <DialogHeader>
-                            <DialogTitle>Planner Strategy</DialogTitle>
+                            <DialogTitle>调度策略</DialogTitle>
                             <DialogDescription>这部分会作为系统提示词附加项注入给演练规划 agent，用来表达用户的调度偏好。</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-2">
-                            <Label htmlFor="planner-strategy-list">Strategy</Label>
+                            <Label htmlFor="planner-strategy-list">策略</Label>
                             <Textarea
                                 id="planner-strategy-list"
                                 placeholder="例如：前期优先简单题；卡住 20 分钟就看 hint；最后两题集中火力。"
@@ -1359,10 +1359,10 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setPlannerDialogOpen(false)}>
-                                Cancel
+                                取消
                             </Button>
                             <Button onClick={() => void handleSavePlannerStrategy()} disabled={plannerSaving}>
-                                {plannerSaving ? "Saving..." : "Save"}
+                                {plannerSaving ? "保存中…" : "保存"}
                             </Button>
                         </DialogFooter>
                     </DialogContent>
@@ -1375,13 +1375,13 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
             <div>
                 <Button variant="outline" size="sm" onClick={() => (location.hash = "#/")}>
-                    Back
+                    返回
                 </Button>
             </div>
 
             {detailsLoading && (
                 <Card>
-                    <CardContent className="p-6 text-sm text-muted-foreground">Loading challenge details...</CardContent>
+                    <CardContent className="p-6 text-sm text-muted-foreground">加载目标详情…</CardContent>
                 </Card>
             )}
 
@@ -1408,14 +1408,14 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             </div>
                             <div className="shrink-0 space-y-3 text-right text-sm text-muted-foreground">
                                 <div>
-                                    <div>score {details.challenge.total_got_score}/{details.challenge.total_score}</div>
-                                    <div>flags {details.challenge.flag_got_count}/{details.challenge.flag_count}</div>
-                                    <div>attempts {details.attempts.length}</div>
-                                    <div>submissions {details.submissions.length}</div>
+                                    <div>得分 {details.challenge.total_got_score}/{details.challenge.total_score}</div>
+                                    <div>Flag {details.challenge.flag_got_count}/{details.challenge.flag_count}</div>
+                                    <div>尝试 {details.attempts.length}</div>
+                                    <div>提交 {details.submissions.length}</div>
                                 </div>
                                 <div className="flex justify-end gap-2">
                                     <Button variant="outline" size="sm" onClick={() => void handleExportSolverSessions()} disabled={exportingSessions || details.solver_stats.length === 0}>
-                                        {exportingSessions ? "Exporting..." : "Export Sessions"}
+                                        {exportingSessions ? "导出中…" : "导出会话"}
                                     </Button>
                                     <Button
                                         variant="outline"
@@ -1424,14 +1424,14 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                             location.hash = `#/challenge/${encodeURIComponent(details.challenge.id)}/attack-flow`
                                         }}
                                     >
-                                        Attack Flow
+                                        攻击流
                                     </Button>
                                     <Button
                                         size="sm"
                                         onClick={() => openStartSolverDialog(details.challenge.id)}
                                         disabled={startingSolver || challengeStatus(details.challenge) === "solved"}
                                     >
-                                        {startingChallengeId === details.challenge.id ? "Starting..." : "Start Solver"}
+                                        {startingChallengeId === details.challenge.id ? "启动中…" : "启动 Solver"}
                                     </Button>
                                     {details.challenge.objective_achieved === true ? (
                                         <Button variant="outline" size="sm" onClick={() => void handleRevokeComplete()} disabled={completionBusy}>
@@ -1451,34 +1451,34 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         {plannerMessage && <div className="text-sm text-muted-foreground">{plannerMessage}</div>}
                         <div className="grid gap-6 md:grid-cols-2">
                             <section className="min-w-0 space-y-2">
-                                <div className="text-sm font-medium">Description</div>
-                                <div className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{details.challenge.description || "No description."}</div>
+                                <div className="text-sm font-medium">描述</div>
+                                <div className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{details.challenge.description || "无描述。"}</div>
                             </section>
                             <section className="min-w-0 space-y-2">
                                 <div className="flex items-center gap-2 text-sm font-medium">
-                                    <span>Hint</span>
-                                    <Badge variant="outline">{details.challenge.hint_viewed ? "viewed" : "not viewed"}</Badge>
+                                    <span>提示</span>
+                                    <Badge variant="outline">{details.challenge.hint_viewed ? "已查看" : "未查看"}</Badge>
                                 </div>
                                 <div className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                                    {details.challenge.hint_content?.trim() || "No hint content."}
+                                    {details.challenge.hint_content?.trim() || "无提示内容。"}
                                 </div>
                             </section>
                         </div>
                         <div className="grid gap-3 md:grid-cols-4">
                             <div className="rounded-lg border px-4 py-3">
-                                <div className="text-xs text-muted-foreground">Wall Time</div>
+                                <div className="text-xs text-muted-foreground">墙钟时间</div>
                                 <div className="mt-1 text-sm font-medium">{formatMinutes(details.stats.solve_duration_ms)}</div>
                             </div>
                             <div className="rounded-lg border px-4 py-3">
-                                <div className="text-xs text-muted-foreground">Total Solver Time</div>
+                                <div className="text-xs text-muted-foreground">Solver 总时长</div>
                                 <div className="mt-1 text-sm font-medium">{formatMinutes(details.stats.solver_active_duration_ms_total)}</div>
                             </div>
                             <div className="rounded-lg border px-4 py-3">
-                                <div className="text-xs text-muted-foreground">Total Tokens</div>
+                                <div className="text-xs text-muted-foreground">总 Token</div>
                                 <div className="mt-1 text-sm font-medium">{formatTokenCount(details.stats.usage.total)}</div>
                             </div>
                             <div className="rounded-lg border px-4 py-3">
-                                <div className="text-xs text-muted-foreground">Solvers</div>
+                                <div className="text-xs text-muted-foreground">Solver</div>
                                 <div className="mt-1 text-sm font-medium">{details.stats.solver_count}</div>
                             </div>
                         </div>
@@ -1486,10 +1486,10 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
                     <Tabs value={detailTab} onValueChange={setDetailTab} className="min-w-0 space-y-4">
                         <TabsList>
-                            <TabsTrigger value="solvers">Solvers</TabsTrigger>
-                            <TabsTrigger value="memory">Memory</TabsTrigger>
-                            <TabsTrigger value="ideas">Ideas</TabsTrigger>
-                            <TabsTrigger value="submissions">Submissions</TabsTrigger>
+                            <TabsTrigger value="solvers">Solver</TabsTrigger>
+                            <TabsTrigger value="memory">记忆</TabsTrigger>
+                            <TabsTrigger value="ideas">思路</TabsTrigger>
+                            <TabsTrigger value="submissions">提交</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="solvers" className="min-w-0 space-y-3">
@@ -1525,8 +1525,8 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                             {liveSolver && <Badge variant="outline">{liveSolver.status}</Badge>}
                                                         </div>
                                                         <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                                            {solverStat.prompt_name && <span>prompt {solverStat.prompt_name}</span>}
-                                                            {solverStat.model_name && <span>model {solverStat.model_name}</span>}
+                                                            {solverStat.prompt_name && <span>提示词 {solverStat.prompt_name}</span>}
+                                                            {solverStat.model_name && <span>模型 {solverStat.model_name}</span>}
                                                         </div>
                                                     </div>
                                                     <div className="shrink-0 text-right text-xs text-muted-foreground">
@@ -1536,10 +1536,10 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                                 ? formatTime(solverStat.started_at)
                                                                 : liveSolver
                                                                   ? formatSolverTime(liveSolver.createdAt)
-                                                                  : "unknown"}
+                                                                  : "未知"}
                                                         </div>
-                                                        <div>duration {formatMinutes(solverStat.duration_ms)}</div>
-                                                        <div>tokens {formatTokenCount(solverStat.usage.total)}</div>
+                                                        <div>时长 {formatMinutes(solverStat.duration_ms)}</div>
+                                                        <div>Token {formatTokenCount(solverStat.usage.total)}</div>
                                                         {stoppable && (
                                                             <div className="mt-2">
                                                                 <Button
@@ -1551,7 +1551,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                                         void handleStopSolver(solverStat.solver_id)
                                                                     }}
                                                                 >
-                                                                    {stoppingSolverId === solverStat.solver_id ? "Stopping..." : "Stop"}
+                                                                    {stoppingSolverId === solverStat.solver_id ? "停止中…" : "停止"}
                                                                 </Button>
                                                             </div>
                                                         )}
@@ -1562,23 +1562,23 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     })}
                                 </div>
                             )}
-                            {details.solver_stats.length === 0 && <div className="text-sm text-muted-foreground">No solvers.</div>}
+                            {details.solver_stats.length === 0 && <div className="text-sm text-muted-foreground">暂无 Solver。</div>}
                         </TabsContent>
 
                         <TabsContent value="memory" className="min-w-0 space-y-3">
                             <div className="flex justify-end">
                                 <Button size="sm" onClick={openCreateMemoryDialog}>
                                     <PlusIcon className="size-4" />
-                                    新增 Memory
+                                    新增记忆
                                 </Button>
                             </div>
                             {boardError ? <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">{boardError}</div> : null}
-                            {details.memory.length === 0 && <div className="text-sm text-muted-foreground">No memory entries yet.</div>}
+                            {details.memory.length === 0 && <div className="text-sm text-muted-foreground">暂无记忆条目。</div>}
                             {details.memory.map((entry) => (
                                 <div key={entry.id} className="min-w-0 rounded-lg border px-4 py-3">
                                     <div className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2">
-                                            <Badge variant="outline">{entry.kind}</Badge>
+                                            <Badge variant="outline">{MEMORY_KIND_LABELS[entry.kind] ?? entry.kind}</Badge>
                                             <code className="text-xs text-muted-foreground">{entry.id}</code>
                                         </div>
                                         <div className="flex items-center gap-1">
@@ -1611,11 +1611,11 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             <div className="flex justify-end">
                                 <Button size="sm" onClick={openCreateIdeaDialog}>
                                     <PlusIcon className="size-4" />
-                                    新增 Idea
+                                    新增思路
                                 </Button>
                             </div>
                             {boardError ? <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">{boardError}</div> : null}
-                            {details.ideas.length === 0 && <div className="text-sm text-muted-foreground">No ideas yet.</div>}
+                            {details.ideas.length === 0 && <div className="text-sm text-muted-foreground">暂无思路。</div>}
                             {details.ideas.map((idea) => (
                                 <div key={idea.id} className="min-w-0 rounded-lg border px-4 py-3">
                                     <div className="flex items-center justify-between gap-3">
@@ -1624,7 +1624,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                             <div className="mt-1 text-xs text-muted-foreground">{idea.id}</div>
                                         </div>
                                         <div className="flex items-center gap-1">
-                                            <Badge variant="outline">{idea.status}</Badge>
+                                            <Badge variant="outline">{IDEA_STATUS_LABELS[idea.status] ?? idea.status}</Badge>
                                             <Button variant="ghost" size="icon-sm" disabled={boardBusyKey.length > 0} onClick={() => openEditIdeaDialog(idea)}>
                                                 <PencilIcon className="size-4" />
                                             </Button>
@@ -1646,7 +1646,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         </TabsContent>
 
                         <TabsContent value="submissions" className="min-w-0 space-y-3">
-                            {details.submissions.length === 0 && <div className="text-sm text-muted-foreground">No submissions yet.</div>}
+                            {details.submissions.length === 0 && <div className="text-sm text-muted-foreground">暂无提交。</div>}
                             {details.submissions.map((submission) => {
                                 const solverId = submission.solver_id?.trim() || ""
                                 const clickable = solverId.length > 0
@@ -1675,20 +1675,20 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                     variant={submission.correct ? "outline" : "outline"}
                                                     className={submission.correct ? "border-green-600/30 bg-green-500/15 text-green-700" : ""}
                                                 >
-                                                    {submission.correct ? "correct" : "incorrect"}
+                                                    {submission.correct ? "正确" : "错误"}
                                                 </Badge>
                                                 <code className="min-w-0 break-all text-xs">{submission.flag}</code>
                                             </div>
                                             <div className="text-xs text-muted-foreground">{formatTime(submission.created_at)}</div>
                                         </div>
                                         <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                            {submission.solver_id && <span>solver {submission.solver_id}</span>}
-                                            {submission.prompt_name && <span>prompt {submission.prompt_name}</span>}
-                                            {submission.model_name && <span>model {submission.model_name}</span>}
+                                            {submission.solver_id && <span>Solver {submission.solver_id}</span>}
+                                            {submission.prompt_name && <span>提示词 {submission.prompt_name}</span>}
+                                            {submission.model_name && <span>模型 {submission.model_name}</span>}
                                         </div>
                                         {submission.writeup && (
                                             <div className="mt-2 space-y-1">
-                                                <div className="text-xs font-medium text-foreground">Writeup</div>
+                                                <div className="text-xs font-medium text-foreground">题解</div>
                                                 <div className="break-words text-sm text-muted-foreground">{submission.writeup}</div>
                                             </div>
                                         )}
@@ -1703,14 +1703,14 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
             <Dialog open={startDialogOpen} onOpenChange={setStartDialogOpen}>
                 <DialogContent className="max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Start Solver</DialogTitle>
-                        <DialogDescription>手动启动必须显式选择一个 agent prompt。</DialogDescription>
+                        <DialogTitle>启动 Solver</DialogTitle>
+                        <DialogDescription>手动启动必须显式选择一个 agent 提示词。</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-2">
-                        <Label htmlFor="challenge-start-prompt-detail">Prompt</Label>
+                        <Label htmlFor="challenge-start-prompt-detail">提示词</Label>
                         <Select value={startPromptName} onValueChange={(value) => setStartPromptName(value ?? "")}>
                             <SelectTrigger id="challenge-start-prompt-detail">
-                                <SelectValue>{startPromptName || "Select prompt"}</SelectValue>
+                                <SelectValue>{startPromptName || "选择提示词"}</SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 {(agentPrompts ?? []).map((prompt) => (
@@ -1720,15 +1720,15 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                 ))}
                             </SelectContent>
                         </Select>
-                        {promptsLoading && <div className="text-xs text-muted-foreground">Loading prompts...</div>}
+                        {promptsLoading && <div className="text-xs text-muted-foreground">加载提示词中…</div>}
                     </div>
                     {startSolverError && <div className="text-sm text-red-500">{startSolverError}</div>}
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setStartDialogOpen(false)}>
-                            Cancel
+                            取消
                         </Button>
                         <Button onClick={() => void handleConfirmStartSolver()} disabled={!startPromptName || promptsLoading || startingSolver}>
-                            {startingSolver ? "Starting..." : "Start"}
+                            {startingSolver ? "启动中…" : "启动"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1736,31 +1736,31 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
             <Dialog open={memoryDialogOpen} onOpenChange={setMemoryDialogOpen}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>{editingMemory ? "编辑 Memory" : "新增 Memory"}</DialogTitle>
-                        <DialogDescription>用于维护 durable facts、evidence、failure boundaries 或 hint。</DialogDescription>
+                        <DialogTitle>{editingMemory ? "编辑记忆" : "新增记忆"}</DialogTitle>
+                        <DialogDescription>用于维护持久事实、证据、失败边界或提示。</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label>Kind</Label>
+                            <Label>类型</Label>
                             <Select value={memoryForm.kind} onValueChange={(value) => setMemoryForm((current) => ({ ...current, kind: value as MemoryEntry["kind"] }))}>
                                 <SelectTrigger>
-                                    <SelectValue placeholder="选择 kind" />
+                                    <SelectValue placeholder="选择类型" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {MEMORY_KIND_OPTIONS.map((item) => (
                                         <SelectItem key={item} value={item}>
-                                            {item}
+                                            {MEMORY_KIND_LABELS[item]}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label>Content</Label>
+                            <Label>内容</Label>
                             <Textarea rows={4} value={memoryForm.content} onChange={(event) => setMemoryForm((current) => ({ ...current, content: event.target.value }))} />
                         </div>
                         <div className="space-y-2">
-                            <Label>Refs</Label>
+                            <Label>引用</Label>
                             <Textarea
                                 rows={3}
                                 placeholder="每行一个引用路径或说明"
@@ -1769,13 +1769,13 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Source</Label>
+                            <Label>来源</Label>
                             <Textarea rows={2} value={memoryForm.source} onChange={(event) => setMemoryForm((current) => ({ ...current, source: event.target.value }))} />
                         </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setMemoryDialogOpen(false)}>
-                            Cancel
+                            取消
                         </Button>
                         <Button onClick={() => void handleSaveMemory()} disabled={boardBusyKey.length > 0 || !memoryForm.content.trim() || !memoryForm.source.trim()}>
                             保存
@@ -1786,12 +1786,12 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
             <Dialog open={ideaDialogOpen} onOpenChange={setIdeaDialogOpen}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>{editingIdea ? "编辑 Idea" : "新增 Idea"}</DialogTitle>
-                        <DialogDescription>idea 是待验证假设。新增和编辑都支持调整内容、状态和结果。</DialogDescription>
+                        <DialogTitle>{editingIdea ? "编辑思路" : "新增思路"}</DialogTitle>
+                        <DialogDescription>思路是待验证假设。新增和编辑都支持调整内容、状态和结果。</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label>Content</Label>
+                            <Label>内容</Label>
                             <Textarea
                                 rows={3}
                                 placeholder="输入待验证假设"
@@ -1800,28 +1800,28 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Status</Label>
+                            <Label>状态</Label>
                             <Select value={ideaForm.status} onValueChange={(value) => setIdeaForm((current) => ({ ...current, status: value as IdeaRecord["status"] }))}>
                                 <SelectTrigger>
-                                    <SelectValue placeholder="选择 status" />
+                                    <SelectValue placeholder="选择状态" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {IDEA_STATUS_OPTIONS.map((item) => (
                                         <SelectItem key={item} value={item}>
-                                            {item}
+                                            {IDEA_STATUS_LABELS[item]}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label>Result</Label>
+                            <Label>结果</Label>
                             <Textarea rows={4} value={ideaForm.result} onChange={(event) => setIdeaForm((current) => ({ ...current, result: event.target.value }))} />
                         </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIdeaDialogOpen(false)}>
-                            Cancel
+                            取消
                         </Button>
                         <Button onClick={() => void handleSaveIdea()} disabled={boardBusyKey.length > 0 || !ideaForm.content.trim()}>
                             保存

@@ -33,11 +33,11 @@ export function ApiKeysPage() {
             {/* Add form */}
             <div className="flex items-end gap-3">
                 <div className="space-y-1.5">
-                    <Label>Provider</Label>
-                    <Input placeholder="e.g. anthropic" value={provider} onChange={(e) => setProvider(e.target.value)} className="w-48" />
+                    <Label>提供商</Label>
+                    <Input placeholder="如 anthropic" value={provider} onChange={(e) => setProvider(e.target.value)} className="w-48" />
                 </div>
                 <div className="space-y-1.5 flex-1">
-                    <Label>API Key</Label>
+                    <Label>API 密钥</Label>
                     <div className="flex gap-2">
                         <Input type={showKey ? "text" : "password"} placeholder="sk-..." value={key} onChange={(e) => setKey(e.target.value)} />
                         <Button variant="ghost" size="icon" onClick={() => setShowKey(!showKey)}>
@@ -47,19 +47,19 @@ export function ApiKeysPage() {
                 </div>
                 <Button onClick={handleAdd} disabled={!provider.trim() || !key.trim()}>
                     <PlusIcon className="size-4 mr-1" />
-                    Add
+                    添加
                 </Button>
             </div>
 
             {/* List */}
             {loading ? (
-                <p className="text-sm text-muted-foreground">Loading...</p>
+                <p className="text-sm text-muted-foreground">加载中…</p>
             ) : keys && keys.length > 0 ? (
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Provider</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead>提供商</TableHead>
+                            <TableHead>状态</TableHead>
                             <TableHead className="w-12"></TableHead>
                         </TableRow>
                     </TableHeader>
@@ -68,7 +68,7 @@ export function ApiKeysPage() {
                             <TableRow key={p}>
                                 <TableCell className="font-mono text-sm">{p}</TableCell>
                                 <TableCell>
-                                    <Badge variant="secondary">Configured</Badge>
+                                    <Badge variant="secondary">已配置</Badge>
                                 </TableCell>
                                 <TableCell>
                                     <Button variant="ghost" size="icon" onClick={() => handleRemove(p)}>
@@ -80,7 +80,7 @@ export function ApiKeysPage() {
                     </TableBody>
                 </Table>
             ) : (
-                <p className="text-sm text-muted-foreground">No API keys configured.</p>
+                <p className="text-sm text-muted-foreground">尚未配置 API Key。</p>
             )}
         </div>
     )

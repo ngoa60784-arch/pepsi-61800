@@ -351,10 +351,10 @@ export function RuntimeListPage() {
                     </DialogHeader>
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <div className="text-sm font-medium">Prompt</div>
+                            <div className="text-sm font-medium">提示词</div>
                             <Select value={selectedPrompt} onValueChange={(value) => setSelectedPrompt(value ?? "")}>
                                 <SelectTrigger>
-                                    <SelectValue placeholder="选择 Prompt" />
+                                    <SelectValue placeholder="选择提示词" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {agentPrompts.map((prompt) => (
@@ -367,7 +367,7 @@ export function RuntimeListPage() {
                         </div>
 
                         <div className="space-y-2">
-                            <div className="text-sm font-medium">Task</div>
+                            <div className="text-sm font-medium">任务</div>
                             <Textarea rows={6} placeholder="输入 Solver 启动后立即执行的任务" value={task} onChange={(event) => setTask(event.target.value)} />
                         </div>
 

@@ -191,7 +191,7 @@ curl -s -b /tmp/jar $B/api/runtime/status      # {"docker":true,...} 说明 Dock
 curl -s -b /tmp/jar $B/api/config/tools | head -c 80
 ```
 
-然后在 UI 里：配好 provider/API key/模型 → 在 Commander 对一个**已授权**靶机下一条指令 → 观察 Runtime 里 solver 起容器、Attack Flow 里出现实时事件。建议**先在隔离环境对授权靶机完整跑通一次**再正式作战。
+然后在 UI 里：配好 provider/API key/模型 → 配置 `TCH_ENGAGEMENT_SCOPE` → 在**指挥官**或**目标**页对一个**已授权**目标下指令 / 启动 Solver → 观察 Runtime 里 solver 起容器、攻击流里出现实时事件。建议**先在隔离环境对授权靶标完整跑通一次**再正式作战。
 
 ---
 

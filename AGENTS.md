@@ -1,6 +1,6 @@
 # tch-agent
 
-CTF 智能 agent 平台：Manager/Observer/Solver 多角色架构，基于 pi-coding-agent SDK。
+授权渗透测试多 Agent 协作平台：Commander / Planner / Solver / Observer 架构，基于 pi-coding-agent SDK。
 
 ## 快速参考
 
@@ -25,8 +25,7 @@ apps/
 
 | 文档     | 位置                               | 内容                     |
 | -------- | ---------------------------------- | ------------------------ |
-| 架构概览 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构、数据流、包依赖 |
-| 设计原稿 | [docs/design.md](docs/design.md)   | 初始架构设计（历史参考） |
+| 架构概览 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构、多 Agent 协作、数据流、部署引用 |
 
 ## 架构分层
 

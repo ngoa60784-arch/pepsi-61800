@@ -158,7 +158,7 @@ export function CommanderPage() {
             void restoreConversation()
             void loadRollbackPoints()
         } else if (event.type === "error") {
-            setError(event.text ?? "commander error")
+            setError(event.text ?? "指挥官错误")
             streamingRef.current = false
             setBusy(false)
         }

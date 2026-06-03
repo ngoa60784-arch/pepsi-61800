@@ -52,7 +52,7 @@ function threadAnchorTime(thread: RuntimeThreadView): number | undefined {
 }
 
 function formatBoardDateTime(value?: string) {
-    if (!value) return "unknown"
+    if (!value) return "未知"
     return new Date(value).toLocaleString()
 }
 
@@ -84,7 +84,7 @@ function MemoryBoardSection(props: {
     const { title, items } = props
 
     return (
-        <BoardSection title={title} count={items.length} empty="暂无 Memory">
+        <BoardSection title={title} count={items.length} empty="暂无记忆">
             {items.map((entry) => (
                 <div key={entry.id} className="min-w-0 rounded-lg border px-3 py-2">
                     <div className="flex items-center gap-2">
@@ -110,7 +110,7 @@ function IdeaBoardSection(props: {
     const { title, items } = props
 
     return (
-        <BoardSection title={title} count={items.length} empty="暂无 Idea">
+        <BoardSection title={title} count={items.length} empty="暂无思路">
             {items.map((idea) => (
                 <div key={idea.id} className="min-w-0 rounded-lg border px-3 py-2">
                     <div className="flex items-start justify-between gap-3">
@@ -447,7 +447,7 @@ export function RuntimeDetailPage({ solverId }: RuntimeDetailPageProps) {
                                         onClick={() => setBoardDialogOpen(true)}
                                         className="text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
                                     >
-                                        查看 Memory / Ideas
+                                        查看记忆 / 思路
                                     </button>
                                 </div>
                             </div>
@@ -458,7 +458,7 @@ export function RuntimeDetailPage({ solverId }: RuntimeDetailPageProps) {
                                     onClick={() => setBoardDialogOpen(true)}
                                     className="text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
                                 >
-                                    查看 Memory / Ideas
+                                    查看记忆 / 思路
                                 </button>
                             </div>
                         )}
@@ -567,7 +567,7 @@ export function RuntimeDetailPage({ solverId }: RuntimeDetailPageProps) {
                 <DialogContent className="flex max-h-[80vh] max-w-4xl flex-col overflow-hidden">
                     <DialogHeader>
                         <DialogTitle>
-                            {observerDialogThread?.label ?? "Observer hint"}
+                            {observerDialogThread?.label ?? "观察者提示"}
                             {observerDialogThread?.createdAt ? ` · ${formatDateTime(observerDialogThread.createdAt)}` : ""}
                         </DialogTitle>
                     </DialogHeader>
@@ -591,15 +591,15 @@ export function RuntimeDetailPage({ solverId }: RuntimeDetailPageProps) {
             <Dialog open={boardDialogOpen} onOpenChange={setBoardDialogOpen}>
                 <DialogContent className="flex max-h-[85vh] max-w-5xl flex-col overflow-hidden">
                     <DialogHeader>
-                        <DialogTitle>Memory / Ideas</DialogTitle>
+                        <DialogTitle>记忆 / 思路</DialogTitle>
                     </DialogHeader>
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <div className="mb-4 text-sm text-muted-foreground">
-                            这里展示的是当前 solver 持有的 memory / ideas，包含启动时带入的目标背景以及后续 observer 维护的内容。
+                            这里展示的是当前 solver 持有的记忆与思路，包含启动时带入的目标背景以及后续观察者维护的内容。
                         </div>
                         <div className="grid gap-4 lg:grid-cols-2">
-                            <MemoryBoardSection title="Memory" items={details.memory} />
-                            <IdeaBoardSection title="Ideas" items={details.ideas} />
+                            <MemoryBoardSection title="记忆" items={details.memory} />
+                            <IdeaBoardSection title="思路" items={details.ideas} />
                         </div>
                     </div>
                 </DialogContent>

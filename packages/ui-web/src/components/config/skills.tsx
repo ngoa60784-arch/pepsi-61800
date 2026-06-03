@@ -104,7 +104,7 @@ export function SkillsPage() {
 
             {/* List */}
             {loading ? (
-                <p className="text-sm text-muted-foreground">Loading...</p>
+                <p className="text-sm text-muted-foreground">加载中…</p>
             ) : list && list.length > 0 ? (
                 <div className="space-y-2">
                     {list.map((s) => (
@@ -136,7 +136,7 @@ export function SkillsPage() {
                     ))}
                 </div>
             ) : (
-                <p className="text-sm text-muted-foreground">暂无 skill。上传 zip 包添加。</p>
+                <p className="text-sm text-muted-foreground">暂无技能。上传 zip 包添加。</p>
             )}
 
             {/* SKILL.md Preview Dialog */}

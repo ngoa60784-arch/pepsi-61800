@@ -146,7 +146,7 @@ function installResizeObserverLoopErrorGuard() {
 installResizeObserverLoopErrorGuard()
 
 function formatTimelineTime(value?: number) {
-    if (!value) return "start"
+    if (!value) return "开始"
     return new Date(value).toLocaleString()
 }
 
@@ -261,19 +261,19 @@ function eventIsoTime(event: AttackTimelineEvent) {
 function memoryKindLabel(kind: MemoryEntry["kind"]): string {
     switch (kind) {
         case "evidence":
-            return "Evidence"
+            return "证据"
         case "credential":
-            return "Credential"
+            return "凭据"
         case "failure":
-            return "Failure boundary"
+            return "失败边界"
         case "hint":
-            return "Hint"
+            return "提示"
         case "note":
-            return "Note"
+            return "笔记"
         case "fact":
-            return "Finding"
+            return "发现"
         default:
-            return "Memory"
+            return "记忆"
     }
 }
 
@@ -358,7 +358,7 @@ function knowledgeNodeLabel(type: "TASK" | "MEMORY" | "IDEA", kind: string, titl
 }
 
 function challengeNodeTitle(challenge?: ChallengeInfoRecord) {
-    return challenge?.title ? clip(challenge.title, 72) : "Task"
+    return challenge?.title ? clip(challenge.title, 72) : "任务"
 }
 
 function challengeNodeSummary(challenge: ChallengeInfoRecord | undefined, fallbackId: string) {
@@ -382,7 +382,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             id: `flow:${event.id}`,
             event,
             badge: "broadcast",
-            title: "Broadcast to solvers",
+            title: "广播至 Solver",
             summary: event.summary,
             edgeLabel: "broadcast",
             className: "border-purple-300 bg-purple-50 text-purple-950",
@@ -394,7 +394,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             id: `flow:${event.id}`,
             event,
             badge: "spawn",
-            title: promptNameFromEvent(event) ?? "Solver joined",
+            title: promptNameFromEvent(event) ?? "Solver 加入",
             summary: event.solverId ?? event.summary,
             edgeLabel: "assign",
             className: "border-emerald-300 bg-emerald-50 text-emerald-950",
@@ -407,7 +407,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             id: `flow:${event.id}`,
             event,
             badge: "memory",
-            title: memory.kind === "failure" ? "Failure boundary uploaded" : "Evidence uploaded",
+            title: memory.kind === "failure" ? "上传失败边界" : "上传证据",
             summary: memory.content,
             edgeLabel: "upload",
             className: memory.kind === "failure" ? "border-red-300 bg-red-50 text-red-950" : "border-blue-300 bg-blue-50 text-blue-950",
@@ -420,7 +420,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             id: `flow:${event.id}`,
             event,
             badge: "idea",
-            title: idea.status === "failed" ? "Route rejected" : "Route proposed",
+            title: idea.status === "failed" ? "路线被拒绝" : "提出路线",
             summary: idea.content,
             edgeLabel: "upload",
             className: idea.status === "failed" ? "border-red-300 bg-red-50 text-red-950" : "border-amber-300 bg-amber-50 text-amber-950",
@@ -433,7 +433,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             id: `flow:${event.id}`,
             event,
             badge: "flag",
-            title: submission?.correct ? "Flag accepted" : "Flag attempt",
+            title: submission?.correct ? "Flag 已接受" : "Flag 尝试",
             summary: submission?.flag ?? event.summary,
             edgeLabel: "submit",
             className: submission?.correct ? "border-orange-300 bg-orange-50 text-orange-950" : "border-red-300 bg-red-50 text-red-950",
@@ -445,7 +445,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             id: `flow:${event.id}`,
             event,
             badge: "result",
-            title: "Flag tool returned",
+            title: "Flag 工具返回",
             summary: event.summary,
             edgeLabel: "result",
             className: "border-orange-300 bg-orange-50 text-orange-950",
@@ -457,7 +457,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             id: `flow:${event.id}`,
             event,
             badge: "observe",
-            title: "Observer steers solver",
+            title: "观察者引导 Solver",
             summary: event.summary,
             edgeLabel: "observe",
             className: "border-purple-300 bg-purple-50 text-purple-950",
@@ -535,14 +535,14 @@ function boardMutationEventItem(event: AttackTimelineEvent): KnowledgeTreeItem |
             title: idea.content,
             summary:
                 idea.status === "verified"
-                    ? "Verified route"
+                    ? "已验证路线"
                     : idea.status === "failed"
-                      ? "Rejected route"
+                      ? "被拒绝路线"
                       : idea.status === "skipped"
-                        ? "Skipped route"
+                        ? "已跳过路线"
                         : idea.status === "testing"
-                          ? "Testing route"
-                          : "Proposed route",
+                          ? "测试中路线"
+                          : "提出路线",
             detail: idea.result,
             className:
                 idea.status === "verified"
@@ -573,13 +573,13 @@ function knowledgeEdgeStyle(item: KnowledgeTreeItem) {
 
 function boardRelationshipLabel(from: KnowledgeTreeItem, to: KnowledgeTreeItem) {
     if (to.refs.includes(from.rawId)) {
-        if (to.entity === "memory" && from.entity === "idea") return "distilled"
-        if (to.entity === "memory" && from.entity === "memory") return "refines"
-        return "references"
+        if (to.entity === "memory" && from.entity === "idea") return "提炼"
+        if (to.entity === "memory" && from.entity === "memory") return "细化"
+        return "引用"
     }
-    if (to.entity === "idea") return "branch idea"
-    if (to.entity === "memory") return "stored memory"
-    return "board"
+    if (to.entity === "idea") return "分支 idea"
+    if (to.entity === "memory") return "存储 memory"
+    return "看板"
 }
 
 function eventNodeId(item: KnowledgeTreeItem) {
@@ -590,7 +590,7 @@ function itemMeta(item: KnowledgeTreeItem) {
     const meta = [item.rawId]
     if (item.statusTrail.length > 1) meta.push(item.statusTrail.join(" -> "))
     else if (item.status) meta.push(item.status)
-    if (item.updateCount > 1) meta.push(`${item.updateCount} updates`)
+    if (item.updateCount > 1) meta.push(`${item.updateCount} 次更新`)
     if (item.solverIds.length > 0) meta.push(item.solverIds.slice(0, 2).join(", "))
     return meta
 }
@@ -751,7 +751,7 @@ function buildKnowledgeGraphFromItems(items: KnowledgeTreeItem[], challenge?: Ch
     const itemMap = new Map(sorted.map((item) => [item.rawId, item]))
     const referencedIdeaIds = new Set(sorted.filter((item) => item.entity === "memory").flatMap((item) => item.refs).filter((ref) => itemMap.get(ref)?.entity === "idea"))
     const taskTitle = challengeNodeTitle(challenge)
-    const taskSummary = challengeNodeSummary(challenge, "Challenge task context")
+    const taskSummary = challengeNodeSummary(challenge, "目标任务上下文")
     const nodes: FlowNode[] = [
         {
             id: "knowledge:task-core",
@@ -1072,7 +1072,7 @@ function FlowCanvas(props: {
         }
     }, [direction, edges, layoutEdges, layerSpacing, layoutMode, nodeHeight, nodeWidth, nodes, spacing, suspended])
 
-    if (suspended) return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">Release to redraw graph</div>
+    if (suspended) return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">松开以重绘图表</div>
     if (nodes.length === 0) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{empty}</div>
     return (
         <ReactFlow
@@ -1285,9 +1285,9 @@ function SolverRuntimeTimeline(props: { solverId: string; timestamp?: number }) 
 
     const timeline = useMemo(() => buildRuntimeTimeline(details, timestamp), [details, timestamp])
 
-    if (loading && !details) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading runtime timeline...</div>
+    if (loading && !details) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载运行时时间线…</div>
     if (error) return <div className="rounded-lg border p-3 text-sm text-red-500">{error}</div>
-    if (timeline.blocks.length === 0) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No runtime messages at this time.</div>
+    if (timeline.blocks.length === 0) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">当前时刻无运行时消息。</div>
 
     return (
         <div className="runtime-detail-content h-full overflow-y-auto overflow-x-hidden px-2 py-3">
@@ -1373,7 +1373,7 @@ function TimelinePanel(props: { events: AttackTimelineEvent[]; selectedSolverId?
     const items = keyTimelineEvents(events)
     const solverMetas = solverMetasFromEvents(events)
     const showHubLane = items.some((event) => timelineLaneId(event) === "hub")
-    const hubLanes: Array<{ id: string; label: string; description?: string; className: string }> = showHubLane ? [{ id: "hub", label: "Hub", className: "border-violet-300 bg-violet-50 text-violet-950" }] : []
+    const hubLanes: Array<{ id: string; label: string; description?: string; className: string }> = showHubLane ? [{ id: "hub", label: "中枢", className: "border-violet-300 bg-violet-50 text-violet-950" }] : []
     const lanes: Array<{ id: string; label: string; description?: string; className: string }> = hubLanes.concat(
         solverMetas.map((meta, index) => {
             const styles = [
@@ -1406,7 +1406,7 @@ function TimelinePanel(props: { events: AttackTimelineEvent[]; selectedSolverId?
             <div className="h-full min-h-0 min-w-0 overflow-hidden border border-blue-100 bg-[radial-gradient(circle_at_12%_12%,rgba(148,163,184,0.10),transparent_42%),#f8fafc]">
                 <div className="flex h-full min-h-0 items-center justify-center p-6 text-center">
                     <div className="max-w-[260px] rounded-lg border border-dashed border-slate-200 bg-white/70 px-4 py-3 text-xs leading-relaxed text-muted-foreground shadow-sm">
-                        Start replay to populate the timeline.
+                        开始回放以填充时间线。
                     </div>
                 </div>
             </div>
@@ -1420,7 +1420,7 @@ function TimelinePanel(props: { events: AttackTimelineEvent[]; selectedSolverId?
                     <div className="sticky top-0 z-10 grid gap-2 bg-gradient-to-br from-white to-blue-50/80 pb-2" style={{ gridTemplateColumns }}>
                         <div className="flex items-center gap-1 px-1 text-[10px] font-medium text-muted-foreground">
                             <RouteIcon className="size-3 shrink-0 text-blue-600" />
-                            Time
+                            时间
                         </div>
                         {lanes.map((lane) => (
                             <button
@@ -1489,8 +1489,8 @@ function PanelResizeHandle(props: { onPointerDown: (event: ReactPointerEvent<HTM
     return (
         <button
             type="button"
-            aria-label="Resize timeline and graph panels"
-            title="Drag to resize panels. Double-click to reset."
+            aria-label="调整时间线与图表面板大小"
+            title="拖拽调整面板宽度，双击重置"
             className="group hidden cursor-col-resize items-stretch justify-center px-1 outline-none xl:flex"
             onPointerDown={onPointerDown}
             onKeyDown={onKeyDown}
@@ -1506,8 +1506,8 @@ function StackResizeHandle(props: { onPointerDown: (event: ReactPointerEvent<HTM
     return (
         <button
             type="button"
-            aria-label="Resize knowledge and topology panels"
-            title="Drag to resize graph panels. Double-click to reset."
+            aria-label="调整知识图谱与拓扑面板大小"
+            title="拖拽调整图表高度，双击重置"
             className="group hidden cursor-row-resize items-center justify-stretch py-1 outline-none xl:flex"
             onPointerDown={onPointerDown}
             onKeyDown={onKeyDown}
@@ -1538,13 +1538,13 @@ function TimelineEventDetailDialog(props: { event?: AttackTimelineEvent; onOpenC
                         <div className="min-w-0 space-y-4 text-sm">
                             {!hasStructuredDetail ? (
                                 <section className="space-y-1">
-                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Summary</div>
-                                    <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-3">{event.summary || "No summary."}</div>
+                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">摘要</div>
+                                    <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-3">{event.summary || "无摘要。"}</div>
                                 </section>
                             ) : null}
                             {memory ? (
                                 <section className="space-y-1">
-                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Memory</div>
+                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">记忆</div>
                                     <div className="min-w-0 rounded-lg border bg-blue-50/60 p-3 text-blue-950">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Badge variant="outline">{memory.kind}</Badge>
@@ -1553,27 +1553,27 @@ function TimelineEventDetailDialog(props: { event?: AttackTimelineEvent; onOpenC
                                         <div className="mt-3 whitespace-pre-wrap break-words text-base leading-relaxed">{memory.content}</div>
                                         {memory.refs.length > 0 ? <div className="mt-3 break-words text-xs opacity-70">refs: {memory.refs.join(", ")}</div> : null}
                                         <div className="mt-3 grid gap-1 text-xs opacity-70 sm:grid-cols-2">
-                                            <div>Created: {memory.created_at}</div>
-                                            <div>Updated: {memory.updated_at}</div>
+                                            <div>创建：{memory.created_at}</div>
+                                            <div>更新：{memory.updated_at}</div>
                                         </div>
                                     </div>
                                 </section>
                             ) : null}
                             {idea ? (
                                 <section className="space-y-1">
-                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Idea</div>
+                                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">思路</div>
                                     <div className="min-w-0 rounded-lg border bg-amber-50/70 p-3 text-amber-950">
                                         <Badge variant="outline">{idea.status}</Badge>
                                         <div className="mt-3 whitespace-pre-wrap break-words text-base leading-relaxed">{idea.content}</div>
                                         {idea.result ? (
                                             <div className="mt-3 rounded-md border border-amber-200 bg-white/60 p-3">
-                                                <div className="mb-1 text-xs font-medium uppercase tracking-wide opacity-70">Result</div>
+                                                <div className="mb-1 text-xs font-medium uppercase tracking-wide opacity-70">结果</div>
                                                 <div className="whitespace-pre-wrap break-words leading-relaxed">{idea.result}</div>
                                             </div>
                                         ) : null}
                                         <div className="mt-3 grid gap-1 text-xs opacity-70 sm:grid-cols-2">
-                                            <div>Created: {idea.created_at}</div>
-                                            <div>Updated: {idea.updated_at}</div>
+                                            <div>创建：{idea.created_at}</div>
+                                            <div>更新：{idea.updated_at}</div>
                                         </div>
                                     </div>
                                 </section>
@@ -1600,11 +1600,11 @@ function KnowledgeDetailDialog(props: { detail?: KnowledgeDetail; onOpenChange: 
                     <>
                         <DialogHeader>
                             <DialogTitle>
-                                {detail.kind === "task" ? detail.challenge?.title ?? "Task" : detail.kind === "memory" ? "Memory" : "Idea"}
+                                {detail.kind === "task" ? detail.challenge?.title ?? "任务" : detail.kind === "memory" ? "记忆" : "思路"}
                             </DialogTitle>
                             <DialogDescription>
                                 {detail.kind === "task"
-                                    ? `${detail.memoryCount} memory · ${detail.ideaCount} active ideas`
+                                    ? `${detail.memoryCount} 条记忆 · ${detail.ideaCount} 条活跃思路`
                                     : detail.kind === "memory"
                                       ? `${detail.item.id} · ${detail.item.kind}`
                                       : `${detail.item.id} · ${detail.item.status}`}
@@ -1612,7 +1612,7 @@ function KnowledgeDetailDialog(props: { detail?: KnowledgeDetail; onOpenChange: 
                         </DialogHeader>
                         {detail.kind === "task" ? (
                             <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-3 text-sm leading-relaxed">
-                                {detail.challenge?.description || "No task description."}
+                                {detail.challenge?.description || "无任务描述。"}
                             </div>
                         ) : detail.kind === "memory" ? (
                             <div className="space-y-3 text-sm">
@@ -1623,8 +1623,8 @@ function KnowledgeDetailDialog(props: { detail?: KnowledgeDetail; onOpenChange: 
                                 <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-3 leading-relaxed">{detail.item.content}</div>
                                 {detail.item.refs.length > 0 ? <div className="break-words text-xs text-muted-foreground">refs: {detail.item.refs.join(", ")}</div> : null}
                                 <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                                    <div>Created: {detail.item.created_at}</div>
-                                    <div>Updated: {detail.item.updated_at}</div>
+                                    <div>创建：{detail.item.created_at}</div>
+                                    <div>更新：{detail.item.updated_at}</div>
                                 </div>
                             </div>
                         ) : (
@@ -1633,13 +1633,13 @@ function KnowledgeDetailDialog(props: { detail?: KnowledgeDetail; onOpenChange: 
                                 <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-3 leading-relaxed">{detail.item.content}</div>
                                 {detail.item.result ? (
                                     <div className="rounded-lg border bg-amber-50/50 p-3">
-                                        <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Result</div>
+                                        <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">结果</div>
                                         <div className="whitespace-pre-wrap break-words leading-relaxed">{detail.item.result}</div>
                                     </div>
                                 ) : null}
                                 <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                                    <div>Created: {detail.item.created_at}</div>
-                                    <div>Updated: {detail.item.updated_at}</div>
+                                    <div>创建：{detail.item.created_at}</div>
+                                    <div>更新：{detail.item.updated_at}</div>
                                 </div>
                             </div>
                         )}
@@ -1888,7 +1888,7 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
         "--attack-flow-graphs": `minmax(0, ${graphHeights[0]}fr) 12px minmax(0, ${graphHeights[1]}fr)`,
     } as CSSProperties
 
-    if (loading && !snapshot) return <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading attack timeline...</CardContent></Card>
+    if (loading && !snapshot) return <Card><CardContent className="p-6 text-sm text-muted-foreground">加载攻击时间线…</CardContent></Card>
     if (error) return <Card><CardContent className="p-6 text-sm text-red-500">{error}</CardContent></Card>
 
     return (
@@ -1913,7 +1913,7 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
                                 edges={knowledgeGraph.edges}
                                 layoutEdges={knowledgeGraph.layoutEdges}
                                 layoutMode="elk"
-                                empty="No memory or ideas at this time."
+                                empty="当前时刻无记忆或思路。"
                                 suspended={isResizingLayout}
                                 direction="DOWN"
                                 nodeWidth={240}
@@ -1934,7 +1934,7 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
                                 nodes={communicationGraph.nodes}
                                 edges={communicationGraph.edges}
                                 layoutEdges={communicationGraph.edges.filter((edge) => edge.id.startsWith("base:"))}
-                                empty="No runtime events at this time."
+                                empty="当前时刻无运行时事件。"
                                 suspended={isResizingLayout}
                                 direction="DOWN"
                                 nodeWidth={224}
@@ -1954,8 +1954,8 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
                     {selectedSolverId ? (
                         <div className="flex max-h-[82vh] min-h-0 flex-col">
                             <DialogHeader className="border-b p-4 pr-12">
-                                <DialogTitle>Solver Timeline</DialogTitle>
-                                <DialogDescription>Runtime message stream · {selectedSolverId}</DialogDescription>
+                                <DialogTitle>Solver 时间线</DialogTitle>
+                                <DialogDescription>运行时消息流 · {selectedSolverId}</DialogDescription>
                             </DialogHeader>
                             <div className="h-[62vh] min-h-0 overflow-hidden">
                                 <SolverRuntimeTimeline solverId={selectedSolverId} timestamp={currentEvent?.timestamp} />
@@ -1984,7 +1984,7 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
                         disabled={events.length === 0}
                     >
                         {isPlaying ? <PauseIcon className="size-4" /> : <PlayIcon className="size-4" />}
-                        {isPlaying ? "Pause" : "Replay"}
+                        {isPlaying ? "暂停" : "回放"}
                     </Button>
                     <Button
                         variant="ghost"
@@ -1996,7 +1996,7 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
                         disabled={events.length === 0}
                     >
                         <RotateCcwIcon className="size-4" />
-                        Reset
+                        重置
                     </Button>
                     <Select value={playbackSpeed} onValueChange={(value) => setPlaybackSpeed((value as PlaybackSpeed | undefined) ?? "1")}>
                         <SelectTrigger size="sm" className="w-20">
@@ -2036,11 +2036,11 @@ export function AttackFlowPage({ challengeId }: AttackFlowProps) {
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4 pb-16">
             <div className="flex shrink-0 items-center justify-between gap-3">
                 <div className="min-w-0">
-                    <div className="text-xl font-semibold">Attack Flow</div>
+                    <div className="text-xl font-semibold">攻击流</div>
                     <div className="truncate text-xs text-muted-foreground">{challengeId}</div>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => (location.hash = `#/challenge/${encodeURIComponent(challengeId)}`)}>
-                    Back to Challenge
+                    返回目标
                 </Button>
             </div>
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">

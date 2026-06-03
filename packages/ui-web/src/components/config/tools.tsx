@@ -25,7 +25,7 @@ function ParamList({ parameters }: { parameters?: Record<string, unknown> }) {
                         )}
                         {required.includes(name) && (
                             <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                                required
+                                必填
                             </Badge>
                         )}
                     </div>
@@ -76,7 +76,7 @@ export function ToolsPage() {
         return list.filter((t) => t.source === filter)
     }, [list, filter])
 
-    if (loading) return <p className="text-sm text-muted-foreground">Loading...</p>
+    if (loading) return <p className="text-sm text-muted-foreground">加载中…</p>
     if (!list || list.length === 0) return <p className="text-sm text-muted-foreground">暂无可用工具。</p>
 
     return (
@@ -134,7 +134,7 @@ export function ToolsPage() {
                             </DialogHeader>
                             <Separator />
                             <div>
-                                <h4 className="text-sm font-medium mb-2">Parameters</h4>
+                                <h4 className="text-sm font-medium mb-2">参数</h4>
                                 <ParamList parameters={selected.parameters} />
                             </div>
                         </>

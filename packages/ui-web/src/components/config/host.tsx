@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Switch } from "../ui/switch"
 import { Textarea } from "../ui/textarea"
 
-const DEFAULT_MAX_SOLVERS = 7
+const DEFAULT_MAX_SOLVERS = 1
 const DEFAULT_PLANNER_TICK_SECONDS = 30
 const DEFAULT_STALE_TIMEOUT_MINUTES = 60
 const DEFAULT_RUNTIME_NETWORK_MODE = "host"
@@ -129,7 +129,7 @@ export function HostPage() {
                       }
                     : {}),
             })
-            setMessage("Saved")
+            setMessage("已保存")
             reload()
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error))
@@ -142,14 +142,14 @@ export function HostPage() {
         <form onSubmit={handleSave} className="space-y-4">
             <div className="space-y-4 rounded-lg border p-4">
                 <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium">Challenge Source</div>
+                    <div className="text-sm font-medium">目标来源</div>
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Mock Mode</span>
+                        <span className="text-sm text-muted-foreground">Mock 模式</span>
                         <Switch id="challenge-mock-enabled" checked={mockEnabled} onCheckedChange={setMockEnabled} />
                     </div>
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="challenge-api-base-url">API Base URL</Label>
+                    <Label htmlFor="challenge-api-base-url">API 基址</Label>
                     <Input
                         id="challenge-api-base-url"
                         placeholder="https://challenge.example.com"
@@ -159,7 +159,7 @@ export function HostPage() {
                     />
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="challenge-agent-token">Agent Token</Label>
+                    <Label htmlFor="challenge-agent-token">Agent 令牌</Label>
                     <Input
                         id="challenge-agent-token"
                         type="password"
@@ -173,16 +173,16 @@ export function HostPage() {
 
             <div className="space-y-4 rounded-lg border p-4">
                 <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium">Answer Mode</div>
+                    <div className="text-sm font-medium">答题模式</div>
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Enabled</span>
+                        <span className="text-sm text-muted-foreground">启用</span>
                         <Switch id="challenge-answer-mode-enabled" checked={answerModeEnabled} onCheckedChange={setAnswerModeEnabled} />
                     </div>
                 </div>
                 <div className="space-y-3">
-                    <div className="text-sm font-medium">Base URL Mappings</div>
+                    <div className="text-sm font-medium">API 基址映射</div>
                     {providerBaseUrlItems.length === 0 ? (
-                        <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No provider base URLs configured yet.</div>
+                        <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">尚未配置 Provider API 基址。</div>
                     ) : (
                         <div className="space-y-3">
                             {providerBaseUrlItems.map(({ baseUrl, items }) => (
@@ -205,9 +205,9 @@ export function HostPage() {
             </div>
             <div className="flex items-center gap-3">
                 <Button type="submit" disabled={saving}>
-                    {saving ? "Saving..." : "Save"}
+                    {saving ? "保存中…" : "保存"}
                 </Button>
-                {loading && <span className="text-sm text-muted-foreground">Loading...</span>}
+                {loading && <span className="text-sm text-muted-foreground">加载中…</span>}
                 {!loading && message && <span className="text-sm text-muted-foreground">{message}</span>}
                 {!loading && error && <span className="text-sm text-red-500">{error}</span>}
             </div>
@@ -227,12 +227,12 @@ function GatewayMappingRow(props: {
     return (
         <div className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="space-y-1">
-                <div className="text-xs font-medium text-muted-foreground">Original Base URL</div>
+                <div className="text-xs font-medium text-muted-foreground">原始 API 基址</div>
                 <div className="break-all rounded-md border bg-muted/30 px-3 py-2 font-mono text-xs">{baseUrl}</div>
                 <div className="text-xs text-muted-foreground">{formatProviderNames(providers)}</div>
             </div>
             <div className="space-y-1">
-                <Label htmlFor={`gateway-base-url-${baseUrl}`}>Gateway Base URL</Label>
+                <Label htmlFor={`gateway-base-url-${baseUrl}`}>Gateway 基址</Label>
                 <Input
                     id={`gateway-base-url-${baseUrl}`}
                     value={gatewayBaseUrl}
@@ -290,12 +290,13 @@ export function PlannerPage() {
                     cpus: cpus.trim() && Number(cpus) > 0 ? Number(cpus) : undefined,
                 },
                 planner: {
+                    enabled: true,
                     tickIntervalMs: Math.max(5, Number(plannerTickSeconds) || DEFAULT_PLANNER_TICK_SECONDS) * 1000,
                     staleTimeoutMs: Math.max(1, Number(staleTimeoutMinutes) || DEFAULT_STALE_TIMEOUT_MINUTES) * 60 * 1000,
                 },
                 defaultModelPrefId: defaultModelId || undefined,
             })
-            setMessage("Saved")
+            setMessage("已保存")
             reload()
             reloadPlannerPrompt()
         } catch (error) {
@@ -309,11 +310,11 @@ export function PlannerPage() {
         <form onSubmit={handleSave} className="space-y-4">
             <div className="space-y-4 rounded-lg border p-4">
                 <div className="space-y-1">
-                    <div className="text-sm font-medium">Planner Runtime</div>
-                    <div className="text-sm text-muted-foreground">这里控制自动调度的频率、超时和并发上限。启停和策略配置放在 Challenge 页面操作。</div>
+                    <div className="text-sm font-medium">调度器运行时</div>
+                    <div className="text-sm text-muted-foreground">调度器自动调度始终开启。这里控制 tick 频率、超时和并发上限；策略文案在目标页面配置。</div>
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="runtime-max-solvers">Max Solvers</Label>
+                    <Label htmlFor="runtime-max-solvers">最大 Solver 数</Label>
                     <Input
                         id="runtime-max-solvers"
                         type="number"
@@ -324,7 +325,7 @@ export function PlannerPage() {
                     <div className="text-sm text-muted-foreground">调度器最多同时保留多少个 solver。`0` 等价于暂停自动调度。</div>
                 </div>
                 <div className="space-y-2">
-                    <Label>Docker Network Mode</Label>
+                    <Label>Docker 网络模式</Label>
                     <Select value={networkMode} onValueChange={(value) => setNetworkMode(value === "bridge" ? "bridge" : "host")}>
                         <SelectTrigger>
                             <SelectValue placeholder="选择容器网络模式" />
@@ -338,7 +339,7 @@ export function PlannerPage() {
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                        <Label htmlFor="runtime-memory">Memory Limit / Solver</Label>
+                        <Label htmlFor="runtime-memory">内存上限 / Solver</Label>
                         <Input
                             id="runtime-memory"
                             placeholder="如 2g、512m（留空 = 不限制）"
@@ -348,7 +349,7 @@ export function PlannerPage() {
                         <div className="text-sm text-muted-foreground">单个 solver 容器内存上限（Docker `--memory`）。防止失控扫描/爆破吃满宿主。仅 docker 后端生效。</div>
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="runtime-cpus">CPU Limit / Solver</Label>
+                        <Label htmlFor="runtime-cpus">CPU 上限 / Solver</Label>
                         <Input
                             id="runtime-cpus"
                             type="number"
@@ -362,7 +363,7 @@ export function PlannerPage() {
                     </div>
                 </div>
                 <div className="space-y-2">
-                    <Label>Default Agent Model（所有 AI 统一使用）</Label>
+                    <Label>默认 Agent 模型（所有 AI 统一使用）</Label>
                     <Select value={defaultModelId || NONE_MODEL_VALUE} onValueChange={(value) => setDefaultModelId(value === NONE_MODEL_VALUE ? "" : (value ?? ""))}>
                         <SelectTrigger>
                             <SelectValue placeholder="选择默认模型">
@@ -389,7 +390,7 @@ export function PlannerPage() {
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                        <Label htmlFor="planner-tick-seconds">Planner Tick Interval Seconds</Label>
+                        <Label htmlFor="planner-tick-seconds">调度器 Tick 间隔（秒）</Label>
                         <Input
                             id="planner-tick-seconds"
                             type="number"
@@ -400,7 +401,7 @@ export function PlannerPage() {
                         <div className="text-sm text-muted-foreground">challenge 同步完成后，按这个间隔进入下一轮规划。最小 5 秒。</div>
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="planner-stale-timeout">Stale Timeout Minutes</Label>
+                        <Label htmlFor="planner-stale-timeout">停滞超时（分钟）</Label>
                         <Input
                             id="planner-stale-timeout"
                             type="number"
@@ -408,21 +409,21 @@ export function PlannerPage() {
                             value={staleTimeoutMinutes}
                             onChange={(event) => setStaleTimeoutMinutes(event.target.value)}
                         />
-                        <div className="text-sm text-muted-foreground">某题占用 solver 超过这个时长后，会被视为 stale，调度器可把窗口让给别的题。</div>
+                        <div className="text-sm text-muted-foreground">某题占用 solver 超过这个时长后，会被视为停滞，调度器可把窗口让给别的题。</div>
                     </div>
                 </div>
             </div>
 
             <div className="space-y-2 rounded-lg border p-4">
                 <div className="space-y-1">
-                    <Label htmlFor="planner-prompt-content">Planner System Prompt</Label>
+                    <Label htmlFor="planner-prompt-content">调度器系统提示词</Label>
                     <div className="text-sm text-muted-foreground">配置演练规划 agent 的系统提示词和默认模型。</div>
                 </div>
                 <div className="space-y-2">
-                    <Label>Planner Model</Label>
+                    <Label>调度器模型</Label>
                     <Select value={plannerModelId || NONE_MODEL_VALUE} onValueChange={(value) => setPlannerModelId(value === NONE_MODEL_VALUE ? "" : (value ?? ""))}>
                         <SelectTrigger>
-                            <SelectValue placeholder="选择 Planner 模型">
+                            <SelectValue placeholder="选择调度器模型">
                                 {(() => {
                                     const model = models?.find((item) => item.id === plannerModelId)
                                     if (!plannerModelId) return "不指定"
@@ -451,9 +452,9 @@ export function PlannerPage() {
 
             <div className="flex items-center gap-3">
                 <Button type="submit" disabled={saving}>
-                    {saving ? "Saving..." : "Save"}
+                    {saving ? "保存中…" : "保存"}
                 </Button>
-                {loading && <span className="text-sm text-muted-foreground">Loading...</span>}
+                {loading && <span className="text-sm text-muted-foreground">加载中…</span>}
                 {!loading && message && <span className="text-sm text-muted-foreground">{message}</span>}
                 {!loading && error && <span className="text-sm text-red-500">{error}</span>}
             </div>

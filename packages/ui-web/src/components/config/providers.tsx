@@ -103,8 +103,8 @@ export function ProvidersPage() {
         <Card>
             <CardHeader>
                 <div className="flex items-center justify-between">
-                    <CardTitle>Providers</CardTitle>
-                    <Badge variant="secondary">{allProviders.length} configured</Badge>
+                    <CardTitle>提供商</CardTitle>
+                    <Badge variant="secondary">{allProviders.length} 已配置</Badge>
                 </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -119,7 +119,7 @@ export function ProvidersPage() {
                 <form onSubmit={handleSave} className="space-y-3">
                     <div className="grid gap-3 lg:grid-cols-[16rem_14rem_minmax(0,1fr)_auto]">
                         <div className="space-y-2">
-                            <Label>Provider</Label>
+                            <Label>提供商</Label>
                             {isCustomMode ? (
                                 <div className="flex gap-1">
                                     <Input placeholder="custom-name" value={customName} onChange={(e) => setCustomName(e.target.value)} />
@@ -130,7 +130,7 @@ export function ProvidersPage() {
                             ) : (
                                 <Select value={name} onValueChange={(val) => handleProviderSelect(val ?? "")}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select provider" />
+                                        <SelectValue placeholder="选择提供商" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {builtInProviders?.map((bp) => (
@@ -138,13 +138,13 @@ export function ProvidersPage() {
                                                 {bp.provider}
                                             </SelectItem>
                                         ))}
-                                        <SelectItem value="__custom__">Custom...</SelectItem>
+                                        <SelectItem value="__custom__">自定义…</SelectItem>
                                     </SelectContent>
                                 </Select>
                             )}
                         </div>
                         <div className="space-y-2">
-                            <Label>Protocol</Label>
+                            <Label>协议</Label>
                             {api === "__custom__" ? (
                                 <div className="flex gap-1">
                                     <Input placeholder="custom-api" value={customApi} onChange={(e) => setCustomApi(e.target.value)} />
@@ -155,7 +155,7 @@ export function ProvidersPage() {
                             ) : (
                                 <Select value={api} onValueChange={(val) => setApi(val ?? "")} disabled={!name || selectedProviderApis.length === 0}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder={!name ? "Select provider first" : "Select protocol"} />
+                                        <SelectValue placeholder={!name ? "请先选择提供商" : "选择协议"} />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {selectedProviderApis.map((p) => (
@@ -163,41 +163,41 @@ export function ProvidersPage() {
                                                 {p}
                                             </SelectItem>
                                         ))}
-                                        <SelectItem value="__custom__">Custom...</SelectItem>
+                                        <SelectItem value="__custom__">自定义…</SelectItem>
                                     </SelectContent>
                                 </Select>
                             )}
                         </div>
                         <div className="min-w-0 space-y-2">
-                            <Label>API Key</Label>
+                            <Label>API 密钥</Label>
                             <Input type="password" placeholder="sk-..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
                         </div>
                         <div className="space-y-2">
-                            <Label className="invisible">Action</Label>
+                            <Label className="invisible">操作</Label>
                             <Button className="w-full lg:w-auto" type="submit" disabled={!effectiveName || (!apiKey.trim() && !effectiveApi)}>
-                                Save
+                                保存
                             </Button>
                         </div>
                     </div>
                     <div className="space-y-2">
-                        <Label>Base URL</Label>
-                        <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={isCustomMode ? "https://my-proxy.example.com/v1" : "Override default endpoint (optional)"} />
+                        <Label>API 基址</Label>
+                        <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={isCustomMode ? "https://my-proxy.example.com/v1" : "覆盖默认端点（可选）"} />
                     </div>
                 </form>
 
                 {loading ? (
-                    <p className="text-sm text-muted-foreground">Loading...</p>
+                    <p className="text-sm text-muted-foreground">加载中…</p>
                 ) : allProviders.length === 0 ? (
-                    <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No providers configured yet.</div>
+                    <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">尚未配置提供商。</div>
                 ) : (
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Provider</TableHead>
-                                <TableHead>API Key</TableHead>
-                                <TableHead>Protocol</TableHead>
-                                <TableHead>Base URL</TableHead>
-                                <TableHead className="w-24 text-right">Actions</TableHead>
+                                <TableHead>提供商</TableHead>
+                                <TableHead>API 密钥</TableHead>
+                                <TableHead>协议</TableHead>
+                                <TableHead>API 基址</TableHead>
+                                <TableHead className="w-24 text-right">操作</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -251,7 +251,7 @@ export function ProvidersPage() {
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <Button variant="ghost" size="sm" onClick={() => handleRemove(p.id)}>
-                                            Delete
+                                            删除
                                         </Button>
                                     </TableCell>
                                 </TableRow>

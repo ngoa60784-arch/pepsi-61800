@@ -220,9 +220,9 @@ export function ModelsPage() {
         setTestAlert(null)
         try {
             const result = await modelPrefs.test(id)
-            setTestAlert({ key: label, ok: result.ok, message: result.ok ? result.response || "OK" : result.error || "Failed", details: result.details })
+            setTestAlert({ key: label, ok: result.ok, message: result.ok ? result.response || "OK" : result.error || "失败", details: result.details })
         } catch (e: any) {
-            setTestAlert({ key: label, ok: false, message: e.message || "Request failed" })
+            setTestAlert({ key: label, ok: false, message: e.message || "请求失败" })
         } finally {
             setTestingKey(null)
         }
@@ -232,18 +232,18 @@ export function ModelsPage() {
         <Card>
             <CardHeader>
                 <div className="flex items-center justify-between">
-                    <CardTitle>Models</CardTitle>
-                    <Badge variant="secondary">{configs?.length ?? 0} configured</Badge>
+                    <CardTitle>模型</CardTitle>
+                    <Badge variant="secondary">{configs?.length ?? 0} 已配置</Badge>
                 </div>
             </CardHeader>
             <CardContent className="space-y-4">
                 {configuredProviders.length === 0 ? (
-                    <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No providers configured. Add a provider first.</div>
+                    <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">尚未配置提供商，请先添加提供商。</div>
                 ) : (
                     <>
                         <div className="grid gap-3 lg:grid-cols-[minmax(16rem,auto)_minmax(0,1fr)_auto]">
                             <div className="space-y-2">
-                                <Label>Provider</Label>
+                                <Label>提供商</Label>
                                 <Select
                                     value={selectedProvider}
                                     onValueChange={(val) => {
@@ -257,7 +257,7 @@ export function ModelsPage() {
                                     }}
                                 >
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select provider">{selectedProviderOption?.label}</SelectValue>
+                                        <SelectValue placeholder="选择提供商">{selectedProviderOption?.label}</SelectValue>
                                     </SelectTrigger>
                                     <SelectContent className="min-w-[var(--radix-select-trigger-width)] w-auto max-w-[32rem]">
                                         {providerOptions.map((o) => (
@@ -269,7 +269,7 @@ export function ModelsPage() {
                                 </Select>
                             </div>
                             <div className="min-w-0 space-y-2">
-                                <Label>Model</Label>
+                                <Label>模型</Label>
                                 {selectedModelId === "__custom__" ? (
                                     <div className="flex gap-1">
                                         <Input placeholder="model-id" value={customModelId} onChange={(e) => setCustomModelId(e.target.value)} />
@@ -283,12 +283,12 @@ export function ModelsPage() {
                                             <SelectValue
                                                 placeholder={
                                                     !selectedProvider
-                                                        ? "Select provider first"
+                                                        ? "请先选择 Provider"
                                                         : loadingModels
-                                                          ? "Loading models..."
+                                                          ? "加载模型中…"
                                                           : filteredModels.length === 0
-                                                            ? "No models (use Custom)"
-                                                            : "Select model"
+                                                            ? "无模型（使用自定义）"
+                                                            : "选择模型"
                                                 }
                                             />
                                         </SelectTrigger>
@@ -299,15 +299,15 @@ export function ModelsPage() {
                                                     {m.api !== "unknown" && <span className="ml-2 text-xs text-muted-foreground">{m.api}</span>}
                                                 </SelectItem>
                                             ))}
-                                            <SelectItem value="__custom__">Custom model ID...</SelectItem>
+                                            <SelectItem value="__custom__">自定义模型 ID…</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 )}
                             </div>
                             <div className="space-y-2">
-                                <Label className="invisible">Action</Label>
+                                <Label className="invisible">操作</Label>
                                 <Button className="w-full lg:w-auto" onClick={handleAdd} disabled={!selectedProvider || !effectiveModelId}>
-                                    Add
+                                    添加
                                 </Button>
                             </div>
                         </div>
@@ -315,21 +315,21 @@ export function ModelsPage() {
                         {effectiveModelId && (
                             <div className="grid gap-3 lg:grid-cols-[6rem_8rem_8rem_8rem]">
                                 <div className="space-y-2">
-                                    <Label className="text-xs">Reasoning</Label>
+                                    <Label className="text-xs">推理</Label>
                                     <div className="flex h-9 items-center">
                                         <Switch checked={addReasoning} onCheckedChange={setAddReasoning} />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-xs">Context Window</Label>
+                                    <Label className="text-xs">上下文窗口</Label>
                                     <Input type="number" className="h-9 text-xs" value={addContextWindow} onChange={(e) => setAddContextWindow(e.target.value)} placeholder="—" />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-xs">Max Tokens</Label>
+                                    <Label className="text-xs">最大 Token</Label>
                                     <Input type="number" className="h-9 text-xs" value={addMaxTokens} onChange={(e) => setAddMaxTokens(e.target.value)} placeholder="—" />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-xs">Thinking</Label>
+                                    <Label className="text-xs">思考</Label>
                                     <ThinkingLevelSelect value={addThinkingLevel} onChange={setAddThinkingLevel} />
                                 </div>
                             </div>
@@ -387,21 +387,21 @@ export function ModelsPage() {
                 )}
 
                 {loading ? (
-                    <p className="text-sm text-muted-foreground">Loading...</p>
+                    <p className="text-sm text-muted-foreground">加载中…</p>
                 ) : !configs || configs.length === 0 ? (
-                    <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No models configured yet.</div>
+                    <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">尚未配置模型。</div>
                 ) : (
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Provider</TableHead>
-                                <TableHead>Model</TableHead>
-                                <TableHead>Reasoning</TableHead>
-                                <TableHead>Context</TableHead>
-                                <TableHead>Max Tokens</TableHead>
-                                <TableHead>Thinking</TableHead>
-                                <TableHead>Extra</TableHead>
-                                <TableHead className="w-24 text-right">Actions</TableHead>
+                                <TableHead>提供商</TableHead>
+                                <TableHead>模型</TableHead>
+                                <TableHead>推理</TableHead>
+                                <TableHead>上下文</TableHead>
+                                <TableHead>最大 Token</TableHead>
+                                <TableHead>思考</TableHead>
+                                <TableHead>扩展</TableHead>
+                                <TableHead className="w-24 text-right">操作</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -458,10 +458,10 @@ export function ModelsPage() {
                                         </TableCell>
                                         <TableCell className="text-right space-x-1">
                                             <Button variant="ghost" size="sm" disabled={testingKey === m.id} onClick={() => handleTest(m.id, `${formatProviderLabel(m)}:${m.modelId}`)}>
-                                                {testingKey === m.id ? "Testing..." : "Test"}
+                                                {testingKey === m.id ? "测试中…" : "测试"}
                                             </Button>
                                             <Button variant="ghost" size="sm" onClick={() => handleRemove(m.id)}>
-                                                Remove
+                                                删除
                                             </Button>
                                         </TableCell>
                                     </TableRow>

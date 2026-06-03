@@ -37,7 +37,7 @@ function normalizeLifecycle(value?: string | null): "lazy" | "eager" | "keep-ali
 function TransportBadge({ server }: { server: McpServerEntry }) {
     if (server.url) return <Badge variant="outline">HTTP</Badge>
     if (server.command) return <Badge variant="outline">stdio</Badge>
-    return <Badge variant="outline">unknown</Badge>
+    return <Badge variant="outline">未知</Badge>
 }
 
 function LifecycleBadge({ lifecycle }: { lifecycle?: string }) {
@@ -64,7 +64,7 @@ function ParamList({ parameters }: { parameters?: Record<string, unknown> }) {
                         )}
                         {required.includes(name) && (
                             <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                                required
+                                必填
                             </Badge>
                         )}
                     </div>
@@ -325,7 +325,7 @@ export function McpPage() {
         }
     }
 
-    if (loading) return <p className="text-sm text-muted-foreground">Loading...</p>
+    if (loading) return <p className="text-sm text-muted-foreground">加载中…</p>
 
     return (
         <>
@@ -370,11 +370,11 @@ export function McpPage() {
                             {transport === "stdio" ? (
                                 <>
                                     <div className="space-y-1.5">
-                                        <Label>Command</Label>
+                                        <Label>命令</Label>
                                         <Input placeholder="npx -y @mcp/server" value={command} onChange={(e) => setCommand(e.target.value)} />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <Label>Args (空格分隔)</Label>
+                                        <Label>参数（空格分隔）</Label>
                                         <Input placeholder="--port 3000" value={args} onChange={(e) => setArgs(e.target.value)} />
                                     </div>
                                 </>
@@ -412,7 +412,7 @@ export function McpPage() {
                                 </>
                             )}
                             <div className="space-y-1.5">
-                                <Label>Lifecycle</Label>
+                                <Label>生命周期</Label>
                                 <Select value={normalizeLifecycle(lifecycle)} onValueChange={(v) => setLifecycle(normalizeLifecycle(v))}>
                                     <SelectTrigger>
                                         <SelectValue />
@@ -603,7 +603,7 @@ export function McpPage() {
                                 <CardContent className="pt-0">
                                     {serverTools.length > 0 ? (
                                         <div>
-                                            <h4 className="text-xs font-medium text-muted-foreground mb-2">Tools ({serverTools.length})</h4>
+                                            <h4 className="text-xs font-medium text-muted-foreground mb-2">工具 ({serverTools.length})</h4>
                                             <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 max-h-60 overflow-auto">
                                                 {serverTools.map((t) => (
                                                     <button
@@ -656,7 +656,7 @@ export function McpPage() {
                                 <DialogDescription>{selectedTool.description || "无描述"}</DialogDescription>
                             </DialogHeader>
                             <div>
-                                <h4 className="text-sm font-medium mb-2">Parameters</h4>
+                                <h4 className="text-sm font-medium mb-2">参数</h4>
                                 <ParamList parameters={(selectedTool.inputSchema ?? undefined) as Record<string, unknown> | undefined} />
                             </div>
                         </>

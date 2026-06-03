@@ -133,18 +133,18 @@ function Router() {
 }
 
 function getPageTitle(hash: string): string {
-    if (hash === "#/commander") return "Commander"
-    if (hash === "#/" || hash === "#/challenge") return "Challenge"
-    if (hash.startsWith("#/challenge/") && hash.endsWith("/attack-flow")) return "Challenge · Attack Flow"
-    if (hash.startsWith("#/challenge/")) return "Challenge"
-    if (hash === "#/runtime") return "Runtime"
-    if (hash.startsWith("#/runtime/")) return "Runtime · Solver"
+    if (hash === "#/commander") return "指挥官"
+    if (hash === "#/" || hash === "#/challenge") return "目标"
+    if (hash.startsWith("#/challenge/") && hash.endsWith("/attack-flow")) return "目标 · 攻击流"
+    if (hash.startsWith("#/challenge/")) return "目标"
+    if (hash === "#/runtime") return "运行时"
+    if (hash.startsWith("#/runtime/")) return "运行时 · Solver"
     if (hash.startsWith("#/config")) {
         const tab = hash.replace("#/config/", "")
         const found = configTabs.find((t) => t.value === tab)
-        return found ? `Config · ${found.label}` : "Configuration"
+        return found ? `配置 · ${found.label}` : "配置"
     }
-    return "Challenge"
+    return "目标"
 }
 
 type AuthState = "loading" | "need-login" | "ok"
@@ -189,7 +189,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
                     </div>
                     <div className="text-sm text-muted-foreground">请输入访问令牌（TCH_AUTH_TOKEN）</div>
                 </div>
-                <Input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="access token" autoFocus />
+                <Input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="访问令牌" autoFocus />
                 {error && <div className="text-sm text-red-500">{error}</div>}
                 <Button type="submit" className="w-full" disabled={busy || !token.trim()}>
                     {busy ? "验证中…" : "登录"}
@@ -246,7 +246,7 @@ export function App() {
                                 <SidebarMenuItem>
                                     <SidebarMenuButton render={<a href="#/config/providers" />} isActive={isConfigOpen}>
                                         <SettingsIcon className="size-4" />
-                                        <span>Config</span>
+                                        <span>配置</span>
                                         <ChevronRightIcon className={`ml-auto size-4 transition-transform ${isConfigOpen ? "rotate-90" : ""}`} />
                                     </SidebarMenuButton>
                                     {isConfigOpen && (
