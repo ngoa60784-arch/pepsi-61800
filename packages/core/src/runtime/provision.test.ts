@@ -1,11 +1,12 @@
 import { test, expect } from "bun:test"
-import { buildProvisionArgv, PROVISION_SCRIPT } from "./provision"
+import { buildProvisionArgv, getProvisionScript } from "./provision"
 
-test("provision script is inlined and looks like the provisioner", () => {
-    expect(typeof PROVISION_SCRIPT).toBe("string")
-    expect(PROVISION_SCRIPT.length).toBeGreaterThan(1000)
-    expect(PROVISION_SCRIPT).toContain("provision-pentest-vps")
-    expect(PROVISION_SCRIPT).toContain("阶段 1/6")
+test("provision script is inlined and looks like the provisioner", async () => {
+    const script = await getProvisionScript()
+    expect(typeof script).toBe("string")
+    expect(script.length).toBeGreaterThan(1000)
+    expect(script).toContain("provision-pentest-vps")
+    expect(script).toContain("阶段 1/6")
 })
 
 test("buildProvisionArgv (alias) runs bash -s over ssh, no password", () => {

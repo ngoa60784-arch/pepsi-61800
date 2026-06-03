@@ -1,8 +1,15 @@
 import type { Subprocess } from "bun"
-// 预装脚本作为文本内联进二进制（生产环境无源码目录，必须 import 而非读盘）。
-import PROVISION_SCRIPT from "./assets/provision-pentest-vps.sh" with { type: "text" }
+// 预装脚本：用 type:"file" 拿到（打包后内联的）路径，再 Bun.file().text() 读内容。
+// 不用 type:"text" 直接拿字符串——实测在多测试文件并发加载时它会不稳，偶尔返回路径而非内容
+// （PROVISION_SCRIPT.length=77 即路径长度），会把路径当脚本推到 VPS。type:"file" 是本仓库可靠模式。
+import PROVISION_SCRIPT_ASSET from "./assets/provision-pentest-vps.sh" with { type: "file" }
 
-export { PROVISION_SCRIPT }
+let scriptCache: Promise<string> | undefined
+/** 读取预装脚本内容（缓存，跨平台经打包后的资产路径读）。 */
+export function getProvisionScript(): Promise<string> {
+    if (!scriptCache) scriptCache = Bun.file(PROVISION_SCRIPT_ASSET).text()
+    return scriptCache
+}
 
 export interface ProvisionSshTarget {
     host?: string
@@ -67,7 +74,7 @@ export async function provisionKaliVps(
     }
 
     // 把脚本写进远端 bash 的 stdin，然后关闭，触发执行。
-    proc.stdin.write(PROVISION_SCRIPT)
+    proc.stdin.write(await getProvisionScript())
     await proc.stdin.end()
 
     const pump = async (readable: ReadableStream<Uint8Array>, which: "stdout" | "stderr") => {
