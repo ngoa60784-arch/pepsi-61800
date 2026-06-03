@@ -15,13 +15,13 @@ import {
     findToolDefinition,
     lsToolDefinition,
 } from "@mariozechner/pi-coding-agent"
-import { engagementTools } from "./engagement-tools"
+import { allEngagementTools } from "./engagement-tools"
 import { securityKimiSearchTool } from "./security-kimi-search"
 
 // ── 自定义工具 ──
 
 /** 所有自定义工具定义 */
-export const customTools: ToolDefinition[] = [securityKimiSearchTool, ...engagementTools]
+export const customTools: ToolDefinition[] = [securityKimiSearchTool, ...allEngagementTools]
 
 // ── SDK 内置工具 ──
 

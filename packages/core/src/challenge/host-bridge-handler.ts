@@ -299,6 +299,64 @@ async function handleEngagementAction(
                 },
             }
         }
+        case "relation_upsert": {
+            // 攻击图谱写边：source --relation--> target。底层 SQLite 按 (source,relation,target) 大小写无关去重，
+            // 重复三元组直接复用既有记录(同 record_asset 的合并语义)。写后广播给同目标其它 solver。
+            const relation = await challengeManager.appendRelation({
+                challengeId: storeKey,
+                source: getRequiredString(data, "source"),
+                relation: getRequiredString(data, "relation"),
+                target: getRequiredString(data, "target"),
+                note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
+                source_ref: typeof data.source_ref === "string" && data.source_ref.trim() ? data.source_ref.trim() : undefined,
+            })
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    recorded: true,
+                    relation_id: relation.id,
+                    message: "attack-graph edge recorded to shared graph",
+                },
+            }
+        }
+        case "relation_query": {
+            // 按 source/relation/target 子串过滤(大小写无关)查询攻击图谱边。空过滤 = 返回全图。
+            const relations = await challengeManager.queryRelations(storeKey, {
+                source: typeof data.source === "string" && data.source.trim() ? data.source.trim() : undefined,
+                relation: typeof data.relation === "string" && data.relation.trim() ? data.relation.trim() : undefined,
+                target: typeof data.target === "string" && data.target.trim() ? data.target.trim() : undefined,
+            })
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    count: relations.length,
+                    relations: relations.map((rel) => ({
+                        id: rel.id,
+                        source: rel.source,
+                        relation: rel.relation,
+                        target: rel.target,
+                        note: rel.note,
+                    })),
+                },
+            }
+        }
+        case "relation_path": {
+            // 在攻击图谱里求 start→end 的最短路径(BFS, 有向边)。返回每一跳的 source/relation/target。
+            const start = getRequiredString(data, "start")
+            const end = getRequiredString(data, "end")
+            const result = await challengeManager.findRelationShortestPath(storeKey, start, end)
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    found: result.found,
+                    hops: result.path.length,
+                    path: result.path,
+                },
+            }
+        }
         default:
             return { handled: false }
     }

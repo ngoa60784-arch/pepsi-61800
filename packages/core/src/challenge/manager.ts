@@ -34,6 +34,10 @@ import {
     type MemoryKind,
     type MemoryEntry,
     type UpdateIdeaInput,
+    type MemoryRelation,
+    type AddRelationInput,
+    type UpdateRelationInput,
+    type GraphPathResult,
     addChallengeIdea,
     appendChallengeMemory,
     deleteChallengeIdea,
@@ -43,6 +47,12 @@ import {
     searchChallengeIdeas,
     updateChallengeMemory,
     updateChallengeIdea,
+    appendChallengeRelation,
+    listChallengeRelations,
+    updateChallengeRelation,
+    deleteChallengeRelation,
+    queryChallengeRelations,
+    findChallengeRelationShortestPath,
 } from "./memory"
 import type { RuntimeManager } from "../runtime/runtime"
 import type { SolverInstance } from "../runtime/types"
@@ -73,6 +83,7 @@ const NOISY_ERROR_THROTTLE_WINDOW_MS = 60_000
 const NOISY_ERROR_SIGNATURE_LIMIT = 200
 const SOLVER_MEMORY_LIMIT = 10
 const SOLVER_IDEA_LIMIT = 8
+const SOLVER_RELATION_LIMIT = 30
 const SOLVER_HANDOFF_MAX_CHARS = 900
 const SOLVER_MEMORY_CONTENT_MAX_CHARS = 220
 const SOLVER_IDEA_CONTENT_MAX_CHARS = 120
@@ -343,6 +354,22 @@ function formatChallengeStateAssetBroadcastMessage(action: "added" | "updated" |
     ].join("\n")
 }
 
+// 把一条关系压成一行可读摘要：source --relation--> target [note]。
+function formatRelationLine(rel: MemoryRelation): string {
+    const base = `${clipTaskText(rel.source, 80)} --${clipTaskText(rel.relation, 40)}--> ${clipTaskText(rel.target, 80)}`
+    return rel.note.trim() ? `${base}  (${clipTaskText(rel.note, 100)})` : base
+}
+
+function formatChallengeRelationBroadcastMessage(action: "added" | "updated" | "deleted", rel: MemoryRelation): string {
+    return [
+        `Collaboration sync: attack-graph relation ${action}.`,
+        `- ${formatRelationLine(rel)}`,
+        action === "deleted"
+            ? "- This edge was removed from the shared attack graph; stop relying on it."
+            : "- A teammate mapped an attack-graph edge (how entities connect: routes_to / exploitable_via / owns_credential / pivots_to ...). Use find_attack_path to chain these into a route to your objective before brute-forcing a fresh path.",
+    ].join("\n")
+}
+
 function sortByUpdatedAtDesc<T extends { updated_at?: string }>(items: T[]): T[] {
     return items
         .map((item, index) => ({ item, index }))
@@ -418,6 +445,14 @@ function formatSolverStateAssetsSection(items: StateAsset[]): string {
     const rank = (kind: StateAsset["kind"]) => (kind === "credential" ? 3 : kind === "session" ? 2 : kind === "service" ? 1 : 0)
     const sorted = [...items].sort((a, b) => rank(b.kind) - rank(a.kind) || (parseTimestamp(b.updated_at) ?? 0) - (parseTimestamp(a.updated_at) ?? 0))
     return sorted.map((asset) => `- ${formatStateAssetLine(asset)}`).join("\n")
+}
+
+function formatSolverRelationsSection(items: MemoryRelation[]): string {
+    if (items.length === 0) return "(none)"
+    const selected = selectRecentItems(items, SOLVER_RELATION_LIMIT)
+    const lines = selected.map((rel) => `- ${formatRelationLine(rel)}`).join("\n")
+    if (selected.length === items.length) return lines
+    return `${lines}\n\nNote: showing the most recent ${selected.length}/${items.length} edges; call query_relations for the full attack graph.`
 }
 
 // ── Planner 战果摘要派生（喂给调度层，让它读懂下层 solver 拿到了什么，而不只是计数） ──
@@ -1606,6 +1641,45 @@ export class ChallengeManager {
         return entry
     }
 
+    // ── Relational Graph Memory Wrappers ──
+
+    async appendRelation(input: AddRelationInput): Promise<MemoryRelation> {
+        const rootDir = await this.getRootDir()
+        const relation = await appendChallengeRelation(rootDir, input)
+        this.broadcastChallengeBoardUpdateToRunningSolvers(input.challengeId, formatChallengeRelationBroadcastMessage("added", relation))
+        return relation
+    }
+
+    async listRelations(challengeId: string): Promise<MemoryRelation[]> {
+        const rootDir = await this.getRootDir()
+        return listChallengeRelations(rootDir, challengeId)
+    }
+
+    async updateRelation(challengeId: string, relationIdOrPrefix: string, patch: UpdateRelationInput): Promise<MemoryRelation> {
+        const rootDir = await this.getRootDir()
+        const relation = await updateChallengeRelation(rootDir, challengeId, relationIdOrPrefix, patch)
+        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeRelationBroadcastMessage("updated", relation))
+        return relation
+    }
+
+    async deleteRelation(challengeId: string, relationIdOrPrefix: string): Promise<MemoryRelation> {
+        const rootDir = await this.getRootDir()
+        const relation = await deleteChallengeRelation(rootDir, challengeId, relationIdOrPrefix)
+        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeRelationBroadcastMessage("deleted", relation))
+        return relation
+    }
+
+    async queryRelations(challengeId: string, filter: { source?: string; relation?: string; target?: string }): Promise<MemoryRelation[]> {
+        const rootDir = await this.getRootDir()
+        return queryChallengeRelations(rootDir, challengeId, filter)
+    }
+
+    async findRelationShortestPath(challengeId: string, start: string, end: string): Promise<GraphPathResult> {
+        const rootDir = await this.getRootDir()
+        const relations = await listChallengeRelations(rootDir, challengeId)
+        return findChallengeRelationShortestPath(relations, start, end)
+    }
+
     async listIdeas(challengeId: string): Promise<IdeaRecord[]> {
         const rootDir = await this.getRootDir()
         return listChallengeIdeas(rootDir, challengeId)
@@ -2298,11 +2372,12 @@ export class ChallengeManager {
      */
     private async buildEngagementSolverTask(challenge: ChallengeInfoRecord, options?: LaunchSolverOptions): Promise<string> {
         const entrypoint = (challenge.entrypoint ?? []).map((item) => `- ${item}`).join("\n")
-        const [memoryItems, ideaItems, submissionItems, stateAssets] = await Promise.all([
+        const [memoryItems, ideaItems, submissionItems, stateAssets, relations] = await Promise.all([
             this.listMemory(challenge.id),
             this.listIdeas(challenge.id),
             this.listSubmissionLogs(challenge.id),
             this.listStateAssets(challenge.id).catch(() => [] as StateAsset[]),
+            this.listRelations(challenge.id).catch(() => [] as MemoryRelation[]),
         ])
         const plannerHandoff = options?.plannerHandoff?.trim()
 
@@ -2342,6 +2417,9 @@ export class ChallengeManager {
             ``,
             `Shared battlefield state (hosts/services/credentials/sessions already obtained by the team — REUSE, do not re-discover):`,
             formatSolverStateAssetsSection(stateAssets),
+            ``,
+            `Attack graph (edges the team has mapped — how entities connect; chain them with find_attack_path to reach your objective):`,
+            formatSolverRelationsSection(relations),
             ``,
             `Requirements:`,
             `- The moment you verify a vuln / obtain control / get high-value evidence, record it with report_finding (proof + route writeup).`,

@@ -269,4 +269,102 @@ describe("engagement host bridge notifications", () => {
         expect((result.data as { recorded: boolean }).recorded).toBe(false)
         expect(upsertStateAsset).not.toHaveBeenCalled()
     })
+
+    test("relation_upsert records an attack-graph edge via the manager (keyed by challenge id)", async () => {
+        const appendRelation = mock(async (input: { challengeId: string }) => ({
+            id: "rel_abc123",
+            challengeId: input.challengeId,
+            source: "Host:10.0.0.5",
+            relation: "exploitable_via",
+            target: "Vuln:CVE-2023-1234",
+            note: "confirmed via nuclei",
+            source_ref: "",
+            created_at: "2026-04-12T00:00:00.000Z",
+            updated_at: "2026-04-12T00:00:00.000Z",
+        }))
+        const handler = createChallengeHostBridgeHandler({ appendRelation } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({
+                action: "relation_upsert" as never,
+                params: { source: "Host:10.0.0.5", relation: "exploitable_via", target: "Vuln:CVE-2023-1234", note: "confirmed via nuclei" },
+            }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { recorded: boolean }).recorded).toBe(true)
+        expect((result.data as { relation_id: string }).relation_id).toBe("rel_abc123")
+        expect(appendRelation).toHaveBeenCalledTimes(1)
+        // 写攻击图谱同样以 challenge(target) id 为 key,而非 scope 名。
+        expect(appendRelation.mock.calls[0]?.[0]).toMatchObject({
+            challengeId: "chal-1",
+            source: "Host:10.0.0.5",
+            relation: "exploitable_via",
+            target: "Vuln:CVE-2023-1234",
+            note: "confirmed via nuclei",
+        })
+    })
+
+    test("relation_upsert rejects a missing required field without touching the manager", async () => {
+        const appendRelation = mock(async () => ({}) as never)
+        const handler = createChallengeHostBridgeHandler({ appendRelation } as unknown as ChallengeManager)
+        // 缺 target → getRequiredString 抛错,handler 不应吞掉成功;调用方(rpc)会把它作为失败回传。
+        await expect(
+            handler.handle(
+                createContext({
+                    action: "relation_upsert" as never,
+                    params: { source: "Host:A", relation: "routes_to" },
+                }),
+            ),
+        ).rejects.toThrow("target is required")
+        expect(appendRelation).not.toHaveBeenCalled()
+    })
+
+    test("relation_query filters edges via the manager and returns a trimmed projection", async () => {
+        const queryRelations = mock(async (_id: string, _filter: Record<string, string | undefined>) => [
+            {
+                id: "rel_1",
+                challengeId: "chal-1",
+                source: "Cred:admin@web01",
+                relation: "grants_access_to",
+                target: "Host:10.0.0.9",
+                note: "reused on dc",
+                source_ref: "asset_x",
+                created_at: "2026-04-12T00:00:00.000Z",
+                updated_at: "2026-04-12T00:00:00.000Z",
+            },
+        ])
+        const handler = createChallengeHostBridgeHandler({ queryRelations } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({
+                action: "relation_query" as never,
+                params: { relation: "grants" },
+            }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { count: number }).count).toBe(1)
+        expect(queryRelations).toHaveBeenCalledWith("chal-1", { source: undefined, relation: "grants", target: undefined })
+        const edges = (result.data as { relations: Array<Record<string, string>> }).relations
+        // 投影只暴露 id/source/relation/target/note,不外泄内部 timestamp / challengeId。
+        expect(edges[0]).toEqual({ id: "rel_1", source: "Cred:admin@web01", relation: "grants_access_to", target: "Host:10.0.0.9", note: "reused on dc" })
+    })
+
+    test("relation_path returns the shortest mapped chain via the manager", async () => {
+        const findRelationShortestPath = mock(async (_id: string, _start: string, _end: string) => ({
+            found: true,
+            path: [
+                { source: "Host:A", relation: "routes_to", target: "Subnet:B", note: "" },
+                { source: "Subnet:B", relation: "contains", target: "Host:C", note: "" },
+            ],
+        }))
+        const handler = createChallengeHostBridgeHandler({ findRelationShortestPath } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({
+                action: "relation_path" as never,
+                params: { start: "Host:A", end: "Host:C" },
+            }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { found: boolean }).found).toBe(true)
+        expect((result.data as { hops: number }).hops).toBe(2)
+        expect(findRelationShortestPath).toHaveBeenCalledWith("chal-1", "Host:A", "Host:C")
+    })
 })

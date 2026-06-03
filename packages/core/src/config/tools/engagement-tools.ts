@@ -135,4 +135,133 @@ export const recordAssetTool = defineTool({
 
 export const engagementTools = [getTargetIntelTool, reportFindingTool, recordAssetTool]
 
-export const engagementToolNames = new Set(engagementTools.map((tool) => tool.name))
+const RecordRelationParams = Type.Object({
+    source: Type.String({
+        description: "The entity the edge starts FROM. Use a typed label like 'Host:10.0.0.5', 'Subnet:10.0.0.0/24', 'Cred:admin@web01', 'Service:http://10.0.0.5:8080'.",
+    }),
+    relation: Type.String({
+        description: "How source connects to target, e.g. 'routes_to', 'contains', 'exploitable_via', 'owns_credential', 'pivots_to', 'authenticates_to', 'grants_access_to'.",
+    }),
+    target: Type.String({
+        description: "The entity the edge points TO. Same typed-label convention as source, e.g. 'Subnet:10.0.0.0/24', 'Vuln:CVE-2023-1234', 'Shell:root@web01'.",
+    }),
+    note: Type.Optional(Type.String({ description: "How this edge was established / evidence / caveats." })),
+    source_ref: Type.Optional(Type.String({ description: "Optional id of the finding/memory/asset this edge was derived from." })),
+})
+
+type RecordRelationInput = Static<typeof RecordRelationParams>
+
+/**
+ * record_relation — 往跨 solver 共享的攻击图谱里写一条边。
+ *
+ * 与 record_asset 互补:asset 是"实体本身"(主机/服务/凭据/会话);relation 是"实体之间怎么连"
+ * (Host routes_to Subnet、Cred owns Host、Host exploitable_via Vuln)。把这些边连起来就能用
+ * find_attack_path 算出从立足点到目标的可行路线,不必每次重新摸索。底层按三元组去重、写后广播给队友。
+ */
+export const recordRelationTool = defineTool({
+    name: "record_relation",
+    label: "Record Attack-Graph Edge",
+    description:
+        "Record a directed edge in the shared cross-solver attack graph: source --relation--> target (e.g. 'Host:10.0.0.5' --exploitable_via--> 'Vuln:CVE-2023-1234', or 'Cred:admin@web01' --grants_access_to--> 'Host:10.0.0.9'). Use typed labels (Host:/Subnet:/Cred:/Service:/Vuln:/Shell:). Map edges as you discover them so the team can chain them into an attack path with find_attack_path instead of re-deriving the route. The engine de-dupes identical triples and broadcasts new edges to teammates.",
+    promptSnippet: "record_relation: add a source--relation-->target edge to the shared attack graph so routes can be chained with find_attack_path",
+    parameters: RecordRelationParams,
+    async execute(_toolCallId, params: RecordRelationInput) {
+        const details = await requestHostBridge<{ relation_id?: string; message?: string }>("relation_upsert", {
+            source: params.source,
+            relation: params.relation,
+            target: params.target,
+            ...(params.note?.trim() ? { note: params.note.trim() } : {}),
+            ...(params.source_ref?.trim() ? { source_ref: params.source_ref.trim() } : {}),
+        })
+        const ref = details.relation_id ? ` (id: ${details.relation_id})` : ""
+        const note = details.message?.trim() || "attack-graph edge recorded"
+        return { content: [{ type: "text", text: `${note}${ref}` }], details }
+    },
+})
+
+const QueryRelationsParams = Type.Object({
+    source: Type.Optional(Type.String({ description: "Case-insensitive substring filter on the edge source. Omit to match any." })),
+    relation: Type.Optional(Type.String({ description: "Case-insensitive substring filter on the relation type. Omit to match any." })),
+    target: Type.Optional(Type.String({ description: "Case-insensitive substring filter on the edge target. Omit to match any." })),
+})
+
+type QueryRelationsInput = Static<typeof QueryRelationsParams>
+
+interface RelationEdge {
+    id: string
+    source: string
+    relation: string
+    target: string
+    note: string
+}
+
+/**
+ * query_relations — 按 source/relation/target 子串过滤查询攻击图谱。全空 = 返回整张图。
+ */
+export const queryRelationsTool = defineTool({
+    name: "query_relations",
+    label: "Query Attack Graph",
+    description:
+        "List edges in the shared attack graph, optionally filtered by case-insensitive substring on source / relation / target. Call with no filters to dump the whole graph. Use this to see what the team already mapped (e.g. all edges touching a host, or all 'owns_credential' edges) before re-enumerating.",
+    promptSnippet: "query_relations: list/filter the shared attack-graph edges to see what's already mapped",
+    parameters: QueryRelationsParams,
+    async execute(_toolCallId, params: QueryRelationsInput) {
+        const details = await requestHostBridge<{ count?: number; relations?: RelationEdge[] }>("relation_query", {
+            ...(params.source?.trim() ? { source: params.source.trim() } : {}),
+            ...(params.relation?.trim() ? { relation: params.relation.trim() } : {}),
+            ...(params.target?.trim() ? { target: params.target.trim() } : {}),
+        })
+        const relations = details.relations ?? []
+        const body = relations.length > 0 ? relations.map((rel) => `- ${rel.source} --${rel.relation}--> ${rel.target}${rel.note ? `  (${rel.note})` : ""}`).join("\n") : "no matching edges in the attack graph"
+        return { content: [{ type: "text", text: `attack-graph edges (${relations.length}):\n${body}` }], details }
+    },
+})
+
+const FindAttackPathParams = Type.Object({
+    start: Type.String({ description: "Start node label, e.g. your current foothold 'Host:10.0.0.5' or 'Cred:admin@web01'." }),
+    end: Type.String({ description: "Goal node label, e.g. 'Shell:root@dc01' or 'Host:10.0.0.99'." }),
+})
+
+type FindAttackPathInput = Static<typeof FindAttackPathParams>
+
+interface PathStep {
+    source: string
+    relation: string
+    target: string
+    note: string
+}
+
+/**
+ * find_attack_path — 在共享攻击图谱里求 start→end 的最短可行路径(BFS, 有向)。
+ *
+ * 这是图谱的核心价值:把零散的边连成"从立足点到目标"的具体路线,避免每个 solver 重新摸索。
+ */
+export const findAttackPathTool = defineTool({
+    name: "find_attack_path",
+    label: "Find Attack Path",
+    description:
+        "Compute the shortest directed path between two nodes in the shared attack graph (e.g. from your current foothold 'Host:10.0.0.5' to goal 'Shell:root@dc01'). Returns the chain of edges to traverse, or none if the mapped graph has no route yet. Use this to turn scattered edges other solvers recorded into a concrete plan before brute-forcing a fresh route.",
+    promptSnippet: "find_attack_path: compute the shortest chain of edges from a start node to a goal node in the shared attack graph",
+    parameters: FindAttackPathParams,
+    async execute(_toolCallId, params: FindAttackPathInput) {
+        const details = await requestHostBridge<{ found?: boolean; hops?: number; path?: PathStep[] }>("relation_path", {
+            start: params.start,
+            end: params.end,
+        })
+        if (!details.found) {
+            return {
+                content: [{ type: "text", text: `no mapped path from ${params.start} to ${params.end} in the shared attack graph; map more edges with record_relation or find a route by hand` }],
+                details,
+            }
+        }
+        const steps = details.path ?? []
+        const body = steps.map((step, index) => `${index + 1}. ${step.source} --${step.relation}--> ${step.target}${step.note ? `  (${step.note})` : ""}`).join("\n")
+        return { content: [{ type: "text", text: `attack path (${steps.length} hop${steps.length === 1 ? "" : "s"}):\n${body}` }], details }
+    },
+})
+
+export const relationTools = [recordRelationTool, queryRelationsTool, findAttackPathTool]
+
+export const allEngagementTools = [...engagementTools, ...relationTools]
+
+export const engagementToolNames = new Set(allEngagementTools.map((tool) => tool.name))

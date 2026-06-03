@@ -4,6 +4,9 @@ export type HostBridgeAction =
     | "challenge_submit_flag"
     | "challenge_is_completed"
     | "state_upsert"
+    | "relation_upsert"
+    | "relation_query"
+    | "relation_path"
 
 export interface HostBridgeRequestEvent {
     type: "host_bridge_request"

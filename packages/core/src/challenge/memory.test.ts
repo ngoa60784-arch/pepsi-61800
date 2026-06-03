@@ -145,4 +145,79 @@ describe("challenge-memory", () => {
         expect(entries[0].id).toBe(first.id)
         expect(entries[0].content).toBe("found /admin/login")
     })
+
+    test("appends, lists, updates, and deletes relational graph memory", async () => {
+        const first = await manager.appendRelation({
+            challengeId: "abc123",
+            source: "Host:192.168.1.10",
+            relation: "exploitable_via",
+            target: "Vuln:CVE-2023-xxxx",
+            note: "confirmed via nmap scan",
+            source_ref: "mem_123456"
+        })
+        expect(first.id.startsWith("rel_")).toBe(true)
+        expect(first.source).toBe("Host:192.168.1.10")
+        expect(first.relation).toBe("exploitable_via")
+        expect(first.target).toBe("Vuln:CVE-2023-xxxx")
+        expect(first.note).toBe("confirmed via nmap scan")
+        expect(first.source_ref).toBe("mem_123456")
+
+        // Dedup test: duplicate insertion of same triple should ignore and return the existing record
+        const dup = await manager.appendRelation({
+            challengeId: "abc123",
+            source: "  Host:192.168.1.10  ", // trailing spaces
+            relation: "EXPLOITABLE_VIA",      // case insensitive
+            target: "Vuln:CVE-2023-xxxx",
+            note: "different note",
+        })
+        expect(dup.id).toBe(first.id)
+
+        // List relations
+        const list = await manager.listRelations("abc123")
+        expect(list).toHaveLength(1)
+        expect(list[0].id).toBe(first.id)
+
+        // Update relation
+        const updated = await manager.updateRelation("abc123", first.id.slice(0, 8), {
+            note: "updated note",
+            target: "Vuln:CVE-2023-NEW",
+        })
+        expect(updated.id).toBe(first.id)
+        expect(updated.note).toBe("updated note")
+        expect(updated.target).toBe("Vuln:CVE-2023-NEW")
+
+        // Query relation
+        const qResult = await manager.queryRelations("abc123", { target: "NEW" })
+        expect(qResult).toHaveLength(1)
+        expect(qResult[0].id).toBe(first.id)
+
+        // Delete relation
+        const deleted = await manager.deleteRelation("abc123", first.id.slice(0, 8))
+        expect(deleted.id).toBe(first.id)
+
+        const final_list = await manager.listRelations("abc123")
+        expect(final_list).toHaveLength(0)
+    })
+
+    test("finds shortest relation paths in graph", async () => {
+        // Construct a path: Host A -> routes_to -> Subnet B -> contains -> Host C -> exploits -> Root Shell
+        await manager.appendRelation({ challengeId: "path-test", source: "Host:A", relation: "routes_to", target: "Subnet:B" })
+        await manager.appendRelation({ challengeId: "path-test", source: "Subnet:B", relation: "contains", target: "Host:C" })
+        await manager.appendRelation({ challengeId: "path-test", source: "Host:C", relation: "exploits", target: "Shell" })
+        await manager.appendRelation({ challengeId: "path-test", source: "Host:A", relation: "independent", target: "Host:D" }) // dummy distractor
+
+        const pathResult = await manager.findRelationShortestPath("path-test", "Host:A", "Shell")
+        expect(pathResult.found).toBe(true)
+        expect(pathResult.path).toHaveLength(3)
+        expect(pathResult.path[0].source).toBe("Host:A")
+        expect(pathResult.path[0].target).toBe("Subnet:B")
+        expect(pathResult.path[1].source).toBe("Subnet:B")
+        expect(pathResult.path[1].target).toBe("Host:C")
+        expect(pathResult.path[2].source).toBe("Host:C")
+        expect(pathResult.path[2].target).toBe("Shell")
+
+        const missingPath = await manager.findRelationShortestPath("path-test", "Host:A", "NonExistent")
+        expect(missingPath.found).toBe(false)
+        expect(missingPath.path).toHaveLength(0)
+    })
 })

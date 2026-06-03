@@ -1,5 +1,6 @@
 import { mkdir, readdir, rename, rm } from "fs/promises"
 import { dirname, join } from "path"
+import { Database } from "bun:sqlite"
 
 export type IdeaStatus = "pending" | "testing" | "verified" | "failed" | "skipped"
 export type MemoryKind = "fact" | "evidence" | "credential" | "failure" | "note" | "hint"
@@ -59,6 +60,48 @@ export interface UpdateIdeaInput {
     content?: string
     status?: IdeaStatus
     result?: string
+}
+
+// === NEW: Relational Graph Memory Types & Interfaces ===
+export interface MemoryRelation {
+    id: string
+    challengeId: string
+    source: string       // e.g. "Host:192.168.1.10", "Subnet:10.0.0.0/24"
+    relation: string     // e.g. "routes_to", "exploitable_via", "owns_credential"
+    target: string       // e.g. "Subnet:10.0.0.0/24", "Host:10.0.0.5", "Cred:admin_pass"
+    note: string         // explanation or evidence
+    source_ref: string   // optional reference to a MemoryEntry id (e.g. "mem_xxxx") or observation
+    created_at: string
+    updated_at: string
+}
+
+export interface AddRelationInput {
+    challengeId: string
+    source: string
+    relation: string
+    target: string
+    note?: string
+    source_ref?: string
+}
+
+export interface UpdateRelationInput {
+    source?: string
+    relation?: string
+    target?: string
+    note?: string
+    source_ref?: string
+}
+
+export interface GraphPathStep {
+    source: string
+    relation: string
+    target: string
+    note: string
+}
+
+export interface GraphPathResult {
+    found: boolean
+    path: GraphPathStep[]
 }
 
 function nowIso(): string {
@@ -396,4 +439,287 @@ export async function deleteChallengeIdea(rootDir: string, challengeId: string, 
         await rm(ideaByIdPath(rootDir, id, matched.id), { force: true })
         return matched
     })
+}
+
+// === NEW: Relational SQLite Graph Memory Database Helpers ===
+function openRelationsDb(rootDir: string, challengeId: string): Database {
+    const id = requireText(challengeId, "challengeId")
+    const dir = challengeDir(rootDir, id)
+    const fs = require("node:fs")
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+    }
+    const dbPath = join(dir, "relations.db")
+    const db = new Database(dbPath)
+    
+    db.run(`
+        CREATE TABLE IF NOT EXISTS relations (
+            id TEXT PRIMARY KEY,
+            challenge_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            relation TEXT NOT NULL,
+            target TEXT NOT NULL,
+            note TEXT,
+            source_ref TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    `)
+    db.run(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_uniq 
+        ON relations(challenge_id, LOWER(source), LOWER(relation), LOWER(target))
+    `)
+    return db
+}
+
+export async function appendChallengeRelation(rootDir: string, input: AddRelationInput): Promise<MemoryRelation> {
+    const challengeId = requireText(input.challengeId, "challengeId")
+    const source = requireText(input.source, "source").trim()
+    const relation = requireText(input.relation, "relation").trim()
+    const target = requireText(input.target, "target").trim()
+    const note = input.note?.trim() ?? ""
+    const source_ref = input.source_ref?.trim() ?? ""
+    const now = nowIso()
+
+    const db = openRelationsDb(rootDir, challengeId)
+    try {
+        const id = createEntityId("rel")
+        db.run(`
+            INSERT OR IGNORE INTO relations (id, challenge_id, source, relation, target, note, source_ref, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [id, challengeId, source, relation, target, note, source_ref, now, now])
+
+        const row = db.query(`
+            SELECT * FROM relations 
+            WHERE challenge_id = ? AND LOWER(source) = LOWER(?) AND LOWER(relation) = LOWER(?) AND LOWER(target) = LOWER(?)
+        `).get(challengeId, source, relation, target) as any
+
+        if (!row) {
+            throw new Error("Failed to insert or retrieve relation")
+        }
+
+        return {
+            id: row.id,
+            challengeId: row.challenge_id,
+            source: row.source,
+            relation: row.relation,
+            target: row.target,
+            note: row.note ?? "",
+            source_ref: row.source_ref ?? "",
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    } finally {
+        db.close()
+    }
+}
+
+export async function listChallengeRelations(rootDir: string, challengeId: string): Promise<MemoryRelation[]> {
+    const db = openRelationsDb(rootDir, challengeId)
+    try {
+        const rows = db.query(`
+            SELECT * FROM relations WHERE challenge_id = ? ORDER BY created_at ASC
+        `).all(challengeId) as any[]
+
+        return rows.map((row) => ({
+            id: row.id,
+            challengeId: row.challenge_id,
+            source: row.source,
+            relation: row.relation,
+            target: row.target,
+            note: row.note ?? "",
+            source_ref: row.source_ref ?? "",
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }))
+    } finally {
+        db.close()
+    }
+}
+
+export async function updateChallengeRelation(
+    rootDir: string,
+    challengeId: string,
+    relationIdOrPrefix: string,
+    patch: UpdateRelationInput,
+): Promise<MemoryRelation> {
+    const id = requireText(challengeId, "challengeId")
+    const lookup = requireText(relationIdOrPrefix, "relationIdOrPrefix")
+
+    const db = openRelationsDb(rootDir, id)
+    try {
+        const rows = db.query(`
+            SELECT * FROM relations WHERE challenge_id = ? AND (id = ? OR id LIKE ?)
+        `).all(id, lookup, `${lookup}%`) as any[]
+
+        if (rows.length === 0) throw new Error(`relation "${lookup}" not found`)
+        if (rows.length > 1) throw new Error(`relation id prefix "${lookup}" is ambiguous`)
+
+        const matched = rows[0]
+        const nextSource = patch.source !== undefined ? requireText(patch.source, "source").trim() : matched.source
+        const nextRelation = patch.relation !== undefined ? requireText(patch.relation, "relation").trim() : matched.relation
+        const nextTarget = patch.target !== undefined ? requireText(patch.target, "target").trim() : matched.target
+        const nextNote = patch.note !== undefined ? patch.note.trim() : (matched.note ?? "")
+        const nextSourceRef = patch.source_ref !== undefined ? patch.source_ref.trim() : (matched.source_ref ?? "")
+        const now = nowIso()
+
+        db.run(`
+            UPDATE relations 
+            SET source = ?, relation = ?, target = ?, note = ?, source_ref = ?, updated_at = ?
+            WHERE id = ?
+        `, [nextSource, nextRelation, nextTarget, nextNote, nextSourceRef, now, matched.id])
+
+        return {
+            id: matched.id,
+            challengeId: id,
+            source: nextSource,
+            relation: nextRelation,
+            target: nextTarget,
+            note: nextNote,
+            source_ref: nextSourceRef,
+            created_at: matched.created_at,
+            updated_at: now,
+        }
+    } finally {
+        db.close()
+    }
+}
+
+export async function deleteChallengeRelation(
+    rootDir: string,
+    challengeId: string,
+    relationIdOrPrefix: string,
+): Promise<MemoryRelation> {
+    const id = requireText(challengeId, "challengeId")
+    const lookup = requireText(relationIdOrPrefix, "relationIdOrPrefix")
+
+    const db = openRelationsDb(rootDir, id)
+    try {
+        const rows = db.query(`
+            SELECT * FROM relations WHERE challenge_id = ? AND (id = ? OR id LIKE ?)
+        `).all(id, lookup, `${lookup}%`) as any[]
+
+        if (rows.length === 0) throw new Error(`relation "${lookup}" not found`)
+        if (rows.length > 1) throw new Error(`relation id prefix "${lookup}" is ambiguous`)
+
+        const matched = rows[0]
+        db.run(`DELETE FROM relations WHERE id = ?`, [matched.id])
+
+        return {
+            id: matched.id,
+            challengeId: id,
+            source: matched.source,
+            relation: matched.relation,
+            target: matched.target,
+            note: matched.note ?? "",
+            source_ref: matched.source_ref ?? "",
+            created_at: matched.created_at,
+            updated_at: matched.updated_at,
+        }
+    } finally {
+        db.close()
+    }
+}
+
+export async function queryChallengeRelations(
+    rootDir: string,
+    challengeId: string,
+    filter: { source?: string; relation?: string; target?: string },
+): Promise<MemoryRelation[]> {
+    const db = openRelationsDb(rootDir, challengeId)
+    try {
+        let sql = `SELECT * FROM relations WHERE challenge_id = ?`
+        const params: any[] = [challengeId]
+
+        if (filter.source) {
+            sql += ` AND LOWER(source) LIKE ?`
+            params.push(`%${filter.source.trim().toLowerCase()}%`)
+        }
+        if (filter.relation) {
+            sql += ` AND LOWER(relation) LIKE ?`
+            params.push(`%${filter.relation.trim().toLowerCase()}%`)
+        }
+        if (filter.target) {
+            sql += ` AND LOWER(target) LIKE ?`
+            params.push(`%${filter.target.trim().toLowerCase()}%`)
+        }
+
+        sql += ` ORDER BY created_at ASC`
+        const rows = db.query(sql).all(...params) as any[]
+
+        return rows.map((row) => ({
+            id: row.id,
+            challengeId: row.challenge_id,
+            source: row.source,
+            relation: row.relation,
+            target: row.target,
+            note: row.note ?? "",
+            source_ref: row.source_ref ?? "",
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }))
+    } finally {
+        db.close()
+    }
+}
+
+export function findChallengeRelationShortestPath(
+    relations: MemoryRelation[],
+    start: string,
+    end: string,
+): GraphPathResult {
+    const s = start.trim().toLowerCase()
+    const e = end.trim().toLowerCase()
+    if (!s || !e) return { found: false, path: [] }
+    if (s === e) return { found: true, path: [] }
+
+    const adj = new Map<string, MemoryRelation[]>()
+    for (const rel of relations) {
+        const src = rel.source.trim().toLowerCase()
+        if (!adj.has(src)) adj.set(src, [])
+        adj.get(src)!.push(rel)
+    }
+
+    const queue: string[] = [s]
+    const visited = new Set<string>([s])
+    const parent = new Map<string, { node: string; edge: MemoryRelation }>()
+
+    let found = false
+    while (queue.length > 0) {
+        const curr = queue.shift()!
+        if (curr === e) {
+            found = true
+            break
+        }
+
+        const edges = adj.get(curr) ?? []
+        for (const edge of edges) {
+            const next = edge.target.trim().toLowerCase()
+            if (!visited.has(next)) {
+                visited.add(next)
+                parent.set(next, { node: curr, edge })
+                queue.push(next)
+            }
+        }
+    }
+
+    if (!found) {
+        return { found: false, path: [] }
+    }
+
+    const pathSteps: GraphPathStep[] = []
+    let currNode = e
+    while (currNode !== s) {
+        const p = parent.get(currNode)
+        if (!p) break
+        pathSteps.unshift({
+            source: p.edge.source,
+            relation: p.edge.relation,
+            target: p.edge.target,
+            note: p.edge.note,
+        })
+        currNode = p.node
+    }
+
+    return { found: true, path: pathSteps }
 }
