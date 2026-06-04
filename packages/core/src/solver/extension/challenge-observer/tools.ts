@@ -12,6 +12,8 @@ import {
     updateSolverBoardIdea,
     updateSolverBoardMemory,
 } from "../../board-store"
+import { promoteIdeaToChallengeViaBridge, promoteMemoryToChallengeViaBridge } from "../../../challenge/board-promote-bridge"
+import { shouldPromoteIdeaStatus } from "../../../challenge/board-promotion"
 import { formatIdeaTable, formatMemoryTable } from "./board-format"
 
 const EmptyParams = Type.Object({})
@@ -98,6 +100,31 @@ function formatMemoryMutation(action: "added" | "updated" | "deleted", entry: Me
 function formatIdeaMutation(action: "added" | "updated", item: IdeaRecord): string {
     const result = item.result.trim()
     return `${action} idea [${item.status}] ${item.id}: ${clipText(item.content, 140)}${result ? ` -> ${clipText(result, 160)}` : ""}`
+}
+
+async function promoteLocalMemoryToChallenge(entry: MemoryEntry): Promise<string> {
+    const bridge = await promoteMemoryToChallengeViaBridge({
+        kind: entry.kind,
+        content: entry.content,
+        refs: entry.refs,
+        source: `observer:${entry.source}`,
+    })
+    if (bridge.promoted) return " (promoted to target board)"
+    if (bridge.duplicate) return " (already on target board)"
+    return ""
+}
+
+async function promoteLocalIdeaToChallenge(item: IdeaRecord): Promise<string> {
+    if (!shouldPromoteIdeaStatus(item.status)) return ""
+    const bridge = await promoteIdeaToChallengeViaBridge({
+        content: item.content,
+        status: item.status,
+        result: item.result,
+        source: "observer",
+    })
+    if (bridge.promoted) return " (promoted to target board)"
+    if (bridge.duplicate) return " (already on target board)"
+    return ""
 }
 
 interface SolverHistoryRecord {
@@ -249,8 +276,9 @@ const observerSidecarBoardTools = [
                 refs: params.refs ?? [],
                 source: params.source?.trim() || "observer",
             })
+            const promoteNote = await promoteLocalMemoryToChallenge(entry)
             return {
-                content: [{ type: "text", text: formatMemoryMutation("added", entry) }],
+                content: [{ type: "text", text: `${formatMemoryMutation("added", entry)}${promoteNote}` }],
                 details: { entry },
             }
         },
@@ -328,8 +356,9 @@ const observerSidecarBoardTools = [
                 status: params.status,
                 result: params.result ?? "",
             })
+            const promoteNote = await promoteLocalIdeaToChallenge(result.item)
             return {
-                content: [{ type: "text", text: formatIdeaMutation("added", result.item) }],
+                content: [{ type: "text", text: `${formatIdeaMutation("added", result.item)}${promoteNote}` }],
                 details: result,
             }
         },
@@ -345,8 +374,9 @@ const observerSidecarBoardTools = [
                 status: params.status,
                 result: params.result ?? "",
             })
+            const promoteNote = await promoteLocalIdeaToChallenge(item)
             return {
-                content: [{ type: "text", text: formatIdeaMutation("updated", item) }],
+                content: [{ type: "text", text: `${formatIdeaMutation("updated", item)}${promoteNote}` }],
                 details: { item },
             }
         },
@@ -424,8 +454,9 @@ export const challengeObserverAgentTools = [
                 refs: params.refs ?? [],
                 source: params.source,
             })
+            const promoteNote = await promoteLocalMemoryToChallenge(entry)
             return {
-                content: [{ type: "text", text: formatMemoryMutation("added", entry) }],
+                content: [{ type: "text", text: `${formatMemoryMutation("added", entry)}${promoteNote}` }],
                 details: { entry },
             }
         },

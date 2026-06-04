@@ -1,7 +1,9 @@
 import type { ChallengeManager } from "./manager"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "./env"
 import { loadEngagementScope } from "./engagement"
+import { buildPromoteIdeaInput, buildPromoteMemoryInput } from "./board-promotion"
 import { validateObjectiveEvidence } from "./finding-validation"
+import type { IdeaStatus, MemoryKind } from "./memory"
 import type { HostBridgeHandleContext, HostBridgeHandleResult, HostBridgeHandler, SolverInstance } from "../runtime/types"
 
 function getObjectValue(value: unknown): Record<string, unknown> {
@@ -187,7 +189,14 @@ async function handleEngagementAction(
             // Assertive evidence gate (deterministic first pass): solver reporting primary objective can stop the line,
             // but models sometimes claim victory without proof. Insufficient evidence downgrades to plain finding (still logged, no verification),
             // other solvers continue; tell this solver to supply concrete proof.
-            const evidence = objectiveClaimed ? validateObjectiveEvidence(proof, writeup) : { sufficient: false, reason: "" }
+            const challenge =
+                typeof challengeManager.getChallenge === "function"
+                    ? await challengeManager.getChallenge(storeKey).catch(() => undefined)
+                    : undefined
+            const objectiveText = challenge ? `${challenge.title}\n${challenge.description}` : ""
+            const evidence = objectiveClaimed
+                ? validateObjectiveEvidence(proof, writeup, { objectiveText })
+                : { sufficient: false, reason: "" }
             // Passed gate → pending verification; independent verifier reproduces before wind-down.
             const enterVerification = objectiveClaimed && evidence.sufficient
             const record = await challengeManager.recordEngagementObjective(storeKey, proof, {
@@ -197,6 +206,9 @@ async function handleEngagementAction(
                 writeup,
                 verificationStatus: enterVerification ? "pending" : undefined,
             })
+            await challengeManager
+                .promoteFindingFactsToChallenge(storeKey, proof, writeup, `finding:${record.id}`)
+                .catch(() => {})
             // Broadcast to other solvers on same target: finding recorded, avoid duplicate routes.
             const [memory, ideas] = await Promise.all([
                 challengeManager.listMemory(storeKey).catch(() => []),
@@ -219,6 +231,7 @@ async function handleEngagementAction(
                         recordId: record.id,
                         proof,
                         writeup,
+                        entrypoint: challenge?.entrypoint ?? null,
                         onResolved: (verdict, note) => {
                             if (verdict === "rejected") {
                                 sendSteerToSolver(
@@ -267,6 +280,67 @@ async function handleEngagementAction(
             // Reflect real completion: true after objective_achieved so solver ralph-loop can stop.
             const completed = await challengeManager.isChallengeCompleted(storeKey).catch(() => false)
             return { handled: true, data: { challenge_id: storeKey, is_completed: completed } }
+        }
+        case "challenge_promote_memory": {
+            const kindRaw = typeof data.kind === "string" ? data.kind.trim() : ""
+            const validKinds = new Set(["fact", "evidence", "credential", "failure", "note", "hint"])
+            if (!validKinds.has(kindRaw)) {
+                return {
+                    handled: true,
+                    data: { challenge_id: storeKey, promoted: false, duplicate: false, message: `invalid memory kind: ${kindRaw || "(empty)"}` },
+                }
+            }
+            const result = await challengeManager.tryPromoteMemoryToChallenge(
+                buildPromoteMemoryInput(
+                    storeKey,
+                    kindRaw as MemoryKind,
+                    getRequiredString(data, "content"),
+                    typeof data.source === "string" && data.source.trim() ? data.source.trim() : `solver:${solverId}`,
+                    Array.isArray(data.refs) ? data.refs.filter((item): item is string => typeof item === "string") : [],
+                ),
+            )
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    promoted: result.promoted,
+                    duplicate: result.duplicate,
+                    entry_id: result.entry?.id,
+                },
+            }
+        }
+        case "challenge_promote_idea": {
+            const statusRaw = typeof data.status === "string" ? data.status.trim() : ""
+            const validStatuses = new Set(["verified", "failed"])
+            if (!validStatuses.has(statusRaw)) {
+                return {
+                    handled: true,
+                    data: {
+                        challenge_id: storeKey,
+                        promoted: false,
+                        duplicate: false,
+                        message: "only verified or failed ideas are promoted to the target board",
+                    },
+                }
+            }
+            const result = await challengeManager.tryPromoteIdeaToChallenge(
+                storeKey,
+                buildPromoteIdeaInput(
+                    getRequiredString(data, "content"),
+                    statusRaw as IdeaStatus,
+                    typeof data.result === "string" ? data.result : undefined,
+                ),
+                typeof data.source === "string" && data.source.trim() ? data.source.trim() : `solver:${solverId}`,
+            )
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    promoted: result.promoted,
+                    duplicate: result.duplicate,
+                    idea_id: result.item?.id,
+                },
+            }
         }
         case "state_upsert": {
             // Structured asset to shared state (cross-solver). Engine dedupes, broadcasts, feeds planner.

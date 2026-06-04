@@ -13,18 +13,21 @@
  * evidence-free "achieved" shut down the whole target.
  */
 
-// Strong evidence signals: matching any one is treated as a concrete credential/artifact, enough to back objective_achieved.
-const STRONG_EVIDENCE_PATTERNS: RegExp[] = [
-    // shell / RCE: id output, root prompt, Windows whoami
+// Shell / RCE signals — required when the engagement objective explicitly demands server access.
+const SHELL_EVIDENCE_PATTERNS: RegExp[] = [
     /\buid=\d+\b/i,
     /\bgid=\d+\b/i,
     /\bnt authority\\system\b/i,
     /\b[\w.-]+@[\w.-]+:[~/][^\s]*[$#]/, // user@host:/path$  style prompt
     /\bMicrosoft Windows \[Version/i,
     /\b[A-Z]:\\Windows\\system32/i,
-    // sensitive file contents
     /root:.*:0:0:/, // /etc/passwd line
     /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+]
+
+// Strong evidence signals: matching any one is treated as a concrete credential/artifact, enough to back objective_achieved.
+const STRONG_EVIDENCE_PATTERNS: RegExp[] = [
+    ...SHELL_EVIDENCE_PATTERNS,
     // credentials / hashes / tokens
     /\$2[abxy]?\$\d{1,2}\$[./A-Za-z0-9]{20,}/, // bcrypt ($2y$10$...)
     /\$[1356]\$[./A-Za-z0-9$]{8,}/, // md5crypt / sha256crypt / sha512crypt
@@ -39,6 +42,10 @@ const STRONG_EVIDENCE_PATTERNS: RegExp[] = [
     // HTTP response evidence
     /\bHTTP\/\d(?:\.\d)?\s+\d{3}\b/,
 ]
+
+/** Engagement text that means "primary objective = host/server control", not merely app/API admin. */
+const SERVER_ACCESS_OBJECTIVE_PATTERN =
+    /(?:服务器权限|拿(?:到|下)?(?:服务器|主机|机器)(?:权限|控制权)?|get\s+(?:server|host|machine)\s+(?:access|shell|root)|obtain\s+(?:server|host)\s+(?:access|control)|interactive\s+shell|remote\s+code\s+execution|\bRCE\b|root\s+shell|shell\s+on\s+(?:the\s+)?(?:server|host|target))/i
 
 // Weak evidence signals: not enough alone; need >= 2 matches (and sufficiently long text) to count as an artifact.
 const WEAK_EVIDENCE_PATTERNS: RegExp[] = [
@@ -60,31 +67,66 @@ export interface ObjectiveEvidenceResult {
     reason: string
 }
 
+export interface ValidateObjectiveEvidenceOptions {
+    /** Target title + description — used to require shell/RCE proof when the engagement asks for server access. */
+    objectiveText?: string
+}
+
 const MIN_COMBINED_LENGTH = 40
+
+export function requiresServerAccessObjective(objectiveText: string): boolean {
+    const text = objectiveText.trim()
+    if (!text) return false
+    return SERVER_ACCESS_OBJECTIVE_PATTERN.test(text)
+}
+
+function hasShellEvidence(combined: string): boolean {
+    return SHELL_EVIDENCE_PATTERNS.some((pattern) => pattern.test(combined))
+}
 
 /**
  * Decide whether a proof (+writeup) is enough to back automatic wind-down on a "primary objective achieved" claim.
  * When sufficient=false, the caller should downgrade objective_achieved to an ordinary finding and prompt for more evidence.
  */
-export function validateObjectiveEvidence(proof: string, writeup?: string): ObjectiveEvidenceResult {
+export function validateObjectiveEvidence(
+    proof: string,
+    writeup?: string,
+    options?: ValidateObjectiveEvidenceOptions,
+): ObjectiveEvidenceResult {
     const proofText = (proof ?? "").trim()
     const extra = (writeup ?? "").trim()
     const combined = `${proofText}\n${extra}`.trim()
+    const needsShell = requiresServerAccessObjective(options?.objectiveText ?? "")
 
     if (combined.length < MIN_COMBINED_LENGTH) {
         return {
             sufficient: false,
-            reason: "evidence too short — a primary-objective claim needs concrete proof (command output, shell prompt, file contents, captured credential, HTTP response, or DB dump), not a one-line claim",
+            reason: needsShell
+                ? "evidence too short — server-access objectives need fresh shell/RCE proof (command output with uid=, interactive prompt, or equivalent), not a one-line claim"
+                : "evidence too short — a primary-objective claim needs concrete proof (command output, shell prompt, file contents, captured credential, HTTP response, or DB dump), not a one-line claim",
         }
     }
 
+    const shellHit = hasShellEvidence(combined)
     const strongHit = STRONG_EVIDENCE_PATTERNS.some((pattern) => pattern.test(combined))
     if (strongHit) {
-        return { sufficient: true, reason: "strong evidence artifact present" }
+        if (needsShell && !shellHit) {
+            return {
+                sufficient: false,
+                reason: "primary objective requires server access (shell/RCE on the engagement target); API tokens, admin JWT, or CMS login alone are not sufficient — attach interactive shell proof (uid=, shell prompt, or fresh command output from the target host)",
+            }
+        }
+        return { sufficient: true, reason: shellHit ? "shell/RCE evidence present" : "strong evidence artifact present" }
     }
 
     const weakHits = WEAK_EVIDENCE_PATTERNS.reduce((count, pattern) => (pattern.test(combined) ? count + 1 : count), 0)
     if (weakHits >= 2) {
+        if (needsShell && !shellHit) {
+            return {
+                sufficient: false,
+                reason: "primary objective requires server access; corroborating signals are not enough without shell/RCE artifacts (uid=, interactive prompt, or target-host command output)",
+            }
+        }
         return { sufficient: true, reason: "multiple corroborating evidence signals present" }
     }
 

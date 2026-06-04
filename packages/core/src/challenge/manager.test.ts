@@ -397,6 +397,79 @@ describe("challenge-manager local api", () => {
         })
     })
 
+    test("tryPromoteMemoryToChallenge dedupes and skips low-signal facts", async () => {
+        await manager.createChallenge({
+            id: "mock-promote",
+            title: "mock-promote",
+            difficulty: "-",
+            description: "",
+            level: 0,
+            total_score: 0,
+            total_got_score: 0,
+            flag_count: 0,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "stopped",
+            entrypoint: ["http://t"],
+            flags: [],
+        })
+        const first = await manager.tryPromoteMemoryToChallenge({
+            challengeId: "mock-promote",
+            kind: "failure",
+            content: "XMLRPC method execution blocked; only listMethods returned",
+            source: "observer",
+        })
+        expect(first.promoted).toBe(true)
+        const dup = await manager.tryPromoteMemoryToChallenge({
+            challengeId: "mock-promote",
+            kind: "failure",
+            content: "  xmlrpc method execution blocked; only listmethods returned ",
+            source: "observer",
+        })
+        expect(dup.promoted).toBe(false)
+        expect(dup.duplicate).toBe(true)
+        const skipped = await manager.tryPromoteMemoryToChallenge({
+            challengeId: "mock-promote",
+            kind: "fact",
+            content: "vague progress note",
+            source: "observer",
+        })
+        expect(skipped.promoted).toBe(false)
+        const memory = await manager.listMemory("mock-promote")
+        expect(memory).toHaveLength(1)
+    })
+
+    test("tryPromoteIdeaToChallenge only accepts verified or failed", async () => {
+        await manager.createChallenge({
+            id: "mock-idea-promote",
+            title: "mock-idea-promote",
+            difficulty: "-",
+            description: "",
+            level: 0,
+            total_score: 0,
+            total_got_score: 0,
+            flag_count: 0,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "stopped",
+            entrypoint: ["http://t"],
+            flags: [],
+        })
+        const pending = await manager.tryPromoteIdeaToChallenge("mock-idea-promote", {
+            content: "try upload bypass on /ai/clothes/",
+            status: "pending",
+        })
+        expect(pending.promoted).toBe(false)
+        const verified = await manager.tryPromoteIdeaToChallenge("mock-idea-promote", {
+            content: "upload polyglot bypass on /ai/clothes/",
+            status: "verified",
+            result: "webshell uploaded",
+        })
+        expect(verified.promoted).toBe(true)
+        const ideas = await manager.listIdeas("mock-idea-promote")
+        expect(ideas.some((item) => item.status === "verified")).toBe(true)
+    })
+
     test("addIdea broadcasts challenge idea updates to running solvers on same challenge", async () => {
         const sendCommand = mock(() => {})
         manager.attachRuntime({
@@ -446,18 +519,128 @@ describe("challenge-manager local api", () => {
         const stopSolver = mock(async () => {})
         const deleteSolver = mock(async () => {})
         const listAll = mock(async () => [
-            { id: "solver-del-a", challengeId: "mock-delete", status: "running" },
+            { id: "solver-del-a", challengeId: "mock-delete", status: "stopped" },
             { id: "solver-del-b", challengeId: "other", status: "running" },
         ])
         manager.attachRuntime({ listAll, stopSolver, deleteSolver } as never)
 
         const result = await manager.deleteChallenge("mock-delete")
         expect(result.deletedSolvers).toEqual(["solver-del-a"])
-        expect(stopSolver).toHaveBeenCalledWith("solver-del-a")
+        expect(stopSolver).not.toHaveBeenCalled()
         expect(deleteSolver).toHaveBeenCalledWith("solver-del-a")
         expect(await manager.getChallenge("mock-delete")).toBeUndefined()
         expect(await manager.listMemory("mock-delete")).toEqual([])
         await expect(manager.deleteChallenge("mock-delete")).rejects.toThrow("not found")
+    })
+
+    test("deleteChallenge rejects while solvers are still active", async () => {
+        await manager.createChallenge({
+            id: "mock-del-active",
+            title: "mock-del-active",
+            difficulty: "easy",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "stopped",
+            entrypoint: ["127.0.0.1:8080"],
+            flags: [],
+        })
+        manager.attachRuntime({
+            listAll: async () => [{ id: "solver-live", challengeId: "mock-del-active", status: "running" }],
+        } as never)
+        await expect(manager.deleteChallenge("mock-del-active")).rejects.toThrow(/still active/)
+        expect(await manager.getChallenge("mock-del-active")).toBeDefined()
+    })
+
+    test("stopChallenge preserves entrypoint after instance stop", async () => {
+        await manager.createChallenge({
+            id: "mock-stop-ep",
+            title: "mock-stop-ep",
+            difficulty: "easy",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "running",
+            entrypoint: ["https://dbgaming.com", "http://dbgaming.com"],
+            flags: [],
+        })
+        await manager.stopChallenge("mock-stop-ep")
+        const challenge = await manager.getChallenge("mock-stop-ep")
+        expect(challenge?.instance_status).toBe("stopped")
+        expect(challenge?.entrypoint).toEqual(["https://dbgaming.com", "http://dbgaming.com"])
+    })
+
+    test("launchSolver blocks KALI_PROVISIONER during untouched phase", async () => {
+        const config = {
+            getHostSettings: async () => ({ runtime: { maxSolvers: 3 }, challenge: {}, planner: {} }),
+            getPrompt: async () => ({ meta: { isSubagent: false } }),
+            listAgentPrompts: async () => [],
+            listModelPrefs: async () => [],
+        } as unknown as ConfigManager
+        manager = new ChallengeManager(config)
+        await manager.createChallenge({
+            id: "mock-kali-block",
+            title: "mock-kali-block",
+            difficulty: "easy",
+            description: "recon only",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 0,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "running",
+            entrypoint: ["http://target.test"],
+            flags: [],
+        })
+        manager.attachRuntime({ launch: mock(async () => ({})), list: () => [], listAll: async () => [] } as never)
+        await expect(manager.launchSolver("mock-kali-block", "KALI_PROVISIONER")).rejects.toThrow("blocked")
+    })
+
+    test("buildPlannerSnapshot hides KALI_PROVISIONER when no target is foothold or breakthrough", async () => {
+        const config = {
+            getHostSettings: async () => ({ runtime: { maxSolvers: 3 }, challenge: {}, planner: {} }),
+            getPrompt: async () => ({ meta: { isSubagent: false } }),
+            listAgentPrompts: async () => [
+                { name: "RECON_SOLVER", meta: { isSubagent: false, disabled: false }, deleted: false },
+                { name: "KALI_PROVISIONER", meta: { isSubagent: false, disabled: false }, deleted: false },
+            ],
+            listModelPrefs: async () => [],
+        } as unknown as ConfigManager
+        const kaliManager = new ChallengeManager(config)
+        await kaliManager.createChallenge({
+            id: "mock-kali-hide",
+            title: "mock-kali-hide",
+            difficulty: "easy",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 0,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "running",
+            entrypoint: ["http://target.test"],
+            flags: [],
+        })
+        await appendChallengeAttemptLog(challengeDir, { challengeId: "mock-kali-hide", solverId: "s1", promptName: "RECON_SOLVER", task: "recon" })
+        kaliManager.attachRuntime({ listAll: async () => [] } as never)
+
+        const snapshot = (await (
+            kaliManager as unknown as { buildPlannerSnapshot: (reason: string) => Promise<{ availableSolverPrompts: Array<{ name: string }> }> }
+        ).buildPlannerSnapshot("test")) as { availableSolverPrompts: Array<{ name: string }> }
+
+        const names = snapshot.availableSolverPrompts.map((prompt) => prompt.name)
+        expect(names).toContain("RECON_SOLVER")
+        expect(names).not.toContain("KALI_PROVISIONER")
     })
 
     test("pauseTargetTesting stops solvers and blocks launch; resume clears pause flag", async () => {
@@ -530,6 +713,7 @@ describe("challenge-manager local api", () => {
 
         const challenge = await manager.getChallenge("mock-finish")
         expect(challenge?.instance_status).toBe("stopped")
+        expect(challenge?.entrypoint).toEqual(["127.0.0.1:8080"])
     })
 
     test("planner tools do not expose hint action", async () => {

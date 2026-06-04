@@ -69,7 +69,13 @@ describe("engagement host bridge notifications", () => {
                 updated_at: "2026-04-12T00:00:00.000Z",
             },
         ])
-        const handler = createChallengeHostBridgeHandler({ recordEngagementObjective, listMemory, listIdeas } as unknown as ChallengeManager)
+        const promoteFindingFactsToChallenge = mock(async () => ({ promoted: 0, duplicate: 0, skipped: 0 }))
+        const handler = createChallengeHostBridgeHandler({
+            recordEngagementObjective,
+            listMemory,
+            listIdeas,
+            promoteFindingFactsToChallenge,
+        } as unknown as ChallengeManager)
         const sendCommand = mock(() => {})
 
         const result = await handler.handle(
@@ -181,10 +187,12 @@ describe("engagement host bridge notifications", () => {
         const recordEngagementObjective = mock(async (_id: string, _proof: string) => ({ id: "rec-1" }))
         const markEngagementComplete = mock(async () => {})
         const verifyObjective = mock(async (_input: { challengeId: string; recordId: string }) => {})
+        const promoteFindingFactsToChallenge = mock(async () => ({ promoted: 0, duplicate: 0, skipped: 0 }))
         const handler = createChallengeHostBridgeHandler({
             recordEngagementObjective,
             markEngagementComplete,
             verifyObjective,
+            promoteFindingFactsToChallenge,
             listMemory: async () => [],
             listIdeas: async () => [],
         } as unknown as ChallengeManager)
@@ -214,10 +222,12 @@ describe("engagement host bridge notifications", () => {
         const recordEngagementObjective = mock(async (_id: string, _proof: string) => ({ id: "rec-2" }))
         const markEngagementComplete = mock(async () => {})
         const verifyObjective = mock(async () => {})
+        const promoteFindingFactsToChallenge = mock(async () => ({ promoted: 0, duplicate: 0, skipped: 0 }))
         const handler = createChallengeHostBridgeHandler({
             recordEngagementObjective,
             markEngagementComplete,
             verifyObjective,
+            promoteFindingFactsToChallenge,
             listMemory: async () => [],
             listIdeas: async () => [],
         } as unknown as ChallengeManager)
@@ -254,6 +264,57 @@ describe("engagement host bridge notifications", () => {
         expect(upsertStateAsset).toHaveBeenCalledTimes(1)
         expect(upsertStateAsset.mock.calls[0]?.[0]).toBe("chal-1")
         expect(upsertStateAsset.mock.calls[0]?.[1]).toMatchObject({ kind: "credential", label: "admin@webapp", account: "admin", secretRef: "finding:rec-1" })
+    })
+
+    test("challenge_promote_memory delegates to tryPromoteMemoryToChallenge", async () => {
+        const tryPromoteMemoryToChallenge = mock(async () => ({
+            promoted: true,
+            duplicate: false,
+            entry: { id: "mem_x" },
+        }))
+        const handler = createChallengeHostBridgeHandler({ tryPromoteMemoryToChallenge } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({
+                action: "challenge_promote_memory" as never,
+                params: { kind: "failure", content: "XMLRPC execution blocked after method list only", source: "observer" },
+            }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { promoted: boolean; entry_id?: string }).promoted).toBe(true)
+        expect(tryPromoteMemoryToChallenge).toHaveBeenCalledTimes(1)
+    })
+
+    test("report_finding promotes extracted facts before broadcast", async () => {
+        const recordEngagementObjective = mock(async () => ({ id: "rec-promo" }))
+        const promoteFindingFactsToChallenge = mock(
+            async (_challengeId: string, _proof: string, _writeup: string | undefined, _source: string) => ({
+                promoted: 2,
+                duplicate: 0,
+                skipped: 0,
+            }),
+        )
+        const listMemory = mock(async () => [{ id: "mem_1", kind: "fact", content: "shared fact", refs: [], source: "finding:rec-promo" }])
+        const listIdeas = mock(async () => [])
+        const handler = createChallengeHostBridgeHandler({
+            recordEngagementObjective,
+            promoteFindingFactsToChallenge,
+            listMemory,
+            listIdeas,
+        } as unknown as ChallengeManager)
+        const sendCommand = mock(() => {})
+        await handler.handle(
+            createContext({
+                action: "challenge_submit_flag",
+                params: {
+                    flag: "summary",
+                    writeup: "- SSRF via https://target.test/action/xmlrpc to gopher://127.0.0.1:6379 open redis",
+                },
+                sendCommand,
+            }),
+        )
+        expect(promoteFindingFactsToChallenge).toHaveBeenCalledTimes(1)
+        expect(promoteFindingFactsToChallenge.mock.calls[0]?.[0]).toBe("chal-1")
+        expect(sendCommand).toHaveBeenCalled()
     })
 
     test("state_upsert rejects an invalid kind without touching the manager", async () => {

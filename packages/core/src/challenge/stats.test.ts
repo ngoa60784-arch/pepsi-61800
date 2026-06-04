@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { ChallengeInfoRecord, ChallengeSubmissionLogRecord } from "./store"
 import { buildChallengeStatsOverview } from "./stats"
+import { isRealFinding } from "./submission-utils"
 import type { ChallengeStatsRecord, SolverStatsRecord, UsageTotals } from "./stats"
 
 function createUsageTotals(total: number): UsageTotals {
@@ -79,6 +80,7 @@ function createSubmission(options: {
     modelName: string
     flag: string
     correct: boolean
+    writeup?: string
 }): ChallengeSubmissionLogRecord {
     return {
         id: options.id,
@@ -88,9 +90,53 @@ function createSubmission(options: {
         model_name: options.modelName,
         flag: options.flag,
         correct: options.correct,
+        writeup: options.writeup,
         created_at: "2026-01-01T00:00:00.000Z",
     }
 }
+
+describe("isRealFinding in stats overview buckets", () => {
+    test("engagement findings count toward correct_submission_count without correct=true", () => {
+        const challenge = createChallenge("engagement-findings", { flagCount: 0 })
+        const submissions = [
+            createSubmission({
+                id: "f1",
+                challengeId: challenge.id,
+                solverId: "solver-1",
+                promptName: "prompt-a",
+                modelName: "model-a",
+                flag: "redis open",
+                correct: false,
+                writeup: "6379 exposed without auth",
+            }),
+            createSubmission({
+                id: "f2",
+                challengeId: challenge.id,
+                solverId: "solver-1",
+                promptName: "prompt-a",
+                modelName: "model-a",
+                flag: "rejected noise",
+                correct: false,
+            }),
+        ]
+        submissions[1]!.verification_status = "rejected"
+
+        const overview = buildChallengeStatsOverview([
+            {
+                challenge,
+                stats: createStats(challenge.id, {
+                    submissionCount: submissions.length,
+                    correctSubmissionCount: submissions.filter(isRealFinding).length,
+                }),
+                solver_stats: [createSolverStat({ solverId: "solver-1", challengeId: challenge.id, promptName: "prompt-a", modelName: "model-a" })],
+                submissions,
+            },
+        ])
+
+        expect(overview.correct_submission_count).toBe(1)
+        expect(overview.prompts[0]?.correct_submission_count).toBe(1)
+    })
+})
 
 describe("buildChallengeStatsOverview flag-based buckets", () => {
     test("overview completion uses flag progress and full challenge completion", () => {

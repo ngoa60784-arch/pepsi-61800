@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { validateObjectiveEvidence } from "./finding-validation"
+import { requiresServerAccessObjective, validateObjectiveEvidence } from "./finding-validation"
 
 describe("validateObjectiveEvidence", () => {
     test("accepts uid=0(root) command output", () => {
@@ -51,6 +51,27 @@ describe("validateObjectiveEvidence", () => {
     test("combines proof and writeup when judging", () => {
         // proof itself is a slogan, but the writeup carries real evidence → passes once combined.
         const result = validateObjectiveEvidence("objective achieved", "shell as root: root@target:/# id\nuid=0(root)")
+        expect(result.sufficient).toBe(true)
+    })
+
+    test("requiresServerAccessObjective matches server-access wording", () => {
+        expect(requiresServerAccessObjective("dbgaming.com — 获取服务器权限")).toBe(true)
+        expect(requiresServerAccessObjective("enumerate subdomains")).toBe(false)
+    })
+
+    test("rejects JWT-only proof when objective requires server access", () => {
+        const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dQw4w9WgXcQabcdef"
+        const result = validateObjectiveEvidence(`NoSQL login bypass; admin JWT: ${token}`, "api.obgm.com CMS admin access confirmed", {
+            objectiveText: "dbgaming.com\n获取服务器权限",
+        })
+        expect(result.sufficient).toBe(false)
+        expect(result.reason).toContain("server access")
+    })
+
+    test("accepts shell proof when objective requires server access", () => {
+        const result = validateObjectiveEvidence("$ id\nuid=0(root) gid=0(root) groups=0(root)", "deserialization RCE on upload", {
+            objectiveText: "target\n获取服务器权限",
+        })
         expect(result.sufficient).toBe(true)
     })
 })

@@ -2,6 +2,7 @@ import { mkdir, rename } from "fs/promises"
 import { dirname, join } from "path"
 import type { ChallengeInfoRecord, ChallengeSubmissionLogRecord } from "./store"
 import { listChallengeAttemptLogs, listChallengeSubmissionLogs } from "./store"
+import { isRealFinding } from "./submission-utils"
 import { readMessagesFromSessionDir, readStartup } from "../runtime/helpers"
 import { solverSessionDir, solverStartupPath } from "../runtime/types"
 
@@ -240,7 +241,7 @@ export async function refreshChallengeStats(rootDir: string, challengeId: string
 
     const firstAttemptAt = attempts.map((item) => parseIso(item.created_at)).filter((item): item is number => typeof item === "number").sort((a, b) => a - b)[0]
     const firstCorrectSubmissionAt = submissions
-        .filter((item) => item.correct)
+        .filter(isRealFinding)
         .map((item) => parseIso(item.created_at))
         .filter((item): item is number => typeof item === "number")
         .sort((a, b) => a - b)[0]
@@ -251,7 +252,7 @@ export async function refreshChallengeStats(rootDir: string, challengeId: string
         solver_count: solverStats.length,
         attempt_count: attempts.length,
         submission_count: submissions.length,
-        correct_submission_count: submissions.filter((item) => item.correct).length,
+        correct_submission_count: submissions.filter(isRealFinding).length,
         first_attempt_at: formatIso(firstAttemptAt),
         first_correct_submission_at: formatIso(firstCorrectSubmissionAt),
         solve_duration_ms:
@@ -340,7 +341,7 @@ export function buildChallengeStatsOverview(
 
             const solverSubmissions = submissionsBySolver.get(solverStat.solver_id) ?? []
             bucket.submission_count += solverSubmissions.length
-            bucket.correct_submission_count += solverSubmissions.filter((item) => item.correct).length
+            bucket.correct_submission_count += solverSubmissions.filter(isRealFinding).length
 
             const correctFlagSeen = ensureSeenSet(correctFlagSeenByBucket, key)
             const challengeFlagCount = Math.max(entry.challenge.flag_count, 1)

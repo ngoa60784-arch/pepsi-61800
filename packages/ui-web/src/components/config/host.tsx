@@ -59,22 +59,38 @@ export function PlannerPage() {
         setSaving(true)
         setMessage("")
         try {
-            await hostPlannerPrompt.set(plannerPromptContent, plannerModelId || undefined)
-            await hostSettings.set({
-                runtime: {
-                    maxSolvers: Math.max(0, Number(maxSolvers) || DEFAULT_MAX_SOLVERS),
-                    networkMode: networkMode === "bridge" ? "bridge" : "host",
-                    memory: memory.trim() || undefined,
-                    cpus: cpus.trim() && Number(cpus) > 0 ? Number(cpus) : undefined,
-                },
-                planner: {
-                    enabled: true,
-                    tickIntervalMs: Math.max(5, Number(plannerTickSeconds) || DEFAULT_PLANNER_TICK_SECONDS) * 1000,
-                    staleTimeoutMs: Math.max(1, Number(staleTimeoutMinutes) || DEFAULT_STALE_TIMEOUT_MINUTES) * 60 * 1000,
-                },
-                defaultModelPrefId: defaultModelId || undefined,
-            })
-            setMessage("已保存")
+            const runtime = {
+                maxSolvers: Math.max(0, Number(maxSolvers) || DEFAULT_MAX_SOLVERS),
+                networkMode: networkMode === "bridge" ? "bridge" : "host",
+                memory: memory.trim() || undefined,
+                cpus: cpus.trim() && Number(cpus) > 0 ? Number(cpus) : undefined,
+            }
+            const planner = {
+                enabled: true,
+                tickIntervalMs: Math.max(5, Number(plannerTickSeconds) || DEFAULT_PLANNER_TICK_SECONDS) * 1000,
+                staleTimeoutMs: Math.max(1, Number(staleTimeoutMinutes) || DEFAULT_STALE_TIMEOUT_MINUTES) * 60 * 1000,
+            }
+
+            let syncNote = ""
+            const defaultId = defaultModelId.trim()
+            if (defaultId) {
+                const result = await modelPrefs.activate(defaultId)
+                const parts = [
+                    "已同步全部 Agent",
+                    result.plannerUpdated ? "调度器" : null,
+                    result.promptsUpdated > 0 ? `${result.promptsUpdated} 个 Prompt` : null,
+                    result.verifierUpdated ? "验证器" : null,
+                ].filter(Boolean)
+                syncNote = parts.join("，")
+                await hostSettings.set({ runtime, planner })
+            } else {
+                await hostSettings.set({ runtime, planner, defaultModelPrefId: undefined })
+            }
+
+            const plannerModel = plannerModelId.trim() || defaultId || undefined
+            await hostPlannerPrompt.set(plannerPromptContent, plannerModel)
+
+            setMessage(syncNote ? `已保存；${syncNote}` : "已保存")
             reload()
             reloadPlannerPrompt()
         } catch (error) {
@@ -144,7 +160,14 @@ export function PlannerPage() {
                 </div>
                 <div className="space-y-2">
                     <Label>默认 Agent 模型（所有 AI 统一使用）</Label>
-                    <Select value={defaultModelId || NONE_MODEL_VALUE} onValueChange={(value) => setDefaultModelId(value === NONE_MODEL_VALUE ? "" : (value ?? ""))}>
+                    <Select
+                        value={defaultModelId || NONE_MODEL_VALUE}
+                        onValueChange={(value) => {
+                            const id = value === NONE_MODEL_VALUE ? "" : (value ?? "")
+                            setDefaultModelId(id)
+                            if (id) setPlannerModelId(id)
+                        }}
+                    >
                         <SelectTrigger>
                             <SelectValue placeholder="选择默认模型">
                                 {(() => {
@@ -165,7 +188,7 @@ export function PlannerPage() {
                         </SelectContent>
                     </Select>
                     <div className="text-sm text-muted-foreground">
-                        调度层(planner)、执行层(solver)、验证(verifier)、指挥官(commander)、观察者(observer)在各自提示词未单独指定模型时，统一使用这个模型。留空则用第一个可用模型。
+                        保存时会与「模型」页的「启用」相同：写入系统默认，并同步调度器及全部 Agent/子 Agent/验证器的模型。下方「调度器模型」会随此项联动；若需仅改调度器可单独改后再保存。
                     </div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
@@ -197,7 +220,9 @@ export function PlannerPage() {
             <div className="space-y-2 rounded-lg border p-4">
                 <div className="space-y-1">
                     <Label htmlFor="planner-prompt-content">调度器系统提示词</Label>
-                    <div className="text-sm text-muted-foreground">配置演练规划 agent 的系统提示词和默认模型。</div>
+                    <div className="text-sm text-muted-foreground">
+                        配置调度器系统提示词。模型默认与上方「默认 Agent 模型」一致；保存默认时会自动写入 CHALLENGE_PLANNER。
+                    </div>
                 </div>
                 <div className="space-y-2">
                     <Label>调度器模型</Label>

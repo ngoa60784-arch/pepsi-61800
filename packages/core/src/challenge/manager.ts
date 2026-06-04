@@ -27,6 +27,7 @@ import {
 } from "./store"
 import type { ChallengeStatsOverviewBucket, ChallengeStatsRecord, SolverStatsRecord } from "./stats"
 import { buildChallengeStatsOverview, refreshChallengeStats } from "./stats"
+import { isRealFinding } from "./submission-utils"
 import {
     type AddIdeaResult,
     type AddIdeaInput,
@@ -71,7 +72,18 @@ import {
     deleteChallengeStateAsset,
 } from "./state-store"
 import { Type } from "@sinclair/typebox"
-import { CHALLENGE_PLANNER_PROMPT_NAME, OBJECTIVE_VERIFIER_PROMPT_NAME } from "../config/prompts/index"
+import { CHALLENGE_PLANNER_PROMPT_NAME, KALI_PROVISIONER_PROMPT_NAME, OBJECTIVE_VERIFIER_PROMPT_NAME } from "../config/prompts/index"
+import {
+    buildPromoteIdeaInput,
+    buildPromoteMemoryInput,
+    extractFindingFactLines,
+    memoryFingerprintExists,
+    shouldPromoteIdeaStatus,
+    shouldPromoteMemoryKind,
+    type PromoteIdeaResult,
+    type PromoteMemoryResult,
+} from "./board-promotion"
+import { requiresServerAccessObjective, validateObjectiveEvidence } from "./finding-validation"
 
 export type { IdeaStatus, MemoryKind, MemoryEntry, AddMemoryInput, IdeaRecord, AddIdeaInput, AddIdeaResult, UpdateIdeaInput } from "./memory"
 
@@ -84,7 +96,8 @@ const NOISY_ERROR_THROTTLE_WINDOW_MS = 60_000
 const NOISY_ERROR_SIGNATURE_LIMIT = 200
 const SOLVER_MEMORY_LIMIT = 10
 const SOLVER_IDEA_LIMIT = 8
-const SOLVER_HANDOFF_MAX_CHARS = 900
+/** Planner→solver startup brief / steer message cap (task also injects memory, ideas, findings, state). */
+const SOLVER_HANDOFF_MAX_CHARS = 2000
 const SOLVER_MEMORY_CONTENT_MAX_CHARS = 220
 const SOLVER_IDEA_CONTENT_MAX_CHARS = 120
 const SOLVER_RESULT_MAX_CHARS = 180
@@ -424,15 +437,6 @@ function formatSolverIdeasSection(items: IdeaRecord[]): string {
     )
     if (selected.length === items.length) return table
     return `${table}\n\nNote: initial context shows only the most recent ${selected.length}/${items.length} ideas; call idea_list or idea_search for the full board.`
-}
-
-// Whether a submission counts as a "real finding" — CTF and engagement semantics:
-// - CTF: correct === true (remote judge marked correct)
-// - Engagement: no correct (always false), but the record is a reported finding; counts unless verifier rejected.
-//   (verification_status: undefined=plain finding / pending=awaiting review / verified=reproduced / rejected=false positive / inconclusive=undetermined)
-function isRealFinding(item: ChallengeSubmissionLogRecord): boolean {
-    if (item.correct) return true
-    return item.verification_status !== "rejected"
 }
 
 function formatSolverSubmissionsSection(items: ChallengeSubmissionLogRecord[]): string {
@@ -1043,7 +1047,6 @@ export class ChallengeManager {
                         {
                             ...challenge,
                             instance_status: "stopped",
-                            entrypoint: null,
                         },
                         "challenge-api:local-stop",
                     )
@@ -1173,6 +1176,21 @@ export class ChallengeManager {
 
         this.log("challenge:delete", "deleting challenge and local data", { challengeId: id })
 
+        const runtime = this.runtime
+        if (runtime) {
+            const solvers = await runtime.listAll()
+            const activeOnTarget = solvers.filter(
+                (solver) =>
+                    solver.challengeId === id &&
+                    (solver.status === "starting" || solver.status === "running" || solver.status === "stopping"),
+            )
+            if (activeOnTarget.length > 0) {
+                throw new Error(
+                    `cannot delete target "${id}" while ${activeOnTarget.length} solver(s) are still active; stop solvers first`,
+                )
+            }
+        }
+
         if (challenge && (challenge.instance_status === "running" || challenge.instance_status === "pending")) {
             try {
                 await this.stopChallenge(id)
@@ -1182,7 +1200,6 @@ export class ChallengeManager {
         }
 
         const deletedSolvers: string[] = []
-        const runtime = this.runtime
         if (runtime) {
             const solvers = await runtime.listAll()
             const matching = solvers.filter((solver) => solver.challengeId === id)
@@ -1380,7 +1397,9 @@ export class ChallengeManager {
     }): Promise<void> {
         const rootDir = await this.getRootDir()
         const id = requireText(input.challengeId, "challengeId")
-        const entrypoint = input.entrypoint ?? (await readChallengeRecord(rootDir, id).then((record) => record?.entrypoint ?? null).catch(() => null))
+        const challengeRecord = await readChallengeRecord(rootDir, id).catch(() => undefined)
+        const objectiveText = challengeRecord ? `${challengeRecord.title}\n${challengeRecord.description}` : ""
+        const entrypoint = input.entrypoint ?? challengeRecord?.entrypoint ?? null
         const resolve = async (verdict: "verified" | "rejected" | "inconclusive", note: string) => {
             await updateChallengeSubmissionVerification(rootDir, id, input.recordId, { verification_status: verdict, verifier_note: note }).catch(() => {})
             try {
@@ -1404,11 +1423,16 @@ export class ChallengeManager {
             return
         }
 
+        const needsShell = requiresServerAccessObjective(objectiveText)
         const verifierBrief = [
             `A solver reported the PRIMARY OBJECTIVE achieved on this target. Independently reproduce it now and return a verdict.`,
             ``,
             `Target id: ${input.challengeId}`,
+            objectiveText.trim() ? `Stated primary objective (from target record):\n${objectiveText.trim()}` : `Stated primary objective: (see proof)`,
             entrypoint && entrypoint.length > 0 ? `Target entrypoint:\n${entrypoint.map((item) => `- ${item}`).join("\n")}` : `Target entrypoint: (see proof)`,
+            needsShell
+                ? `IMPORTANT: This engagement requires SERVER ACCESS (interactive shell/RCE on the stated target). Credential-only proof (JWT, API admin token, NoSQL/CMS login) is NOT sufficient for verified — reproduce code execution with fresh command output (e.g. id, hostname).`
+                : ``,
             ``,
             `Reported proof:`,
             input.proof.trim() || "(empty)",
@@ -1416,7 +1440,9 @@ export class ChallengeManager {
             input.writeup?.trim() ? `Reported route writeup:\n${input.writeup.trim()}` : `Reported route writeup: (none)`,
             ``,
             `Reproduce the core claim against the target, then call submit_verdict exactly once.`,
-        ].join("\n")
+        ]
+            .filter((line) => line !== "")
+            .join("\n")
 
         let verdict: "verified" | "rejected" | "inconclusive" | undefined
         let verdictNote = ""
@@ -1458,6 +1484,17 @@ export class ChallengeManager {
         }
 
         if (verdict === "verified") {
+            const postGate = validateObjectiveEvidence(input.proof, [input.writeup, verdictNote].filter(Boolean).join("\n"), {
+                objectiveText,
+            })
+            if (!postGate.sufficient) {
+                this.log("engagement:verify", "verifier said verified but evidence gate rejected (server-access objective)", {
+                    challengeId: id,
+                    reason: postGate.reason,
+                })
+                await resolve("rejected", postGate.reason)
+                return
+            }
             this.log("engagement:verify", "objective VERIFIED by independent re-run; winding down target", { challengeId: id })
             await resolve("verified", verdictNote || "independently reproduced")
             await this.markEngagementComplete(id, "engagement:verifier-confirmed")
@@ -1677,6 +1714,83 @@ export class ChallengeManager {
         return entry
     }
 
+    /**
+     * Promote one memory line to the challenge-level board when it passes promotion rules and is not a duplicate.
+     * Used by observer sidecar (via host bridge) and finding extraction.
+     */
+    async tryPromoteMemoryToChallenge(input: AddMemoryInput): Promise<PromoteMemoryResult> {
+        const challengeId = requireText(input.challengeId, "challengeId")
+        const content = requireText(input.content, "content")
+        if (!shouldPromoteMemoryKind(input.kind, content)) {
+            return { promoted: false, duplicate: false }
+        }
+        const existing = await this.listMemory(challengeId)
+        if (memoryFingerprintExists(existing, content)) {
+            return { promoted: false, duplicate: true }
+        }
+        const entry = await this.appendMemory({
+            ...input,
+            challengeId,
+            content,
+            source: requireText(input.source, "source"),
+        })
+        return { promoted: true, duplicate: false, entry }
+    }
+
+    /**
+     * Promote a terminal hypothesis (verified/failed) to the challenge-level idea board.
+     */
+    async tryPromoteIdeaToChallenge(
+        challengeId: string,
+        input: AddIdeaInput,
+        source = "observer-promote",
+    ): Promise<PromoteIdeaResult> {
+        const id = requireText(challengeId, "challengeId")
+        const status = input.status ?? "pending"
+        if (!shouldPromoteIdeaStatus(status)) {
+            return { promoted: false, duplicate: false }
+        }
+        const rootDir = await this.getRootDir()
+        const result = await addChallengeIdea(rootDir, id, buildPromoteIdeaInput(input.content, status, input.result))
+        if (result.created) {
+            this.broadcastChallengeBoardUpdateToRunningSolvers(id, formatChallengeIdeaBroadcastMessage("added", result.item))
+            return { promoted: true, duplicate: false, item: result.item }
+        }
+        const updated = await updateChallengeIdea(rootDir, id, result.item.id, {
+            status,
+            result: input.result,
+        })
+        const statusChanged = updated.status !== result.item.status || (input.result?.trim() ?? "") !== result.item.result
+        if (statusChanged) {
+            this.broadcastChallengeBoardUpdateToRunningSolvers(id, formatChallengeIdeaBroadcastMessage("updated", updated))
+            return { promoted: true, duplicate: true, item: updated }
+        }
+        return { promoted: false, duplicate: true, item: result.item }
+    }
+
+    /** Extract high-signal lines from a finding into challenge-level fact memory (deduped). */
+    async promoteFindingFactsToChallenge(
+        challengeId: string,
+        proof: string,
+        writeup: string | undefined,
+        source: string,
+    ): Promise<{ promoted: number; duplicate: number; skipped: number }> {
+        const id = requireText(challengeId, "challengeId")
+        const lines = extractFindingFactLines(proof, writeup)
+        let promoted = 0
+        let duplicate = 0
+        let skipped = 0
+        for (const line of lines) {
+            const result = await this.tryPromoteMemoryToChallenge(
+                buildPromoteMemoryInput(id, "fact", line, source),
+            )
+            if (result.promoted) promoted += 1
+            else if (result.duplicate) duplicate += 1
+            else skipped += 1
+        }
+        return { promoted, duplicate, skipped }
+    }
+
     async listMemory(challengeId: string): Promise<MemoryEntry[]> {
         const rootDir = await this.getRootDir()
         return listChallengeMemory(rootDir, challengeId)
@@ -1889,6 +2003,22 @@ export class ChallengeManager {
         )
     }
 
+    private async getChallengeProgressPhase(challengeId: string): Promise<PlannerProgressPhase> {
+        const rootDir = await this.getRootDir()
+        const id = requireText(challengeId, "challengeId")
+        const challenge = await readChallengeRecord(rootDir, id)
+        if (!challenge) throw new Error(`challenge "${id}" not found`)
+        const [attempts, submissions, memory, ideas, stateAssets] = await Promise.all([
+            listChallengeAttemptLogs(rootDir, id),
+            listChallengeSubmissionLogs(rootDir, id),
+            listChallengeMemory(rootDir, id),
+            listChallengeIdeas(rootDir, id),
+            listChallengeStateAssets(rootDir, id),
+        ])
+        return this.buildPlannerSnapshotItem(challenge, attempts, submissions, memory, ideas, stateAssets, [], DEFAULT_STALE_TIMEOUT_MS)
+            .progressPhase
+    }
+
     async launchSolver(challengeId: string, promptName: string, options?: LaunchSolverOptions): Promise<SolverInstance> {
         if (!this.runtime) {
             throw new Error("runtime is not attached")
@@ -1916,6 +2046,14 @@ export class ChallengeManager {
         }
         if (current.testing_paused === true) {
             throw new Error(`target "${challengeId}" testing is paused; use resume testing on the target page first`)
+        }
+        if (promptNameText === KALI_PROVISIONER_PROMPT_NAME) {
+            const progressPhase = await this.getChallengeProgressPhase(challengeId)
+            if (progressPhase === "untouched" || progressPhase === "recon") {
+                throw new Error(
+                    `KALI_PROVISIONER is blocked during ${progressPhase} phase; use a recon/exploit solver until foothold, or wait until breakthrough`,
+                )
+            }
         }
 
         let challenge: ChallengeInfoRecord | undefined = current
@@ -2174,7 +2312,7 @@ export class ChallengeManager {
                     promptName: promptNameSchema,
                     solverHandoff: Type.String({
                         minLength: 1,
-                        maxLength: 1200,
+                        maxLength: SOLVER_HANDOFF_MAX_CHARS,
                         description: "Short solver-facing startup note. Include only solver-executable guidance relevant to this challenge.",
                     }),
                 }),
@@ -2229,7 +2367,7 @@ export class ChallengeManager {
                     solverId: solverIdSchema,
                     message: Type.String({
                         minLength: 1,
-                        maxLength: 1200,
+                        maxLength: SOLVER_HANDOFF_MAX_CHARS,
                         description: "Solver-facing steering instruction: the new focus/direction and the concrete intel behind it (which cred, which surface, which dead-end to drop). Keep it tight and executable.",
                     }),
                 }),
@@ -2330,6 +2468,13 @@ export class ChallengeManager {
             item.effortRank = index + 1
         })
 
+        const kaliProvisionerAllowed = challengeItems.some(
+            (item) => item.progressPhase === "foothold" || item.progressPhase === "breakthrough",
+        )
+        const plannerSolverPrompts = solverPrompts.filter(
+            (prompt) => kaliProvisionerAllowed || prompt.name !== KALI_PROVISIONER_PROMPT_NAME,
+        )
+
         // Per active solver focus line from its board,
         // so planner separates advancing vs idle and decides steer/withdraw.
         const solverFocusById = new Map<string, string>(
@@ -2359,7 +2504,7 @@ export class ChallengeManager {
                 timeoutStatus: solver.createdAt + staleTimeoutMs <= Date.now() ? "stale" : "normal",
                 currentFocus: solverFocusById.get(solver.id) ?? "(no board signal yet)",
             })),
-            availableSolverPrompts: solverPrompts.map((prompt) => {
+            availableSolverPrompts: plannerSolverPrompts.map((prompt) => {
                 const modelPrefId = typeof prompt.meta.model === "string" && prompt.meta.model.trim() ? prompt.meta.model.trim() : undefined
                 const model = modelPrefId ? modelPrefs.find((entry) => entry.id === modelPrefId) : undefined
                 const modelLabel = model ? `${model.provider}/${model.modelId}${model.name ? ` (${model.name})` : ""}` : modelPrefId
