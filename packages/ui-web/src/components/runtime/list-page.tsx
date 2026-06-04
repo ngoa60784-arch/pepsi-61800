@@ -8,8 +8,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "../ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { Textarea } from "../ui/textarea"
+import type { KaliSystemStats } from "../../lib/api"
 import type { AgentPromptView, RuntimeSolverView, RuntimeStatusView } from "./types"
 import { formatDateTime, isLiveStatus, statusColors } from "./types"
+import { KaliHostStatusBar } from "./kali-host-status"
 
 const PAGE_SIZE = 20
 const STATUS_FILTER_OPTIONS = ["all", "starting", "running", "stopping", "stopped", "error"] as const
@@ -28,6 +30,9 @@ function paginate<T>(items: T[], page: number): T[] {
 export function RuntimeListPage() {
     const { data: promptList } = useFetch(prompts.listAgents)
     const [status, setStatus] = useState<RuntimeStatusView | null>(null)
+    const [kali, setKali] = useState<KaliSystemStats | null>(null)
+    const [kaliLoading, setKaliLoading] = useState(false)
+    const [kaliSshHint, setKaliSshHint] = useState("")
     const [solverList, setSolverList] = useState<RuntimeSolverView[]>([])
     const [dialogOpen, setDialogOpen] = useState(false)
     const [selectedPrompt, setSelectedPrompt] = useState("")
@@ -100,6 +105,23 @@ export function RuntimeListPage() {
         return () => source.close()
     }, [])
 
+    async function probeKali() {
+        setKaliLoading(true)
+        setKaliSshHint("")
+        try {
+            const result = await runtime.probeKali()
+            setKaliSshHint(result.ssh.message)
+            setKali(result.stats)
+        } catch (error) {
+            setKali({
+                ok: false,
+                message: error instanceof Error ? error.message : String(error),
+            })
+        } finally {
+            setKaliLoading(false)
+        }
+    }
+
     async function handleStart() {
         if (!selectedPrompt || !task.trim()) return
         setStarting(true)
@@ -119,6 +141,7 @@ export function RuntimeListPage() {
     function handleRefresh() {
         void runtime.status().then((next) => setStatus(next))
         void runtime.list().then((next) => setSolverList(next as RuntimeSolverView[]))
+        if (kali?.ok) void probeKali()
     }
 
     async function handleStop(solverId: string) {
@@ -196,13 +219,10 @@ export function RuntimeListPage() {
     }
 
     return (
-        <div className="flex flex-1 flex-col gap-4 p-6">
+        <div className="page-shell">
             <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                    <CircleIcon className={`size-3 fill-current ${(status?.docker ?? false) ? "text-emerald-500" : "text-red-500"}`} />
-                    <span className="text-sm text-muted-foreground">Docker {(status?.docker ?? false) ? "已连接" : "未连接"}</span>
-                </div>
-                <Input className="min-w-72 flex-1" placeholder="按名称、Prompt、任务过滤" value={filter} onChange={(event) => setFilter(event.target.value)} />
+                <KaliHostStatusBar kali={kali} loading={kaliLoading} sshHint={kaliSshHint} onProbe={() => void probeKali()} />
+                <Input className="min-w-72 flex-1 basis-full sm:basis-auto" placeholder="按名称、Prompt、任务过滤" value={filter} onChange={(event) => setFilter(event.target.value)} />
                 <Select value={statusFilter} onValueChange={(value) => setStatusFilter((value as StatusFilterValue) ?? "all")}>
                     <SelectTrigger className="w-40">
                         <SelectValue />

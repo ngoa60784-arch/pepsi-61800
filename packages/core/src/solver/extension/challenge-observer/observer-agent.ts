@@ -305,8 +305,8 @@ async function resolveObserverSessionOptions(
         settingsManager: config.settings,
     }
 
-    // observer 模型：优先用提示词声明的 observerModel；没声明就回退到全局默认 Agent 模型，
-    // 避免 observer 在未声明时掉进 SDK 内置默认(gemini)。
+    // observer model: prefer the observerModel declared in the prompt; if none is declared, fall back to the global default Agent model,
+    // to avoid the observer dropping into the SDK's built-in default (gemini) when undeclared.
     const modelPrefId = observerModel?.trim() || (await config.resolveDefaultModelPrefId())
     if (modelPrefId) {
         try {
@@ -314,7 +314,7 @@ async function resolveObserverSessionOptions(
             opts.model = resolvedModel.model
             opts.thinkingLevel = resolvedModel.thinkingLevel
         } catch {
-            // 解析失败就保持 opts 既有模型(交由上层默认)，不阻断 observer 启动。
+            // On resolution failure, keep opts' existing model (deferring to the upper-layer default); don't block observer startup.
         }
     }
 

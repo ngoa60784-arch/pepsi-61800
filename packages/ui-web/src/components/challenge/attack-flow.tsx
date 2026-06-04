@@ -53,7 +53,7 @@ function EventFlowEdge(props: EdgeProps) {
             {labelText ? (
                 <EdgeLabelRenderer>
                     <div
-                        className="pointer-events-none absolute max-w-[240px] -translate-x-1/2 -translate-y-1/2 rounded-md border border-slate-300/80 bg-white/95 px-2 py-1 text-[11px] font-semibold leading-snug text-slate-700 shadow-sm"
+                        className="pointer-events-none absolute max-w-[240px] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border/80 bg-card/95 px-2 py-1 text-[11px] font-semibold leading-snug text-foreground shadow-sm"
                         style={{
                             left: `${labelX}px`,
                             top: `${labelY - 12}px`,
@@ -302,12 +302,12 @@ function nodeLabel(title: string, badge: string, summary: string, meta?: string[
     return (
         <div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden text-left">
             <div className="flex min-w-0 items-start gap-2">
-                <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700">{badgeGlyph(badge)}</span>
-                <span className="min-w-0 break-words text-xs font-semibold tracking-wide text-slate-900">{clip(title, 72)}</span>
+                <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground">{badgeGlyph(badge)}</span>
+                <span className="min-w-0 break-words text-xs font-semibold tracking-wide text-foreground">{clip(title, 72)}</span>
             </div>
             {summary ? (
                 <div
-                    className="min-w-0 break-words text-[11px] leading-snug text-slate-600"
+                    className="min-w-0 break-words text-[11px] leading-snug text-muted-foreground"
                     style={{
                         display: "-webkit-box",
                         WebkitBoxOrient: "vertical",
@@ -321,7 +321,7 @@ function nodeLabel(title: string, badge: string, summary: string, meta?: string[
             {meta && meta.length > 0 ? (
                 <div className="flex min-w-0 flex-wrap gap-1 pt-0.5">
                     {meta.slice(0, 3).map((item) => (
-                        <span key={item} className="max-w-full truncate rounded border border-current/15 bg-white/55 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                        <span key={item} className="max-w-full truncate rounded border border-current/15 bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                             {item}
                         </span>
                     ))}
@@ -336,23 +336,23 @@ function knowledgeNodeLabel(type: "TASK" | "MEMORY" | "IDEA", kind: string, titl
     const TypeIcon = type === "MEMORY" ? DatabaseIcon : type === "IDEA" ? LightbulbIcon : TargetIcon
     return (
         <div className="flex w-full min-w-0 flex-col gap-1.5 overflow-hidden text-left">
-            <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <TypeIcon className="size-3.5 shrink-0" />
                 <span className="min-w-0 truncate">{kind}</span>
             </div>
             <div
-                className="min-w-0 break-words text-xs font-semibold leading-snug text-slate-950"
+                className="min-w-0 break-words text-xs font-semibold leading-snug text-foreground"
                 style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}
             >
                 {clip(title, 80)}
             </div>
             <div
-                className="min-w-0 break-words text-[11px] leading-snug text-slate-600"
+                className="min-w-0 break-words text-[11px] leading-snug text-muted-foreground"
                 style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, overflow: "hidden" }}
             >
                 {clip(body, 140)}
             </div>
-            {updates ? <div className="truncate text-[10px] font-medium text-slate-400">{updates}</div> : null}
+            {updates ? <div className="truncate text-[10px] font-medium text-muted-foreground/70">{updates}</div> : null}
         </div>
     )
 }
@@ -385,7 +385,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             title: "广播至 Solver",
             summary: event.summary,
             edgeLabel: "broadcast",
-            className: "border-purple-300 bg-purple-50 text-purple-950",
+            className: "border-purple-500/30 bg-purple-500/10 text-purple-300",
         }
     }
 
@@ -397,7 +397,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             title: promptNameFromEvent(event) ?? "Solver 加入",
             summary: event.solverId ?? event.summary,
             edgeLabel: "assign",
-            className: "border-emerald-300 bg-emerald-50 text-emerald-950",
+            className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
         }
     }
 
@@ -410,7 +410,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             title: memory.kind === "failure" ? "上传失败边界" : "上传证据",
             summary: memory.content,
             edgeLabel: "upload",
-            className: memory.kind === "failure" ? "border-red-300 bg-red-50 text-red-950" : "border-blue-300 bg-blue-50 text-blue-950",
+            className: memory.kind === "failure" ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-blue-500/30 bg-blue-500/10 text-blue-300",
         }
     }
 
@@ -423,7 +423,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             title: idea.status === "failed" ? "路线被拒绝" : "提出路线",
             summary: idea.content,
             edgeLabel: "upload",
-            className: idea.status === "failed" ? "border-red-300 bg-red-50 text-red-950" : "border-amber-300 bg-amber-50 text-amber-950",
+            className: idea.status === "failed" ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300",
         }
     }
 
@@ -436,7 +436,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             title: submission?.correct ? "Flag 已接受" : "Flag 尝试",
             summary: submission?.flag ?? event.summary,
             edgeLabel: "submit",
-            className: submission?.correct ? "border-orange-300 bg-orange-50 text-orange-950" : "border-red-300 bg-red-50 text-red-950",
+            className: submission?.correct ? "border-orange-500/30 bg-orange-500/10 text-orange-300" : "border-red-500/30 bg-red-500/10 text-red-300",
         }
     }
 
@@ -448,7 +448,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             title: "Flag 工具返回",
             summary: event.summary,
             edgeLabel: "result",
-            className: "border-orange-300 bg-orange-50 text-orange-950",
+            className: "border-orange-500/30 bg-orange-500/10 text-orange-300",
         }
     }
 
@@ -460,7 +460,7 @@ function communicationFlowItemFromEvent(event: AttackTimelineEvent): Communicati
             title: "观察者引导 Solver",
             summary: event.summary,
             edgeLabel: "observe",
-            className: "border-purple-300 bg-purple-50 text-purple-950",
+            className: "border-purple-500/30 bg-purple-500/10 text-purple-300",
         }
     }
 
@@ -507,10 +507,10 @@ function boardMutationEventItem(event: AttackTimelineEvent): KnowledgeTreeItem |
             detail: memory.source,
             className:
                 lane === "failure"
-                    ? "border-red-400 bg-red-50 text-red-950"
+                    ? "border-red-500/30 bg-red-500/10 text-red-300"
                     : lane === "hint"
-                      ? "border-violet-400 bg-violet-50 text-violet-950"
-                      : "border-emerald-400 bg-emerald-50 text-emerald-950",
+                      ? "border-violet-500/30 bg-violet-500/10 text-violet-300"
+                      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
             lane,
             entity: "memory",
             status: memory.kind,
@@ -546,12 +546,12 @@ function boardMutationEventItem(event: AttackTimelineEvent): KnowledgeTreeItem |
             detail: idea.result,
             className:
                 idea.status === "verified"
-                    ? "border-emerald-400 bg-emerald-50 text-emerald-950"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
                     : lane === "failure"
-                      ? "border-red-400 bg-red-50 text-red-950"
+                      ? "border-red-500/30 bg-red-500/10 text-red-300"
                       : idea.status === "testing"
-                        ? "border-amber-400 bg-amber-50 text-amber-950"
-                        : "border-blue-400 bg-blue-50 text-blue-950",
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                        : "border-blue-500/30 bg-blue-500/10 text-blue-300",
             lane,
             entity: "idea",
             status: idea.status,
@@ -703,8 +703,8 @@ function buildKnowledgeGraphFromBoard(
                 detail: idea.result,
                 className:
                     idea.status === "testing"
-                        ? "border-dashed border-amber-400 bg-amber-50/60 text-amber-950"
-                        : "border-dashed border-blue-400 bg-blue-50/60 text-blue-950",
+                        ? "border-dashed border-amber-500/40 bg-amber-500/10 text-amber-300"
+                        : "border-dashed border-blue-500/40 bg-blue-500/10 text-blue-300",
                 lane: "idea",
                 entity: "idea",
                 status: idea.status,
@@ -731,10 +731,10 @@ function buildKnowledgeGraphFromBoard(
             detail: memory.source,
             className:
                 lane === "failure"
-                    ? "border-red-400 bg-red-50 text-red-950"
+                    ? "border-red-500/30 bg-red-500/10 text-red-300"
                     : lane === "hint"
-                      ? "border-violet-400 bg-violet-50 text-violet-950"
-                      : "border-emerald-400 bg-emerald-50 text-emerald-950",
+                      ? "border-violet-500/30 bg-violet-500/10 text-violet-300"
+                      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
             lane,
             entity: "memory",
             status: memory.kind,
@@ -763,7 +763,7 @@ function buildKnowledgeGraphFromItems(items: KnowledgeTreeItem[], challenge?: Ch
                 graphRole: "task",
                 knowledgeGroup: "task",
             },
-            className: "rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-950 shadow-[0_8px_24px_rgba(15,23,42,0.12)]",
+            className: "rounded-lg border border-border bg-card px-3 py-2 text-foreground shadow-lg shadow-black/25",
         },
     ]
     const edges: Edge[] = []
@@ -876,7 +876,7 @@ function buildCommunicationGraph(
 
     const taskTitle = challengeNodeTitle(challenge)
     const taskSummary = challengeNodeSummary(challenge, challengeId)
-    addNode("topology:task", taskTitle, "goal", taskSummary, "border-slate-300 bg-white text-slate-950")
+    addNode("topology:task", taskTitle, "goal", taskSummary, "border-border bg-card text-foreground")
 
     const solverMetas = solverMetasFromEvents(events)
     for (const meta of solverMetas) {
@@ -887,7 +887,7 @@ function buildCommunicationGraph(
             meta.promptName ?? "Solver",
             "solver",
             runtimeSummary,
-            "border-slate-200 bg-white text-slate-900 hover:border-sky-300",
+            "border-border bg-card text-foreground hover:border-primary/50",
             meta.id,
         )
         addEdge(`base:${meta.id}`, "topology:task", solverNodeId, "", "#94a3b8", false, true)
@@ -1097,8 +1097,8 @@ function FlowCanvas(props: {
             proOptions={{ hideAttribution: true }}
         >
             {focusNodeId ? <FocusFlowNode nodeId={focusNodeId} version={layoutVersion} /> : <FitViewOnGraphChange version={layoutVersion} />}
-            <Controls position="bottom-right" showInteractive={false} className="rounded-md border border-slate-200 bg-white/95 shadow-sm" />
-            <Background color="rgba(100, 116, 139, 0.18)" gap={24} />
+            <Controls position="bottom-right" showInteractive={false} className="rounded-md border border-border bg-card/95 shadow-sm [&_button]:fill-foreground" />
+            <Background color="rgba(148, 163, 184, 0.12)" gap={24} />
         </ReactFlow>
     )
 }
@@ -1320,12 +1320,12 @@ function keyTimelineEvents(events: AttackTimelineEvent[]) {
 }
 
 function timelineAccent(event: AttackTimelineEvent) {
-    if (event.kind === "flag_submitted") return "border-orange-200 bg-orange-50 text-orange-950"
-    if (event.kind === "memory_added" || event.kind === "memory_updated") return "border-blue-200 bg-blue-50 text-blue-950"
-    if (event.kind === "idea_added" || event.kind === "idea_updated") return "border-amber-200 bg-amber-50 text-amber-950"
-    if (event.lane === "observer" || event.kind === "observer_reminder") return "border-purple-200 bg-purple-50 text-purple-950"
-    if (event.kind === "solver_started" || event.kind === "solver_ended") return "border-emerald-200 bg-emerald-50 text-emerald-950"
-    return "border-slate-200 bg-slate-50 text-slate-950"
+    if (event.kind === "flag_submitted") return "border-orange-500/30 bg-orange-500/10 text-orange-300"
+    if (event.kind === "memory_added" || event.kind === "memory_updated") return "border-blue-500/30 bg-blue-500/10 text-blue-300"
+    if (event.kind === "idea_added" || event.kind === "idea_updated") return "border-amber-500/30 bg-amber-500/10 text-amber-300"
+    if (event.lane === "observer" || event.kind === "observer_reminder") return "border-purple-500/30 bg-purple-500/10 text-purple-300"
+    if (event.kind === "solver_started" || event.kind === "solver_ended") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+    return "border-border bg-muted/40 text-foreground"
 }
 
 function timelineDot(event: AttackTimelineEvent) {
@@ -1334,7 +1334,7 @@ function timelineDot(event: AttackTimelineEvent) {
     if (event.kind === "idea_added" || event.kind === "idea_updated") return "bg-amber-500"
     if (event.lane === "observer" || event.kind === "observer_reminder") return "bg-purple-500"
     if (event.kind === "solver_started" || event.kind === "solver_ended") return "bg-emerald-500"
-    return "bg-slate-400"
+    return "bg-muted-foreground/50"
 }
 
 function timelineLaneId(event: AttackTimelineEvent) {
@@ -1373,15 +1373,17 @@ function TimelinePanel(props: { events: AttackTimelineEvent[]; selectedSolverId?
     const items = keyTimelineEvents(events)
     const solverMetas = solverMetasFromEvents(events)
     const showHubLane = items.some((event) => timelineLaneId(event) === "hub")
-    const hubLanes: Array<{ id: string; label: string; description?: string; className: string }> = showHubLane ? [{ id: "hub", label: "中枢", className: "border-violet-300 bg-violet-50 text-violet-950" }] : []
+    const hubLanes: Array<{ id: string; label: string; description?: string; className: string }> = showHubLane
+        ? [{ id: "hub", label: "中枢", className: "border-violet-500/30 bg-violet-500/10 text-violet-300" }]
+        : []
     const lanes: Array<{ id: string; label: string; description?: string; className: string }> = hubLanes.concat(
         solverMetas.map((meta, index) => {
             const styles = [
-                "border-blue-300 bg-blue-50 text-blue-950",
-                "border-emerald-300 bg-emerald-50 text-emerald-950",
-                "border-amber-300 bg-amber-50 text-amber-950",
-                "border-rose-300 bg-rose-50 text-rose-950",
-                "border-purple-300 bg-purple-50 text-purple-950",
+                "border-blue-500/30 bg-blue-500/10 text-blue-300",
+                "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+                "border-amber-500/30 bg-amber-500/10 text-amber-300",
+                "border-rose-500/30 bg-rose-500/10 text-rose-300",
+                "border-purple-500/30 bg-purple-500/10 text-purple-300",
             ]
             return { id: meta.id, label: meta.promptName ?? meta.id, description: meta.id, className: styles[index % styles.length] ?? styles[0] }
         }),
@@ -1403,9 +1405,9 @@ function TimelinePanel(props: { events: AttackTimelineEvent[]; selectedSolverId?
 
     if (items.length === 0) {
         return (
-            <div className="h-full min-h-0 min-w-0 overflow-hidden border border-blue-100 bg-[radial-gradient(circle_at_12%_12%,rgba(148,163,184,0.10),transparent_42%),#f8fafc]">
+            <div className="h-full min-h-0 min-w-0 overflow-hidden border border-border bg-[radial-gradient(circle_at_12%_12%,rgba(56,189,248,0.08),transparent_42%),var(--background)]">
                 <div className="flex h-full min-h-0 items-center justify-center p-6 text-center">
-                    <div className="max-w-[260px] rounded-lg border border-dashed border-slate-200 bg-white/70 px-4 py-3 text-xs leading-relaxed text-muted-foreground shadow-sm">
+                    <div className="max-w-[260px] rounded-lg border border-dashed border-border bg-card/70 px-4 py-3 text-xs leading-relaxed text-muted-foreground shadow-sm">
                         开始回放以填充时间线。
                     </div>
                 </div>
@@ -1414,10 +1416,10 @@ function TimelinePanel(props: { events: AttackTimelineEvent[]; selectedSolverId?
     }
 
     return (
-        <div className="h-full min-h-0 min-w-0 overflow-hidden border border-blue-100 bg-gradient-to-br from-white to-blue-50/40">
+        <div className="h-full min-h-0 min-w-0 overflow-hidden border border-border bg-gradient-to-br from-background to-card">
             <div ref={scrollRef} className="h-full min-h-0 overflow-auto p-2">
                 <div style={{ width: timelineWidth }}>
-                    <div className="sticky top-0 z-10 grid gap-2 bg-gradient-to-br from-white to-blue-50/80 pb-2" style={{ gridTemplateColumns }}>
+                    <div className="sticky top-0 z-10 grid gap-2 bg-card/90 pb-2 backdrop-blur-sm" style={{ gridTemplateColumns }}>
                         <div className="flex items-center gap-1 px-1 text-[10px] font-medium text-muted-foreground">
                             <RouteIcon className="size-3 shrink-0 text-blue-600" />
                             时间
@@ -1545,7 +1547,7 @@ function TimelineEventDetailDialog(props: { event?: AttackTimelineEvent; onOpenC
                             {memory ? (
                                 <section className="space-y-1">
                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">记忆</div>
-                                    <div className="min-w-0 rounded-lg border bg-blue-50/60 p-3 text-blue-950">
+                                    <div className="min-w-0 rounded-lg border border-border bg-blue-500/10 p-3 text-blue-300">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Badge variant="outline">{memory.kind}</Badge>
                                             <span className="text-xs opacity-70">{memory.source}</span>
@@ -1562,11 +1564,11 @@ function TimelineEventDetailDialog(props: { event?: AttackTimelineEvent; onOpenC
                             {idea ? (
                                 <section className="space-y-1">
                                     <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">思路</div>
-                                    <div className="min-w-0 rounded-lg border bg-amber-50/70 p-3 text-amber-950">
+                                    <div className="min-w-0 rounded-lg border border-border bg-amber-500/10 p-3 text-amber-300">
                                         <Badge variant="outline">{idea.status}</Badge>
                                         <div className="mt-3 whitespace-pre-wrap break-words text-base leading-relaxed">{idea.content}</div>
                                         {idea.result ? (
-                                            <div className="mt-3 rounded-md border border-amber-200 bg-white/60 p-3">
+                                            <div className="mt-3 rounded-md border border-amber-500/30 bg-card/60 p-3">
                                                 <div className="mb-1 text-xs font-medium uppercase tracking-wide opacity-70">结果</div>
                                                 <div className="whitespace-pre-wrap break-words leading-relaxed">{idea.result}</div>
                                             </div>
@@ -1632,7 +1634,7 @@ function KnowledgeDetailDialog(props: { detail?: KnowledgeDetail; onOpenChange: 
                                 <Badge variant="outline">{detail.item.status}</Badge>
                                 <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-3 leading-relaxed">{detail.item.content}</div>
                                 {detail.item.result ? (
-                                    <div className="rounded-lg border bg-amber-50/50 p-3">
+                                    <div className="rounded-lg border border-border bg-amber-500/10 p-3">
                                         <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">结果</div>
                                         <div className="whitespace-pre-wrap break-words leading-relaxed">{detail.item.result}</div>
                                     </div>
@@ -1906,7 +1908,7 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
                 <PanelResizeHandle onPointerDown={handlePanelResizeStart} onKeyDown={handlePanelResizeKeyDown} onReset={handleResetPanelWidths} />
 
                 <div ref={graphGridRef} className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-3 overflow-hidden xl:grid-rows-[var(--attack-flow-graphs)] xl:gap-0">
-                    <div className="h-full min-h-0 min-w-0 overflow-hidden border border-violet-100 bg-gradient-to-br from-white to-violet-50/40">
+                    <div className="h-full min-h-0 min-w-0 overflow-hidden border border-border bg-gradient-to-br from-background to-card">
                         <div className="h-full min-h-0 overflow-hidden">
                             <FlowCanvas
                                 nodes={knowledgeGraph.nodes}
@@ -1928,7 +1930,7 @@ export function AttackFlow({ challengeId }: AttackFlowProps) {
 
                     <StackResizeHandle onPointerDown={handleGraphResizeStart} onKeyDown={handleGraphResizeKeyDown} onReset={handleResetGraphHeights} />
 
-                    <div className="h-full min-h-0 min-w-0 overflow-hidden border border-blue-100 bg-gradient-to-br from-white to-sky-50/40">
+                    <div className="h-full min-h-0 min-w-0 overflow-hidden border border-border bg-gradient-to-br from-background to-card">
                         <div className="h-full min-h-0 overflow-hidden">
                             <FlowCanvas
                                 nodes={communicationGraph.nodes}

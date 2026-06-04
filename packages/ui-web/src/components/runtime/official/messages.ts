@@ -213,7 +213,7 @@ export class ToolMessage extends LitElement {
                                               <details class="min-w-0 max-w-full rounded-lg border border-amber-200/80 bg-amber-50/40 p-2 dark:border-amber-900/40 dark:bg-amber-950/10" ?open=${this.isStreaming}>
                                                   <summary class="cursor-pointer list-none text-sm">
                                                       <div class="flex items-center justify-between gap-2">
-                                                          <span class="font-medium text-amber-700 dark:text-amber-300">Subagent ${thread.promptName || thread.label}</span>
+                                                          <span class="font-medium text-amber-300">Subagent ${thread.promptName || thread.label}</span>
                                                           <span class="text-[11px] text-muted-foreground">${thread.createdAt ? formatMessageTime(thread.createdAt) : ""}</span>
                                                       </div>
                                                       ${thread.task ? html`<div class="mt-1 text-xs text-muted-foreground">${thread.task}</div>` : ""}

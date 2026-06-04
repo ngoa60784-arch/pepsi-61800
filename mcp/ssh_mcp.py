@@ -213,7 +213,7 @@ async def ssh_execute(
     port: int = 0,
     username: str = "",
     password: str = "",
-    timeout: int = 30,
+    timeout: int = 300,
 ) -> str:
     """在 Kali Linux 上执行任意命令。这是核心工具，可直接调用 Kali 上所有渗透测试工具。
     默认连接已配置的 Kali 服务器，也可指定其他主机。

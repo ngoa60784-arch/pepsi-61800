@@ -1,40 +1,40 @@
 import type { Subprocess } from "bun"
-import type { ContainerConfig, SshBackendConfig } from "./types"
+import type { ContainerConfig } from "./types"
 
 /**
- * 执行后端抽象：把"在哪起 solver 进程"与 RuntimeManager 的协议桥接（JSONL over stdio）解耦。
+ * Execution backend abstraction: decouples where solver processes start from RuntimeManager JSONL-over-stdio bridge.
  *
- * 关键不变量：无论 docker 还是 ssh，solver 都是一个 `Bun.spawn` 出来的子进程，
- * stdin/stdout 上跑同一套 JSONL RPC 协议。所以 readStream/sendCommand 完全复用，
- * 后端只负责"构造启动哪个子进程"和"如何停止"。
+ * Invariant: solver runs in a local Docker container; child is `Bun.spawn` from `docker run`,
+ * with the same JSONL RPC on stdin/stdout. readStream/sendCommand are reused;
+ * backend only builds which child to start and how to stop it.
  */
 export interface SolverLaunchSpec {
     solverId: string
     containerName: string
-    /** 注入到 solver 进程的环境变量（不含路径，路径由后端按自身视图决定） */
+    /** Env vars injected into solver (paths excluded; backend sets paths per its view) */
     solverEnv: Record<string, string>
-    /** solver 二进制启动命令（如 ["/opt/tch-agent/tch-agent","solver","rpc"]） */
+    /** Solver binary launch argv (e.g. ["/opt/tch-agent/tch-agent","solver","rpc"]) */
     injectionCmd: string[]
-    /** 额外只读绑定（仅 docker 用：host:container；ssh 后端忽略或经 sshfs 处理） */
+    /** Extra read-only binds (docker host:container) */
     extraBinds: string[]
-    /** 宿主机上的 scope 文件路径（可选） */
+    /** Host scope file path (optional) */
     hostScopePath?: string
-    /** 主机侧 solver 目录（startup/session/workspace 的父目录） */
+    /** Host solver dir parent (startup/session/workspace) */
     hostBaseDir: string
     hostSessionDir: string
     hostWorkspaceDir: string
 }
 
 export interface ExecutionBackend {
-    readonly kind: "docker" | "ssh" | "local"
-    /** 构造并启动 solver 子进程（stdin/stdout/stderr 均为 pipe） */
+    readonly kind: "docker"
+    /** Build and spawn solver child (stdin/stdout/stderr piped) */
     spawn(spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe">
-    /** 停止一个 solver */
+    /** Stop a solver */
     stop(spec: { solverId: string; containerName: string }): Promise<void>
 }
 
 // ──────────────────────────────────────────────────────────────
-// Docker 后端：行为与原 RuntimeManager 内联逻辑完全一致
+// Docker backend: same behavior as original inline RuntimeManager logic
 // ──────────────────────────────────────────────────────────────
 
 const CONTAINER_RUNTIME_DIR = "/runtime"
@@ -62,7 +62,7 @@ export class DockerBackend implements ExecutionBackend {
         return Bun.spawn(args, { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
     }
 
-    /** 构造 `docker run ...` 完整 argv（公开以便测试，与 SshBackend.buildLaunchArgv 对称）。 */
+    /** Build full `docker run ...` argv (public for tests). */
     buildLaunchArgv(spec: SolverLaunchSpec): string[] {
         const binds = [
             ...(this.config.binds ?? []),
@@ -71,7 +71,7 @@ export class DockerBackend implements ExecutionBackend {
             ...spec.extraBinds,
         ]
 
-        // scope 文件：宿主机路径容器内不可见，只读挂载到容器固定路径并改写 env。
+        // Scope file: host path invisible in container; ro-mount to fixed path and rewrite env.
         const containerSolverEnv: Record<string, string> = {
             ...spec.solverEnv,
             TCH_SOLVER_BASE_DIR: CONTAINER_RUNTIME_DIR,
@@ -111,7 +111,7 @@ export class DockerBackend implements ExecutionBackend {
             workdir,
             "--rm",
         ]
-        // 资源上限：防止单个失控 solver（爆破/海量扫描）吃满宿主。不设则不加参数 = 不限制。
+        // Resource caps: prevent one runaway solver (brute/mass scan) from starving host. Omit = unlimited.
         const memory = this.config.memory?.trim()
         if (memory) args.push("--memory", memory)
         if (typeof this.config.cpus === "number" && this.config.cpus > 0) args.push("--cpus", String(this.config.cpus))
@@ -122,165 +122,8 @@ export class DockerBackend implements ExecutionBackend {
     }
 }
 
-// ──────────────────────────────────────────────────────────────
-// SSH 后端：solver 直接在远程主机（云 kali）上跑，无 docker
-// ──────────────────────────────────────────────────────────────
-
-const DEFAULT_REMOTE_BINARY = "/opt/tch-agent/tch-agent"
-
-/**
- * SSH 后端：在远程主机上以 `setsid <binary> solver rpc --env ...` 起 solver 进程，
- * JSONL 协议经 ssh 的 stdin/stdout 透传（与 docker 的 pipe 等价）。
- *
- * 路径模型：solver 在远程把 startup/session/workspace 写到 remoteSolversDir/<id>/...，
- * 该目录需与本机 SOLVERS_DIR 经 sshfs 挂载为同一视图，host 侧 48 处读状态代码即可不改。
- * 因此这里直接复用 host 路径（spec.hostBaseDir 等）作为远程路径——两者必须指向同一物理目录。
- */
-export class SshBackend implements ExecutionBackend {
-    readonly kind = "ssh" as const
-
-    constructor(private readonly ssh: SshBackendConfig) {
-        if (!ssh.alias && !ssh.host) {
-            throw new Error("ssh backend requires either `alias` or `host`")
-        }
-    }
-
-    spawn(spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe"> {
-        const sshArgs = this.buildLaunchArgv(spec)
-        return Bun.spawn(sshArgs, { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-    }
-
-    /** 构造完整 ssh argv（纯函数，便于测试）。 */
-    buildLaunchArgv(spec: SolverLaunchSpec): string[] {
-        const binary = this.ssh.remoteBinary?.trim() || DEFAULT_REMOTE_BINARY
-
-        // 远程路径 == host 路径（经 sshfs 同视图）。scope 文件同理，直接用宿主机路径。
-        const solverEnv: Record<string, string> = {
-            ...spec.solverEnv,
-            TCH_SOLVER_BASE_DIR: spec.hostBaseDir,
-            TCH_SOLVER_SESSION_DIR: spec.hostSessionDir,
-            TCH_SOLVER_WORKSPACE: spec.hostWorkspaceDir,
-        }
-        if (spec.hostScopePath) {
-            solverEnv.TCH_ENGAGEMENT_SCOPE = spec.hostScopePath
-        }
-
-        // 远端命令：cd workspace && exec binary solver rpc --env K=V ...
-        const remoteParts = ["cd", shq(spec.hostWorkspaceDir), "&&", "exec", shq(binary), "solver", "rpc"]
-        for (const [k, v] of Object.entries(solverEnv)) {
-            if (!k.trim() || typeof v !== "string" || !v.trim()) continue
-            remoteParts.push("--env", shq(`${k}=${v}`))
-        }
-        return this.buildSshArgv(remoteParts.join(" "))
-    }
-
-    async stop(spec: { solverId: string }): Promise<void> {
-        // 远端精确杀该 solver 的进程。旧写法 `solver rpc.*${solverId}` 有两个问题：
-        // solverId 未做正则转义；`.*` 贪婪。这里改成匹配 cmdline 里该 solver 独有的路径段
-        // `/<solverId>/`（TCH_SOLVER_BASE_DIR/SESSION_DIR/WORKSPACE 都含它），并转义正则元字符。
-        const marker = `/${reEscape(spec.solverId)}/`
-        const remoteKill = `pkill -f ${shq(marker)} 2>/dev/null || true`
-        try {
-            const proc = Bun.spawn(this.buildSshArgv(remoteKill), { stdout: "ignore", stderr: "ignore" })
-            await proc.exited
-        } catch {
-            // best effort
-        }
-    }
-
-    /** 构造 ssh argv：优先别名（密钥/隧道），否则 host + 可选 sshpass 密码。 */
-    private buildSshArgv(remoteCommand: string): string[] {
-        const common = ["-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=15"]
-        if (this.ssh.alias?.trim()) {
-            return ["ssh", ...common, this.ssh.alias.trim(), remoteCommand]
-        }
-        const port = String(this.ssh.port ?? 22)
-        const target = `${this.ssh.username?.trim() || "root"}@${this.ssh.host}`
-        const base = ["ssh", ...common, "-p", port, target, remoteCommand]
-        if (this.ssh.password?.trim()) {
-            // 用 sshpass 走明文密码（需远程主机已装 sshpass 于本机）。推荐改用 alias+密钥。
-            return ["sshpass", "-p", this.ssh.password, ...base]
-        }
-        return base
-    }
-}
-
-/** 单引号 shell 转义 */
-function shq(s: string): string {
-    return `'${s.replace(/'/g, "'\\''")}'`
-}
-
-/** 转义正则元字符（用于 pkill -f 的模式，避免 solverId/路径里的特殊字符被当作正则）。 */
-function reEscape(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-// ──────────────────────────────────────────────────────────────
-// Local 后端：solver 进程跑在控制面本地（不进容器、不 ssh）
-// ──────────────────────────────────────────────────────────────
-
-/**
- * Local 后端：在控制面本机以 `<execPath> [cliEntry] solver rpc --env ...` 直接起 solver 进程。
- *
- * 关键差异（vs docker/ssh）：
- * - 不做任何路径转换——TCH_SOLVER_*_DIR 直接用 host 路径，因为进程就在本机、读写的就是这些目录。
- *   host 侧 getDetails/readStream 读的也是同一批本地目录，天然同视图，无需 sshfs。
- * - 攻击面不靠本地 bash，而是由 solver 会话启用的 MCP server（如 kali-arsenal/ssh_mcp.py）的
- *   ssh_execute 工具够到远程 Kali。本地进程只承载「大脑+状态」。
- * - stop 是 no-op：RuntimeManager 持有子进程句柄，stopSolver 的 finally 会直接 .kill()。
- */
-export class LocalBackend implements ExecutionBackend {
-    readonly kind = "local" as const
-
-    spawn(spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe"> {
-        const argv = this.buildLaunchArgv(spec)
-        return Bun.spawn(argv, {
-            stdin: "pipe",
-            stdout: "pipe",
-            stderr: "pipe",
-            // 子进程读写的就是这些本地目录；env 直接透传 host 路径，不做容器化改写。
-            env: {
-                ...process.env,
-                ...spec.solverEnv,
-                TCH_SOLVER_BASE_DIR: spec.hostBaseDir,
-                TCH_SOLVER_SESSION_DIR: spec.hostSessionDir,
-                TCH_SOLVER_WORKSPACE: spec.hostWorkspaceDir,
-                ...(spec.hostScopePath ? { TCH_ENGAGEMENT_SCOPE: spec.hostScopePath } : {}),
-            },
-        })
-    }
-
-    /** 构造本地 solver rpc 启动 argv（纯函数，便于测试）。 */
-    buildLaunchArgv(spec: SolverLaunchSpec): string[] {
-        const execPath = process.execPath
-        const execName = execPath.split("/").pop()?.toLowerCase() ?? ""
-        const isBun = execName === "bun" || execName === "bun.exe"
-        // bun 运行时：execPath 是 bun 本体，需带上 CLI 入口脚本（process.argv[1]）。
-        // 编译二进制：execPath 自身即 tch-agent，直接跟子命令。
-        const base = isBun && process.argv[1] ? [execPath, process.argv[1], "solver", "rpc"] : [execPath, "solver", "rpc"]
-        // env 主要通过 Bun.spawn 的 env 注入（见 spawn）；这里附带 --env 让 rpc-server 的
-        // readEnvArgsFromArgv 兜底，并与 docker/ssh 的 cmdline 风格保持一致。
-        const argv = [...base]
-        for (const [k, v] of Object.entries(spec.solverEnv)) {
-            if (!k.trim() || typeof v !== "string" || !v.trim()) continue
-            argv.push("--env", `${k}=${v}`)
-        }
-        return argv
-    }
-
-    async stop(_spec: { solverId: string; containerName: string }): Promise<void> {
-        // no-op：本地子进程由 RuntimeManager 持有句柄，stopSolver 的 finally 直接 .kill()。
-    }
-}
-
+/** Solver execution is always local Docker. Remote Kali is reached via MCP `kali-arsenal` (ssh_execute). */
 export function createExecutionBackend(config: ContainerConfig): ExecutionBackend {
-    if (config.backend === "ssh") {
-        if (!config.ssh) throw new Error('runtime.backend="ssh" requires runtime.ssh config')
-        return new SshBackend(config.ssh)
-    }
-    if (config.backend === "local") {
-        return new LocalBackend()
-    }
     return new DockerBackend(config)
 }
 

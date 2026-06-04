@@ -1,12 +1,51 @@
 import { resolve, dirname } from "path"
 import { mkdir } from "fs/promises"
-import { existsSync, readdirSync, statSync } from "fs"
+import { existsSync } from "fs"
 import { loadSkillsFromDir } from "@mariozechner/pi-coding-agent"
 import type { Skill } from "@mariozechner/pi-coding-agent"
 import { BUILTIN_SKILL_FILES } from "../builtin-assets.generated"
 
-/** 将内置 skills 释放到用户 config 目录（仅首次 / 有更新时） */
+/** Env var injected into solver processes; SKILL docs reference `$TCH_BUILTIN_SKILLS_DIR/...`. */
+export const TCH_BUILTIN_SKILLS_ENV = "TCH_BUILTIN_SKILLS_DIR"
+
+/** Built-in skill tree in the repo (`packages/core/src/config/skills/builtin`). */
+export function getRepoBuiltinSkillsDir(): string {
+    return resolve(import.meta.dir, "builtin")
+}
+
+/** Directory agents should grep/read for bundled skills (repo tree when present, else `config/skills`). */
+export function resolveBuiltinSkillsDir(configDir: string): string {
+    const repoDir = getRepoBuiltinSkillsDir()
+    if (existsSync(repoDir)) return repoDir
+    return resolve(configDir, "skills")
+}
+
+/** Canonical built-in skill `name` values (frontmatter), sorted for stable YAML. */
+export function allBuiltinSkillNames(configDir: string): string[] {
+    return listSkills(configDir)
+        .map((s) => s.name)
+        .sort((a, b) => a.localeCompare(b))
+}
+
+export function applyBuiltinSkillsEnv(configDir: string): string {
+    const dir = resolveBuiltinSkillsDir(configDir)
+    process.env[TCH_BUILTIN_SKILLS_ENV] = dir
+    return dir
+}
+
+/**
+ * Release built-in skills into the user's config directory when the repo tree is
+ * unavailable (compiled binary). When developing from source, builtins are read
+ * directly from `getRepoBuiltinSkillsDir()` — no copy.
+ */
 export async function initBuiltinSkills(dir: string) {
+    applyBuiltinSkillsEnv(dir)
+    const repoDir = getRepoBuiltinSkillsDir()
+    if (existsSync(repoDir)) {
+        await mkdir(resolve(dir, "skills"), { recursive: true })
+        return
+    }
+
     const destBase = resolve(dir, "skills")
     await mkdir(destBase, { recursive: true })
     const builtinSkillFiles = BUILTIN_SKILL_FILES as unknown as Record<string, string>
@@ -18,11 +57,25 @@ export async function initBuiltinSkills(dir: string) {
     }
 }
 
-// ── 目录发现 ──
+// ── Directory discovery ──
 
 export function listSkills(dir: string): Skill[] {
+    const builtinDir = resolveBuiltinSkillsDir(dir)
     const userDir = resolve(dir, "skills")
-    return existsSync(userDir) ? loadSkillsFromDir({ dir: userDir, source: "user" }).skills : []
+
+    const byName = new Map<string, Skill>()
+    if (existsSync(builtinDir)) {
+        for (const skill of loadSkillsFromDir({ dir: builtinDir, source: "builtin" }).skills) {
+            byName.set(skill.name, skill)
+        }
+    }
+    if (existsSync(userDir)) {
+        for (const skill of loadSkillsFromDir({ dir: userDir, source: "user" }).skills) {
+            // Same name under config/skills overrides a built-in (zip/git install or local edit).
+            byName.set(skill.name, skill)
+        }
+    }
+    return [...byName.values()]
 }
 
 export function getSkill(dir: string, name: string): Skill | undefined {
@@ -39,7 +92,7 @@ export async function removeSkill(dir: string, name: string) {
 
 // ── Install helpers ──
 
-/** 递归复制目录，排除指定条目 */
+/** Recursively copy a directory, excluding the specified entries */
 async function copyDir(src: string, dest: string, exclude: string[]) {
     const { readdirSync, statSync } = await import("fs")
     for (const entry of readdirSync(src)) {
@@ -55,7 +108,7 @@ async function copyDir(src: string, dest: string, exclude: string[]) {
     }
 }
 
-/** 在目录树中找到包含 SKILL.md 的根目录（检查根 + 一层子目录） */
+/** Find the root directory containing SKILL.md within the directory tree (checks the root + one level of subdirectories) */
 function findSkillRoot(baseDir: string): string | null {
     const { readdirSync, statSync, existsSync } = require("fs")
     if (existsSync(resolve(baseDir, "SKILL.md"))) return baseDir
@@ -68,7 +121,7 @@ function findSkillRoot(baseDir: string): string | null {
     return null
 }
 
-/** 从 zip 安装 skill */
+/** Install a skill from a zip */
 export async function addSkillFromZip(dir: string, zipData: ArrayBuffer): Promise<{ name: string }> {
     const { mkdtemp, rm } = await import("fs/promises")
     const { tmpdir } = await import("os")
@@ -85,7 +138,7 @@ export async function addSkillFromZip(dir: string, zipData: ArrayBuffer): Promis
         }
 
         const skillRoot = findSkillRoot(tmpDir)
-        if (!skillRoot) throw new Error("zip 中未找到 SKILL.md")
+        if (!skillRoot) throw new Error("SKILL.md not found in zip")
 
         const skillName = skillRoot === tmpDir ? "unnamed-skill" : skillRoot.split("/").pop()!
         const destDir = resolve(dir, "skills", skillName)
@@ -100,13 +153,13 @@ export async function addSkillFromZip(dir: string, zipData: ArrayBuffer): Promis
     }
 }
 
-/** 从 Git 仓库安装 skill */
+/** Install a skill from a Git repository */
 export async function addSkillFromGit(dir: string, url: string): Promise<{ name: string }> {
     const repoName = url
         .replace(/\.git$/, "")
         .split("/")
         .pop()
-    if (!repoName) throw new Error("无法从 URL 提取仓库名")
+    if (!repoName) throw new Error("could not extract repo name from URL")
 
     const { mkdtemp, rm } = await import("fs/promises")
     const { tmpdir } = await import("os")
@@ -125,7 +178,7 @@ export async function addSkillFromGit(dir: string, url: string): Promise<{ name:
         }
 
         const skillRoot = findSkillRoot(cloneDir)
-        if (!skillRoot) throw new Error("仓库中未找到 SKILL.md")
+        if (!skillRoot) throw new Error("SKILL.md not found in repository")
 
         const skillName = skillRoot === cloneDir ? repoName : skillRoot.split("/").pop()!
         const destDir = resolve(dir, "skills", skillName)

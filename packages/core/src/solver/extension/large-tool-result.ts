@@ -92,8 +92,8 @@ export function largeToolResultExtension(options: LargeToolResultOptions): Exten
     const maxInlineChars = options.maxInlineChars ?? DEFAULT_MAX_INLINE_CHARS
 
     return (pi) => {
-        // 注意：绝不能用 console.log——solver rpc 的 stdout 是 JSONL 协议通道，
-        // 往 stdout 写非 JSON 行会污染协议。需要日志一律走 stderr。
+        // Never use console.log — solver rpc stdout is the JSONL protocol channel,
+        // non-JSON lines corrupt it. Log to stderr only.
         pi.on("tool_result", async (event) => {
             if (shouldBypassForSkillMarkdown(event.toolName, event.input)) return
             const serialized = serializeContentBlocks(event.content)

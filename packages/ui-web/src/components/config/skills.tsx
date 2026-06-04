@@ -100,7 +100,7 @@ export function SkillsPage() {
 
             {/* Status */}
             {error && <div className="rounded-md border border-destructive bg-destructive/10 px-4 py-2 text-sm text-destructive">{error}</div>}
-            {success && <div className="rounded-md border border-green-600 bg-green-600/10 px-4 py-2 text-sm text-green-700 dark:text-green-400">{success}</div>}
+            {success && <div className="rounded-md alert-success rounded-md px-4 py-2 text-sm">{success}</div>}
 
             {/* List */}
             {loading ? (

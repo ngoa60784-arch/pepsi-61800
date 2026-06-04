@@ -6,7 +6,12 @@ test("provision script is inlined and looks like the provisioner", async () => {
     expect(typeof script).toBe("string")
     expect(script.length).toBeGreaterThan(1000)
     expect(script).toContain("provision-pentest-vps")
-    expect(script).toContain("阶段 1/6")
+    expect(script).toContain("Stage 1/7")
+    expect(script).toContain("install_netexec_editable")
+    expect(script).toContain("install_jwt_tool")
+    expect(script).toContain("install_pd_pinned")
+    expect(script).toContain("ensure_bin_link")
+    expect(script).toContain("go_toolchain_ok")
 })
 
 test("buildProvisionArgv (alias) runs bash -s over ssh, no password", () => {
@@ -35,5 +40,5 @@ test("buildProvisionArgv (host only, key auth) omits sshpass and defaults user r
 })
 
 test("buildProvisionArgv throws without host or alias", () => {
-    expect(() => buildProvisionArgv({})).toThrow(/host or alias|alias or host/)
+    expect(() => buildProvisionArgv({})).toThrow(/SSH_HOST|SSH_ALIAS/)
 })

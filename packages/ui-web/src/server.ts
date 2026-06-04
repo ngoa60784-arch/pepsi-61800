@@ -1,12 +1,14 @@
 import { DaemonManager } from "../../core/src/index"
 import { ARCHIVE_SOLVERS_DIR, solverSessionDir } from "../../core/src/runtime/types"
-import { provisionKaliVps } from "../../core/src/runtime/provision"
 import { readSolverBoardSnapshot } from "../../core/src/solver/board-store"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../core/src/challenge/env"
 import { isEngagementMode } from "../../core/src/challenge/engagement"
 import { buildChallengeAttackTimeline } from "../../core/src/challenge/attack-timeline"
 import { buildChallengeStatsOverview } from "../../core/src/challenge/stats"
+import { checkKaliToolsOnRemote, kaliEnvToProvisionTarget, testKaliSshConnection } from "../../core/src/runtime/kali-ssh"
+import { fetchKaliSystemStats, formatKaliSshLabel, type KaliSystemStats } from "../../core/src/runtime/kali-stats"
+import { provisionKaliWithAgent } from "../../core/src/runtime/kali-provisioner"
 import { cp, mkdir, mkdtemp, rm, stat } from "fs/promises"
 import { tmpdir } from "os"
 import { resolve } from "path"
@@ -214,6 +216,57 @@ export async function startWeb(options: WebServerOptions) {
         }
     })
     const SSE_KEEPALIVE_MS = 5000
+    const KALI_STATS_CACHE_MS = 5000
+    let kaliStatsCache: { at: number; data: KaliSystemStats } | undefined
+
+    async function resolveRuntimeKaliStatus(force = false): Promise<KaliSystemStats> {
+        const now = Date.now()
+        if (!force && kaliStatsCache && now - kaliStatsCache.at < KALI_STATS_CACHE_MS) {
+            return kaliStatsCache.data
+        }
+        const server = config.getMcpConfig().mcpServers["kali-arsenal"]
+        if (!server) {
+            const data: KaliSystemStats = { ok: false, message: "未配置 MCP kali-arsenal（设置 → MCP）" }
+            kaliStatsCache = { at: now, data }
+            return data
+        }
+        try {
+            const target = kaliEnvToProvisionTarget(server.env ?? {})
+            const data = await fetchKaliSystemStats(target)
+            kaliStatsCache = { at: now, data }
+            return data
+        } catch (error) {
+            const data: KaliSystemStats = {
+                ok: false,
+                message: error instanceof Error ? error.message : String(error),
+            }
+            kaliStatsCache = { at: now, data }
+            return data
+        }
+    }
+
+    async function probeRuntimeKali() {
+        kaliStatsCache = undefined
+        const server = config.getMcpConfig().mcpServers["kali-arsenal"]
+        if (!server) {
+            const stats: KaliSystemStats = { ok: false, message: "未配置 MCP kali-arsenal（设置 → MCP）" }
+            return {
+                ssh: { ok: false, message: stats.message ?? "未配置" },
+                stats,
+            }
+        }
+        const target = kaliEnvToProvisionTarget(server.env ?? {})
+        const ssh = await testKaliSshConnection(target)
+        const stats = ssh.ok
+            ? await resolveRuntimeKaliStatus(true)
+            : { ok: false as const, label: formatKaliSshLabel(target), message: ssh.message }
+        return { ssh, stats }
+    }
+
+    async function buildRuntimeStatusPayload() {
+        const docker = await containers.ping()
+        return { docker, solvers: containers.list().length }
+    }
 
     function encodeSse(event: string, data: unknown) {
         return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -276,7 +329,7 @@ export async function startWeb(options: WebServerOptions) {
     }
 
     async function pushRuntimeSnapshot(controller: ReadableStreamDefaultController<Uint8Array>) {
-        safeEnqueue(controller, encodeSse("status", { docker: await containers.ping(), solvers: containers.list().length }), () => runtimeSubscribers.delete(controller))
+        safeEnqueue(controller, encodeSse("status", await buildRuntimeStatusPayload()), () => runtimeSubscribers.delete(controller))
         safeEnqueue(controller, encodeSse("solvers", await containers.listAll()), () => runtimeSubscribers.delete(controller))
     }
 
@@ -330,7 +383,7 @@ export async function startWeb(options: WebServerOptions) {
 
     async function broadcastRuntimeSnapshot() {
         if (runtimeSubscribers.size === 0) return
-        const statusFrame = encodeSse("status", { docker: await containers.ping(), solvers: containers.list().length })
+        const statusFrame = encodeSse("status", await buildRuntimeStatusPayload())
         const solversFrame = encodeSse("solvers", await containers.listAll())
         for (const controller of [...runtimeSubscribers]) {
             safeEnqueue(controller, statusFrame, () => runtimeSubscribers.delete(controller))
@@ -616,6 +669,22 @@ export async function startWeb(options: WebServerOptions) {
                 },
             },
 
+            "/api/config/activate-model": {
+                async POST(req) {
+                    try {
+                        const body = (await req.json()) as { id?: string }
+                        const id = typeof body.id === "string" ? body.id.trim() : ""
+                        if (!id) return errorResponse("id is required", 400)
+                        const result = await config.activateModelGlobally(id)
+                        await daemon.reloadFromConfig()
+                        return Response.json(result)
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return errorResponse(msg, 400)
+                    }
+                },
+            },
+
             // ── Skills ──
             "/api/config/skills": {
                 GET() {
@@ -728,42 +797,11 @@ export async function startWeb(options: WebServerOptions) {
                 async GET() {
                     return Response.json(await daemon.challenge.listChallengesSafe("challenge-api:web"))
                 },
-                async POST(req) {
-                    const hostSettings = await config.getHostSettings()
-                    const engagement = isEngagementMode()
-                    if (!engagement && hostSettings.challenge.mockEnabled !== true) {
-                        return Response.json({ error: "manual challenge add is only available when mock mode is enabled" }, { status: 400 })
-                    }
-
-                    const body = (await req.json()) as Record<string, unknown>
-                    const flags = Array.isArray(body.flags) ? body.flags.map((item) => String(item)).filter((item) => item.trim().length > 0) : []
-                    const entrypoint = Array.isArray(body.entrypoint)
-                        ? body.entrypoint.map((item) => String(item)).filter((item) => item.trim().length > 0)
-                        : null
-                    const rawId = String(body.id ?? "").trim()
-                    if (!rawId) {
-                        // 空 id 会让 challengeDir 解析成 store 根目录，把 challenge.json 写进根、污染列表。
-                        return Response.json({ error: "challenge id is required" }, { status: 400 })
-                    }
-                    // 实战模式用原始 target id；CTF mock 模式保留 mock- 前缀约定。
-                    const id = engagement ? rawId : rawId.startsWith("mock-") ? rawId : `mock-${rawId}`
-                    const challenge = await daemon.challenge.createChallenge({
-                        id,
-                        title: String(body.title ?? ""),
-                        difficulty: String(body.difficulty ?? ""),
-                        description: String(body.description ?? ""),
-                        level: Number(body.level ?? 0),
-                        total_score: Number(body.total_score ?? 0),
-                        total_got_score: Number(body.total_got_score ?? 0),
-                        flag_count: flags.length,
-                        flag_got_count: Number(body.flag_got_count ?? 0),
-                        hint_viewed: body.hint_viewed === true,
-                        hint_content: String(body.hint_content ?? "").trim() || null,
-                        instance_status: "stopped",
-                        entrypoint,
-                        flags,
-                    })
-                    return Response.json(challenge)
+                async POST() {
+                    return Response.json(
+                        { error: "请通过指挥官创建目标：在 #/commander 用自然语言描述目标，或由 agent 调用 create_target。" },
+                        { status: 403 },
+                    )
                 },
             },
             "/api/challenges/stats-overview": {
@@ -845,6 +883,17 @@ export async function startWeb(options: WebServerOptions) {
                         solvers: solvers.filter((solver) => solver.challengeId === challengeId),
                     })
                 },
+                async DELETE(req) {
+                    try {
+                        const result = await daemon.challenge.deleteChallenge(req.params.id)
+                        broadcastChallengeTimelineNow(req.params.id)
+                        return Response.json({ ok: true, ...result })
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : String(e)
+                        const status = message.includes("not found") ? 404 : 500
+                        return Response.json({ error: message }, { status })
+                    }
+                },
             },
             "/api/challenges/:id/complete": {
                 async POST(req) {
@@ -863,6 +912,32 @@ export async function startWeb(options: WebServerOptions) {
                         return Response.json({ ok: true, ...result })
                     } catch (e: any) {
                         return Response.json({ error: e?.message ?? String(e) }, { status: 500 })
+                    }
+                },
+            },
+            "/api/challenges/:id/pause-testing": {
+                async POST(req) {
+                    try {
+                        const result = await daemon.challenge.pauseTargetTesting(req.params.id)
+                        broadcastChallengeTimelineNow(req.params.id)
+                        return Response.json({ ok: true, ...result })
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : String(e)
+                        const status = message.includes("not found") ? 404 : 409
+                        return Response.json({ error: message }, { status })
+                    }
+                },
+            },
+            "/api/challenges/:id/resume-testing": {
+                async POST(req) {
+                    try {
+                        const result = await daemon.challenge.resumeTargetTesting(req.params.id)
+                        broadcastChallengeTimelineNow(req.params.id)
+                        return Response.json({ ok: true, ...result })
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : String(e)
+                        const status = message.includes("not found") ? 404 : 409
+                        return Response.json({ error: message }, { status })
                     }
                 },
             },
@@ -1055,45 +1130,84 @@ export async function startWeb(options: WebServerOptions) {
                 },
             },
 
-            // 一键把 VPS 配成 solver 远程攻击主机：用前端传来的 SSH 凭据，把预装脚本
-            // 推到远端 `bash -s` 执行，stdout/stderr 逐行经 SSE 流式回显。耗时（10-30 分钟）。
-            "/api/config/kali-ssh-provision": {
+            "/api/config/mcp/kali-ssh-test": {
                 async POST(req) {
-                    const body = await req.json().catch(() => ({}))
-                    const target = {
-                        host: typeof body.host === "string" ? body.host : undefined,
-                        port: typeof body.port === "number" ? body.port : body.port ? Number(body.port) : undefined,
-                        username: typeof body.username === "string" ? body.username : undefined,
-                        password: typeof body.password === "string" ? body.password : undefined,
-                        alias: typeof body.alias === "string" ? body.alias : undefined,
+                    try {
+                        const body = (await req.json()) as { env?: Record<string, string> }
+                        const env = body.env ?? {}
+                        const target = kaliEnvToProvisionTarget(env)
+                        const result = await testKaliSshConnection(target, req.signal)
+                        return Response.json(result, { status: result.ok ? 200 : 400 })
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return Response.json({ ok: false, message: msg }, { status: 400 })
                     }
-                    if (!target.alias?.trim() && !target.host?.trim()) {
-                        return Response.json({ error: "需要 SSH 主机或别名" }, { status: 400 })
+                },
+            },
+
+            "/api/config/mcp/kali-tool-check": {
+                async POST(req) {
+                    try {
+                        const body = (await req.json()) as { env?: Record<string, string> }
+                        const target = kaliEnvToProvisionTarget(body.env ?? {})
+                        const result = await checkKaliToolsOnRemote(target, req.signal)
+                        return Response.json(result)
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return errorResponse(msg, 400)
                     }
-                    const abort = new AbortController()
+                },
+            },
+
+            "/api/config/mcp/kali-provision": {
+                async POST(req) {
+                    let target
+                    let provisionEnv: Record<string, string> | undefined
+                    try {
+                        const body = (await req.json()) as { env?: Record<string, string> }
+                        provisionEnv = body.env
+                        target = kaliEnvToProvisionTarget(body.env ?? {})
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return errorResponse(msg, 400)
+                    }
+
+                    const encoder = new TextEncoder()
                     const stream = new ReadableStream<Uint8Array>({
                         async start(controller) {
-                            const send = (event: string, data: unknown) => safeEnqueue(controller, encodeSse(event, data))
-                            send("log", { line: `连接 ${target.alias || `${target.username || "root"}@${target.host}:${target.port ?? 22}`}，开始预装…`, stream: "stdout" })
-                            try {
-                                const { exitCode } = await provisionKaliVps(
-                                    target,
-                                    (line, streamKind) => send("log", { line, stream: streamKind }),
-                                    abort.signal,
-                                )
-                                send("done", { exitCode, ok: exitCode === 0 })
-                            } catch (e: any) {
-                                send("done", { exitCode: -1, ok: false, error: e?.message || String(e) })
-                            } finally {
-                                closeController(controller)
+                            const send = (event: string, data: unknown) => {
+                                try {
+                                    controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+                                } catch {
+                                    // client disconnected
+                                }
                             }
-                        },
-                        cancel() {
-                            abort.abort()
+                            try {
+                                const result = await provisionKaliWithAgent(
+                                    config,
+                                    target,
+                                    provisionEnv ?? {},
+                                    (line, which) => send("log", { line, stream: which }),
+                                    req.signal,
+                                )
+                                send("done", { exitCode: result.exitCode, ok: result.exitCode === 0 })
+                            } catch (e: unknown) {
+                                send("error", { message: e instanceof Error ? e.message : String(e) })
+                            } finally {
+                                try {
+                                    controller.close()
+                                } catch {
+                                    // ignore
+                                }
+                            }
                         },
                     })
                     return new Response(stream, {
-                        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+                        headers: {
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            Connection: "keep-alive",
+                        },
                     })
                 },
             },
@@ -1158,8 +1272,17 @@ export async function startWeb(options: WebServerOptions) {
             // ── Containers ──
             "/api/runtime/status": {
                 async GET() {
-                    const docker = await containers.ping()
-                    return Response.json({ docker, solvers: containers.list().length })
+                    return Response.json(await buildRuntimeStatusPayload())
+                },
+            },
+            "/api/runtime/kali-probe": {
+                async POST() {
+                    try {
+                        return Response.json(await probeRuntimeKali())
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return errorResponse(msg, 400)
+                    }
                 },
             },
             "/api/runtime/solvers": {
@@ -1225,12 +1348,25 @@ export async function startWeb(options: WebServerOptions) {
             },
             "/api/commander/message": {
                 async POST(req) {
-                    const body = (await req.json().catch(() => ({}))) as { message?: string }
-                    const message = String(body.message ?? "").trim()
-                    if (!message) return Response.json({ error: "message is required" }, { status: 400 })
+                    const body = (await req.json().catch(() => ({}))) as {
+                        message?: string
+                        attachment?: { name?: string; content?: string }
+                    }
+                    const message = String(body.message ?? "")
+                    const attachmentRaw = body.attachment
+                    const attachment =
+                        attachmentRaw && typeof attachmentRaw.content === "string"
+                            ? {
+                                  name: String(attachmentRaw.name ?? "upload.txt").trim() || "upload.txt",
+                                  content: attachmentRaw.content,
+                              }
+                            : undefined
+                    if (!message.trim() && !attachment) {
+                        return Response.json({ error: "message or attachment is required" }, { status: 400 })
+                    }
                     if (daemon.commander.isBusy()) return Response.json({ error: "commander busy" }, { status: 409 })
                     // 不等 agent 跑完——事件经 SSE 推送；立即返回 accepted。
-                    runInBackground("commander-message", daemon.commander.send(message))
+                    runInBackground("commander-message", daemon.commander.send(message, { attachment }))
                     return Response.json({ accepted: true })
                 },
             },
@@ -1258,6 +1394,44 @@ export async function startWeb(options: WebServerOptions) {
                         return Response.json({ ok: true })
                     } catch (e: any) {
                         return Response.json({ error: e?.message ?? String(e) }, { status: 409 })
+                    }
+                },
+            },
+            "/api/commander/sessions": {
+                async GET() {
+                    return Response.json({ sessions: await daemon.commander.listSessions() })
+                },
+            },
+            "/api/commander/sessions/switch": {
+                async POST(req) {
+                    const body = (await req.json().catch(() => ({}))) as { path?: string }
+                    const path = String(body.path ?? "").trim()
+                    if (!path) return Response.json({ error: "path is required" }, { status: 400 })
+                    try {
+                        await daemon.commander.switchSession(path)
+                        return Response.json({ ok: true, messages: await daemon.commander.historyMessages() })
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : String(e)
+                        const status = message.includes("not found") ? 404 : 409
+                        return Response.json({ error: message }, { status })
+                    }
+                },
+            },
+            "/api/commander/sessions/delete": {
+                async POST(req) {
+                    const body = (await req.json().catch(() => ({}))) as { path?: string }
+                    const path = String(body.path ?? "").trim()
+                    if (!path) return Response.json({ error: "path is required" }, { status: 400 })
+                    try {
+                        await daemon.commander.deleteSession(path)
+                        return Response.json({
+                            ok: true,
+                            messages: await daemon.commander.historyMessages(),
+                            sessions: await daemon.commander.listSessions(),
+                        })
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : String(e)
+                        return Response.json({ error: message }, { status: 409 })
                     }
                 },
             },

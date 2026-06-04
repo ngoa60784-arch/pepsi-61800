@@ -127,8 +127,8 @@ export async function getStableSolverCreatedAt(solverId: string, startup: unknow
 }
 
 /**
- * 递归求若干源目录下最新的文件 mtime（毫秒）。用于判断 solver 二进制是否过期。
- * 跳过 node_modules/dist/.git/bin 等与编译产物无关、且体量巨大的目录。
+ * Recursively find newest file mtime (ms) under source dirs. Used to detect stale solver binary.
+ * Skips node_modules/dist/.git/bin and other huge non-build dirs.
  */
 async function newestSourceMtime(projectRoot: string): Promise<number> {
     const SKIP = new Set(["node_modules", "dist", ".git", "bin", ".cache"])
@@ -147,9 +147,9 @@ async function newestSourceMtime(projectRoot: string): Promise<number> {
                 if (SKIP.has(entry.name)) continue
                 await walk(full)
             } else if (entry.isFile()) {
-                // 跳过构建期生成的文件（如 builtin-assets.generated.ts）：它们每次启动都会被
-                // 重新写出、mtime 刷新为当前时刻，会让缓存判断永远失效。其真实内容变化来自
-                // 对应的源文件（SKILL.md / prompt .md 等），这些源文件本身已在扫描范围内。
+                // Skip build-time generated files (e.g. builtin-assets.generated.ts): rewritten each start,
+                // mtime always fresh, breaking cache. Real changes come from
+                // source files (SKILL.md, prompt .md, etc.) already in the walk.
                 if (entry.name.includes(".generated.")) continue
                 try {
                     const info = await stat(full)
@@ -172,9 +172,9 @@ export async function ensureSolverBinary(onProgress?: (message: string) => void)
 
     await mkdir(binDir, { recursive: true })
 
-    // 缓存：产物已存在且比所有相关源码都新，则跳过这次重型 `bun build --compile`。
-    // 该编译每次产出 ~158MB 单文件包，CPU/内存峰值很高；若每次启动都重编，在内存吃紧的机器上
-    // 会引发剧烈 swap 颠簸、拖垮整机。源码一旦改动(mtime 变新)就会重建，正确性不受影响。
+    // Cache: skip heavy `bun build --compile` when binary exists and is newer than all sources.
+    // Each compile is ~158MB; high CPU/RAM. Rebuilding every start on tight machines
+    // causes swap thrash. Rebuilds when sources change; correctness unchanged.
     try {
         const binStat = await stat(binPath)
         const newestSource = await newestSourceMtime(projectRoot)
@@ -184,7 +184,7 @@ export async function ensureSolverBinary(onProgress?: (message: string) => void)
             return binPath
         }
     } catch {
-        // 产物不存在或无法 stat → 落到下方实际编译
+        // Binary missing or unstat-able → compile below
     }
 
     onProgress?.("Compiling runtime solver binary...")

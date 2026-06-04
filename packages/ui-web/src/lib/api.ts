@@ -1,4 +1,4 @@
-import type { AddResult, HostSettings } from "../../../core/src/config/index"
+import type { ActivateModelResult, AddResult, HostSettings } from "../../../core/src/config/index"
 import type { ChallengeInfoRecord, ChallengeAttemptLogRecord, ChallengeSubmissionLogRecord } from "../../../core/src/challenge/store"
 import type { AddIdeaResult, IdeaRecord, MemoryEntry } from "../../../core/src/challenge/manager"
 import type { AttackTimelineEvent, AttackTimelineSnapshot } from "../../../core/src/challenge/attack-timeline"
@@ -7,6 +7,8 @@ import type { McpServerItem, ProbeResult } from "../../../core/src/config/mcp/in
 import type { PromptFile } from "../../../core/src/config/prompts/index"
 import type { BuiltInProvider, ConfiguredModel, ModelConfigEntry, ModelDefinition, ProviderPrefEntry } from "../../../core/src/config/providers/types"
 import type { ToolEntry } from "../../../core/src/config/tools/index"
+import type { KaliSshTestResult } from "../../../core/src/runtime/kali-ssh"
+import type { KaliSystemStats } from "../../../core/src/runtime/kali-stats"
 import type { RuntimeMessageThread, RuntimeSolverDetails, SolverInstance } from "../../../core/src/runtime/types"
 import type { Skill } from "@mariozechner/pi-coding-agent"
 import type { Api, Model } from "@mariozechner/pi-ai"
@@ -14,6 +16,7 @@ import type { ServerEntry as McpServerEntry, McpSettings } from "pi-mcp-adapter/
 
 // 从 @tch/core re-export，前端组件直接用
 export type {
+    ActivateModelResult,
     AddResult,
     HostSettings,
     ModelConfigEntry,
@@ -38,6 +41,7 @@ export type {
     PromptFile,
     ProbeResult,
     SolverInstance,
+    KaliSystemStats,
     RuntimeMessageThread,
     RuntimeSolverDetails,
     Skill,
@@ -203,6 +207,12 @@ export const modelPrefs = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id }),
         }),
+    activate: (id: string) =>
+        json<ActivateModelResult>("/api/config/activate-model", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+        }),
 }
 
 // ── Skills ──
@@ -252,6 +262,30 @@ export const tools = {
 
 // ── MCP Servers ──
 
+export interface KaliSshTestResult {
+    ok: boolean
+    message: string
+    uid?: string
+    isRoot?: boolean
+}
+
+export interface KaliToolCheckEntry {
+    tool: string
+    ok: boolean
+    path?: string
+}
+
+export interface KaliToolCheckResult {
+    ready: string[]
+    missing: string[]
+    entries: KaliToolCheckEntry[]
+}
+
+export type KaliProvisionEvent =
+    | { type: "log"; line: string; stream: "stdout" | "stderr" }
+    | { type: "done"; exitCode: number; ok: boolean }
+    | { type: "error"; message: string }
+
 export const mcpServers = {
     list: () => json<McpServerItem[]>("/api/config/mcp"),
     add: (name: string, server: McpServerEntry) => post("/api/config/mcp", { name, server }),
@@ -269,46 +303,81 @@ export const mcpServers = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, server }),
         }),
-    // 一键预装：把 VPS 配成 solver 远程攻击主机。流式回显脚本输出。
-    // onLog 每行回调；返回 Promise 在脚本结束时 resolve（exitCode）。
-    provision: async (
-        target: { host?: string; port?: number; username?: string; password?: string; alias?: string },
-        onLog: (line: string, stream: "stdout" | "stderr") => void,
-        signal?: AbortSignal,
-    ): Promise<{ exitCode: number; ok: boolean; error?: string }> => {
-        const res = await fetch("/api/config/kali-ssh-provision", {
+    checkKaliTools: (env: Record<string, string>) =>
+        json<KaliToolCheckResult>("/api/config/mcp/kali-tool-check", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(target),
+            body: JSON.stringify({ env }),
+        }),
+    async testKaliSsh(env: Record<string, string>): Promise<KaliSshTestResult> {
+        const res = await fetch("/api/config/mcp/kali-ssh-test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ env }),
+        })
+        const body = (await res.json()) as KaliSshTestResult
+        return body
+    },
+    async provisionKali(
+        env: Record<string, string>,
+        onEvent: (event: KaliProvisionEvent) => void,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        const res = await fetch("/api/config/mcp/kali-provision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ env }),
             signal,
         })
-        if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`)
+        if (!res.ok) {
+            const text = await res.text()
+            throw new Error(text || `${res.status} ${res.statusText}`)
+        }
+        if (!res.body) throw new Error("无响应流")
+
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
-        let buf = ""
-        let result: { exitCode: number; ok: boolean; error?: string } = { exitCode: -1, ok: false }
+        let buffer = ""
+
+        const dispatch = (block: string) => {
+            const lines = block.split("\n")
+            let eventName = ""
+            let dataLine = ""
+            for (const line of lines) {
+                if (line.startsWith("event: ")) eventName = line.slice(7).trim()
+                else if (line.startsWith("data: ")) dataLine = line.slice(6)
+            }
+            if (!eventName || !dataLine) return
+            const data = JSON.parse(dataLine) as Record<string, unknown>
+            if (eventName === "log") {
+                onEvent({
+                    type: "log",
+                    line: String(data.line ?? ""),
+                    stream: data.stream === "stderr" ? "stderr" : "stdout",
+                })
+            } else if (eventName === "done") {
+                onEvent({
+                    type: "done",
+                    exitCode: Number(data.exitCode ?? 1),
+                    ok: Boolean(data.ok),
+                })
+            } else if (eventName === "error") {
+                onEvent({ type: "error", message: String(data.message ?? "unknown error") })
+            }
+        }
+
         for (;;) {
             const { done, value } = await reader.read()
             if (done) break
-            buf += decoder.decode(value, { stream: true })
-            // 解析 SSE 帧（event: X\ndata: {...}\n\n）
+            buffer += decoder.decode(value, { stream: true })
             let sep: number
-            while ((sep = buf.indexOf("\n\n")) >= 0) {
-                const frame = buf.slice(0, sep)
-                buf = buf.slice(sep + 2)
-                const evMatch = frame.match(/^event:\s*(.+)$/m)
-                const dataMatch = frame.match(/^data:\s*(.+)$/m)
-                if (!dataMatch) continue
-                const data = safeParseJson(dataMatch[1]) as Record<string, unknown>
-                const ev = evMatch?.[1]?.trim()
-                if (ev === "log" && typeof data.line === "string") {
-                    onLog(data.line, data.stream === "stderr" ? "stderr" : "stdout")
-                } else if (ev === "done") {
-                    result = { exitCode: Number(data.exitCode ?? -1), ok: data.ok === true, error: typeof data.error === "string" ? data.error : undefined }
-                }
+            while ((sep = buffer.indexOf("\n\n")) >= 0) {
+                const block = buffer.slice(0, sep)
+                buffer = buffer.slice(sep + 2)
+                if (block.trim()) dispatch(block)
             }
         }
-        return result
+        if (buffer.trim()) dispatch(buffer)
     },
 }
 
@@ -363,13 +432,11 @@ export interface ChallengeDetails {
 
 export const challenges = {
     list: () => json<ChallengeInfoRecord[]>("/api/challenges"),
-    create: (challenge: ChallengeInfoRecord | Omit<ChallengeInfoRecord, "updated_at" | "source">) =>
-        json<ChallengeInfoRecord>("/api/challenges", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(challenge),
-        }),
     get: (id: string) => json<ChallengeDetails>(`/api/challenges/${encodeURIComponent(id)}`),
+    delete: (id: string) =>
+        json<{ ok: boolean; deletedSolvers: string[] }>(`/api/challenges/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+        }),
     attackTimeline: (id: string) => json<AttackTimelineSnapshot>(`/api/challenges/${encodeURIComponent(id)}/attack-timeline`),
     exportSolverSessions: (id: string) => download(`/api/challenges/${encodeURIComponent(id)}/solver-sessions.zip`),
     startSolver: (id: string, promptName: string) =>
@@ -381,6 +448,10 @@ export const challenges = {
     complete: (id: string) => json<{ ok: boolean }>(`/api/challenges/${encodeURIComponent(id)}/complete`, { method: "POST" }),
     revokeComplete: (id: string) =>
         json<{ ok: boolean; resumed: string[] }>(`/api/challenges/${encodeURIComponent(id)}/revoke-complete`, { method: "POST" }),
+    pauseTesting: (id: string) =>
+        json<{ ok: boolean; stoppedSolvers: string[] }>(`/api/challenges/${encodeURIComponent(id)}/pause-testing`, { method: "POST" }),
+    resumeTesting: (id: string) =>
+        json<{ ok: boolean; resumed: string[] }>(`/api/challenges/${encodeURIComponent(id)}/resume-testing`, { method: "POST" }),
     addMemory: (id: string, input: { kind: MemoryEntry["kind"]; content: string; refs?: string[]; source?: string }) =>
         json<MemoryEntry>(`/api/challenges/${encodeURIComponent(id)}/memory`, {
             method: "POST",
@@ -442,8 +513,21 @@ export interface RuntimeStatus {
     solvers: number
 }
 
+export interface KaliProbeResult {
+    ssh: KaliSshTestResult
+    stats: KaliSystemStats
+}
+
+export type { KaliSystemStats }
+
 export const runtime = {
     status: () => json<RuntimeStatus>("/api/runtime/status"),
+    probeKali: () =>
+        json<KaliProbeResult>("/api/runtime/kali-probe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+        }),
     list: () => json<SolverInstance[]>("/api/runtime/solvers"),
     start: (promptName: string, task: string) =>
         json<SolverInstance>("/api/runtime/solvers", {
@@ -458,17 +542,49 @@ export const runtime = {
 
 // ── Commander (对话式渗透指挥官) ──
 
+export interface CommanderSessionItem {
+    id: string
+    path: string
+    created: string
+    modified: string
+    messageCount: number
+    preview: string
+    active: boolean
+}
+
+export interface CommanderMessageAttachment {
+    name: string
+    content: string
+}
+
 export const commander = {
-    send: (message: string) =>
+    send: (message: string, attachment?: CommanderMessageAttachment) =>
         json<{ accepted: boolean }>("/api/commander/message", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message }),
+            body: JSON.stringify({ message, attachment }),
         }),
     history: () => json<{ entries: unknown[] }>("/api/commander/history"),
     messages: () => json<{ messages: Array<{ role: "user" | "assistant"; text: string }> }>("/api/commander/messages"),
     status: () => json<{ busy: boolean }>("/api/commander/status"),
     newSession: () => json<{ ok: boolean }>("/api/commander/new-session", { method: "POST" }),
+    sessions: () => json<{ sessions: CommanderSessionItem[] }>("/api/commander/sessions"),
+    switchSession: (path: string) =>
+        json<{ ok: boolean; messages: Array<{ role: "user" | "assistant"; text: string }> }>("/api/commander/sessions/switch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path }),
+        }),
+    deleteSession: (path: string) =>
+        json<{
+            ok: boolean
+            messages: Array<{ role: "user" | "assistant"; text: string }>
+            sessions: CommanderSessionItem[]
+        }>("/api/commander/sessions/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path }),
+        }),
     rollbackPoints: () => json<{ points: Array<{ entryId: string; text: string }> }>("/api/commander/rollback-points"),
     rollback: (entryId: string) =>
         json<{ ok: boolean; messages: Array<{ role: "user" | "assistant"; text: string }> }>("/api/commander/rollback", {

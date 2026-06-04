@@ -196,7 +196,7 @@ describe("RuntimeManager host bridge", () => {
         })
 
         expect(recordEngagementObjective).toHaveBeenCalledTimes(1)
-        // 广播给同范围的另一个运行中 solver（solver-b），不含自己。
+        // Broadcast to the other running solver in the same scope (solver-b), excluding itself.
         expect(sendCommand).toHaveBeenCalledTimes(1)
         expect((sendCommand.mock.calls[0] as unknown[])[0]).toBe("solver-b")
         expect(data.recorded).toBe(true)

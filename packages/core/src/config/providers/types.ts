@@ -1,13 +1,13 @@
 import type { ProviderConfig } from "@mariozechner/pi-coding-agent"
 import type { Model, Api } from "@mariozechner/pi-ai"
 
-/** 自定义 provider 注册项 */
+/** Custom provider registration entry */
 export interface CustomProvider {
     name: string
     config: ProviderConfig
 }
 
-/** models.json 中单个模型定义——从 SDK Model<Api> 派生，id 必填其余可选 */
+/** A single model definition in models.json — derived from the SDK Model<Api>, with id required and the rest optional */
 export type ModelDefinition = Pick<Model<Api>, "id"> & Partial<Omit<Model<Api>, "id" | "provider" | "api" | "baseUrl">>
 
 export type ModelConfigEntry = {

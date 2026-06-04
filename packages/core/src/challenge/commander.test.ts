@@ -5,7 +5,13 @@ import { resolve } from "path"
 import type { ConfigManager } from "../config/index"
 import { CHALLENGE_ENV_DIR, ENGAGEMENT_ENV_MODE } from "./env"
 import { ChallengeManager } from "./manager"
-import { CommanderManager } from "./commander"
+import {
+    buildCommanderSessionPrompt,
+    CommanderManager,
+    displayCommanderUserMessage,
+    OPERATOR_UPLOAD_BLOCK_BEGIN,
+    resolveCommanderSessionPath,
+} from "./commander"
 
 type LooseTool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> }
 
@@ -18,7 +24,7 @@ beforeEach(async () => {
     process.env[CHALLENGE_ENV_DIR] = challengeDir
     process.env[ENGAGEMENT_ENV_MODE] = "1"
     const config = {
-        getHostSettings: async () => ({ runtime: {}, challenge: { mockEnabled: true }, planner: {} }),
+        getHostSettings: async () => ({ runtime: {}, challenge: {}, planner: {} }),
         listModelPrefs: async () => [],
     } as unknown as ConfigManager
     manager = new ChallengeManager(config)
@@ -54,20 +60,20 @@ describe("commander import_findings", () => {
 
         expect(result.details).toEqual({ assets: 2, facts: 2, deadends: 2, ideas: 2 })
 
-        // 资产进了结构化状态库,跨 solver 可复用。
+        // Assets land in the structured state store, reusable across solvers.
         const assets = await manager.listStateAssets("acme")
         expect(assets).toHaveLength(2)
         expect(assets.some((a) => a.kind === "credential" && a.account === "admin" && a.secretRef === "doc:cred-1")).toBe(true)
         expect(assets.some((a) => a.kind === "session" && a.sessionType === "reverse-shell")).toBe(true)
 
-        // 事实进 memory(fact),死路线进 memory(failure)。
+        // Facts go into memory(fact), dead-ends go into memory(failure).
         const memory = await manager.listMemory("acme")
         expect(memory.filter((m) => m.kind === "fact")).toHaveLength(2)
         expect(memory.filter((m) => m.kind === "failure")).toHaveLength(2)
         expect(memory.some((m) => m.kind === "failure" && m.content.includes("WAF blocks"))).toBe(true)
         expect(memory.every((m) => m.source === "operator-import")).toBe(true)
 
-        // 待测假设进 ideas(pending)。
+        // Hypotheses to test go into ideas(pending).
         const ideas = await manager.listIdeas("acme")
         expect(ideas).toHaveLength(2)
         expect(ideas.every((i) => i.status === "pending")).toBe(true)
@@ -110,7 +116,7 @@ describe("commander get_solver_trace", () => {
     }
 
     test("pairs assistant tool calls with their tool results into a readable trace (commands + output)", async () => {
-        // 主线程消息：助手发起 bash 调用 → toolResult 回输出，再发起一次 record_relation。
+        // Main-thread messages: the assistant fires a bash call → toolResult returns output, then fires a record_relation.
         attachMockRuntimeWithThread([
             {
                 role: "assistant",
@@ -137,15 +143,15 @@ describe("commander get_solver_trace", () => {
         const text = result.content[0].text
 
         expect(result.details.found).toBe(true)
-        // 命令本身（不是 JSON 参数）被提取出来。
+        // The command itself (not the JSON args) is extracted.
         expect(text).toContain("nmap -sV 10.0.0.5")
-        // 工具输出被带出来。
+        // The tool output is surfaced.
         expect(text).toContain("22/tcp open  ssh")
-        // record_relation 的参数被压成 source--relation-->target。
+        // record_relation's args are collapsed into source--relation-->target.
         expect(text).toContain("Host:10.0.0.5 --exposes--> Service:ssh")
-        // 最新推理被附在末尾。
+        // The latest reasoning is appended at the end.
         expect(text).toContain("Let me port-scan the target.")
-        // 两次工具调用都计入。
+        // Both tool calls are counted.
         expect(text).toContain("2 of 2 tool actions")
     })
 
@@ -168,7 +174,7 @@ describe("commander get_solver_trace", () => {
         const trace = getTool("get_solver_trace")
         const result = (await trace.execute("call-trace-3", { solverId: "solver-y", limit: 2 })) as { content: Array<{ text: string }> }
         const text = result.content[0].text
-        // 只保留最近 2 步（step-3 / step-4），最早的被裁掉。
+        // Only the last 2 steps are kept (step-3 / step-4); the earliest are trimmed.
         expect(text).toContain("last 2 of 5 tool actions")
         expect(text).toContain("echo step-4")
         expect(text).toContain("echo step-3")
@@ -178,7 +184,7 @@ describe("commander get_solver_trace", () => {
 
 describe("commander get_target_overview", () => {
     test("returns derived phase + assets + relations + findings for a target", async () => {
-        // 建目标 + 灌入各类共享态。
+        // Create the target + seed various kinds of shared state.
         await manager.createChallenge({
             id: "ov-target",
             title: "ov-target",
@@ -198,9 +204,9 @@ describe("commander get_target_overview", () => {
         await manager.appendMemory({ challengeId: "ov-target", kind: "credential", content: "admin:Pass123 on web01", source: "test" })
         await manager.upsertStateAsset("ov-target", { kind: "credential", label: "admin@web01", account: "admin", secretRef: "finding:x" })
         await manager.appendRelation({ challengeId: "ov-target", source: "Host:web01", relation: "exploitable_via", target: "Vuln:CVE-1" })
-        // 注意：没有 attempt 日志。凭据立足点应让 phase=foothold（而非被 untouched 盖掉）——
-        // 这正是 #4 修复的点：实质进展优先于 attempt-count 的 untouched 判定。
-        // 无 runtime 也应工作（activeSolvers 为空）。
+        // Note: no attempt logs. A credential foothold should make phase=foothold (rather than being overridden by untouched) —
+        // this is exactly what fix #4 addresses: substantive progress takes priority over the attempt-count-based untouched verdict.
+        // Should also work with no runtime (activeSolvers empty).
         manager.attachRuntime({ list: () => [] } as never)
 
         const ov = getTool("get_target_overview")
@@ -209,13 +215,40 @@ describe("commander get_target_overview", () => {
             details: { progressPhase: string; stateAssets: string[]; relations: string[] }
         }
         const text = result.content[0].text
-        // 有凭据信号 → foothold 阶段。
+        // Credential signal present → foothold phase.
         expect(result.details.progressPhase).toBe("foothold")
         expect(text).toContain("foothold")
-        // 资产 / 图谱 / 凭据事实都进了概览。
+        // Assets / graph / credential facts all made it into the overview.
         expect(text).toContain("admin@web01")
         expect(text).toContain("Host:web01 --exploitable_via--> Vuln:CVE-1")
         expect(result.details.stateAssets.length).toBeGreaterThan(0)
         expect(result.details.relations.length).toBeGreaterThan(0)
+    })
+})
+
+describe("commander document upload prompt", () => {
+    test("session prompt includes full upload body for the agent", () => {
+        const prompt = buildCommanderSessionPrompt("重点看 SSRF", { name: "notes.md", content: "10.0.0.1 got shell" })
+        expect(prompt).toContain("重点看 SSRF")
+        expect(prompt).toContain(OPERATOR_UPLOAD_BLOCK_BEGIN)
+        expect(prompt).toContain("10.0.0.1 got shell")
+        expect(prompt).toContain("notes.md")
+    })
+
+    test("display strips upload block for UI and rollback", () => {
+        const prompt = buildCommanderSessionPrompt("", { name: "log.txt", content: "secret payload" })
+        expect(displayCommanderUserMessage(prompt)).toBe("请处理我上传的渗透记录文档。")
+        expect(displayCommanderUserMessage("hello only")).toBe("hello only")
+    })
+})
+
+describe("commander sessions", () => {
+    test("resolveCommanderSessionPath rejects paths outside commander-session", () => {
+        expect(() => resolveCommanderSessionPath("/etc/passwd")).toThrow("invalid commander session path")
+        expect(() => resolveCommanderSessionPath("../../../etc/passwd.jsonl")).toThrow("invalid commander session path")
+    })
+
+    test("deleteSession rejects invalid path without touching files", async () => {
+        await expect(commander.deleteSession("/etc/passwd")).rejects.toThrow("invalid commander session path")
     })
 })

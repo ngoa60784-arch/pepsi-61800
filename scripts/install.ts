@@ -32,9 +32,9 @@ async function listNestedInstallDirs() {
     return [...dirs].sort()
 }
 
-// 内置 MCP server（mcp/ssh_mcp.py、mcp/vuln_intel_mcp.py）是 Python 脚本，需要这几个 pip 包。
-// best-effort：python3/pip 缺失或装失败只警告，绝不让整个安装失败——这俩 MCP 是可选的，
-// 仅在真正跑 solver 打远程 Kali / 查漏洞情报时才需要。
+// The built-in MCP servers (mcp/ssh_mcp.py, mcp/vuln_intel_mcp.py) are Python scripts that need these pip packages.
+// Best-effort: if python3/pip is missing or installation fails, only warn, never let the whole install fail — these
+// two MCPs are optional, needed only when actually running the solver to attack a remote Kali / query vuln intel.
 const PYTHON_MCP_DEPS = ["asyncssh", "mcp[cli]", "httpx"]
 
 async function commandExists(cmd: string): Promise<boolean> {
@@ -63,7 +63,7 @@ async function installPythonMcpDeps() {
         return
     }
     console.log(`Installing Python deps for built-in MCP servers: ${PYTHON_MCP_DEPS.join(", ")}`)
-    // 先试 --user；遇 PEP 668（externally-managed）再退回 --break-system-packages。
+    // Try --user first; on PEP 668 (externally-managed) fall back to --break-system-packages.
     const ok = (await pipInstall(["--user"])) || (await pipInstall(["--break-system-packages"]))
     if (!ok) {
         console.warn(

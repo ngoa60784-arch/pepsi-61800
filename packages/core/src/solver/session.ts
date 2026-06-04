@@ -7,6 +7,7 @@ import type { SolverInitPayload } from "./rpc/rpc-types"
 import { solverDir, solverSessionDir, solverWorkspaceDir } from "../runtime/types"
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
 import { largeToolResultExtension } from "./extension/large-tool-result"
+import { isEngagementMode, loadEngagementScope } from "../challenge/engagement"
 
 export interface SolverSession {
     session: AgentSession
@@ -126,9 +127,9 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
 
     const extensions = [
-        // 上下文压缩：工具输出超过阈值(默认 32KB)就溢出到 workspace 的 .tool-results/ 文件，
-        // 上下文里只留 600 字预览 + 文件路径，并提示用 grep/分块读定位。避免 nmap/ffuf/nuclei
-        // 等海量输出把上下文撑爆、稀释信号。放在 observer 之前，让后续钩子看到的是已压缩的结果。
+        // Context compaction: tool output over threshold (default 32KB) spills to workspace .tool-results/,
+        // context keeps ~600-char preview + path with grep/chunk hints. Avoids nmap/ffuf/nuclei
+        // flooding context. Before observer so hooks see compressed results.
         largeToolResultExtension({ workspaceRoot: workspaceDir }),
         challengeObserverExtension({ observerEnabled, observerModel }),
     ]
@@ -147,7 +148,7 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     const { session } = await createAgentSession({
         ...sessionOpts,
         cwd: workspaceDir,
-        // resume:续跑该 solver 落盘的旧 session(带回全部历史/发现);否则新建空 session。
+        // resume: continue persisted session (full history/findings); else new empty session.
         sessionManager: init.resume
             ? SessionManager.continueRecent(workspaceDir, sessionDir)
             : SessionManager.create(workspaceDir, sessionDir),
@@ -183,7 +184,7 @@ export async function createSubagentSession(promptName: string, task: string): P
     await mkdir(workspaceDir, { recursive: true })
 
     const extensionFactories: ExtensionFactory[] = [
-        // subagent 的工具输出同样可能很大，套用同一套上下文压缩（溢出到共享 workspace 的 .tool-results/）。
+        // Subagent tool output may be large; same compaction (shared workspace .tool-results/).
         largeToolResultExtension({ workspaceRoot: workspaceDir }),
     ]
 

@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtemp, rm } from "fs/promises"
 import { tmpdir } from "os"
 import { resolve } from "path"
-import { initBuiltinMcpServers, getMcpConfig, addMcpServer } from "./index"
+import { initBuiltinMcpServers, getMcpConfig, addMcpServer, migrateMcpPathsToContainerMount } from "./index"
 
 let dir: string
 
@@ -18,16 +18,15 @@ test("seeds kali-arsenal + vuln-intel into a fresh config", async () => {
     const cfg = getMcpConfig(dir)
     expect(cfg.mcpServers["kali-arsenal"]).toBeDefined()
     expect(cfg.mcpServers["vuln-intel"]).toBeDefined()
-    // 脚本路径解析为绝对路径，指向仓库的 mcp/ 目录
-    expect(cfg.mcpServers["kali-arsenal"].args?.[0]).toMatch(/\/mcp\/ssh_mcp\.py$/)
-    expect(cfg.mcpServers["vuln-intel"].args?.[0]).toMatch(/\/mcp\/vuln_intel_mcp\.py$/)
-    // 凭据占位为空（绝不内置任何凭据）
+    expect(cfg.mcpServers["kali-arsenal"].args?.[0]).toBe("/opt/tch-mcp/ssh_mcp.py")
+    expect(cfg.mcpServers["vuln-intel"].args?.[0]).toBe("/opt/tch-mcp/vuln_intel_mcp.py")
+    // Credential placeholders are empty (no credentials are ever bundled)
     expect(cfg.mcpServers["kali-arsenal"].env?.SSH_PASS).toBe("")
     expect(cfg.mcpServers["vuln-intel"].env?.NVD_API_KEY).toBe("")
 })
 
 test("does NOT overwrite an existing kali-arsenal (user creds preserved)", async () => {
-    // 用户已配 kali-arsenal 带真实凭据
+    // User has already configured kali-arsenal with real credentials
     await addMcpServer(dir, "kali-arsenal", {
         command: "python3",
         args: ["/custom/path/ssh_mcp.py"],
@@ -35,11 +34,23 @@ test("does NOT overwrite an existing kali-arsenal (user creds preserved)", async
     })
     await initBuiltinMcpServers(dir)
     const cfg = getMcpConfig(dir)
-    // 用户的配置/凭据原样保留，未被默认值覆盖
+    // The user's config/credentials are preserved as-is, not overwritten by defaults
     expect(cfg.mcpServers["kali-arsenal"].args?.[0]).toBe("/custom/path/ssh_mcp.py")
     expect(cfg.mcpServers["kali-arsenal"].env?.SSH_PASS).toBe("userpass")
-    // 缺失的 vuln-intel 仍被补上
+    // The missing vuln-intel is still filled in
     expect(cfg.mcpServers["vuln-intel"]).toBeDefined()
+})
+
+test("migrates legacy repo paths to /opt/tch-mcp", async () => {
+    await addMcpServer(dir, "kali-arsenal", {
+        command: "python3",
+        args: ["/home/user/proj/mcp/ssh_mcp.py"],
+        env: { SSH_HOST: "10.0.0.1", SSH_PASS: "secret" },
+    })
+    await migrateMcpPathsToContainerMount(dir)
+    const cfg = getMcpConfig(dir)
+    expect(cfg.mcpServers["kali-arsenal"].args?.[0]).toBe("/opt/tch-mcp/ssh_mcp.py")
+    expect(cfg.mcpServers["kali-arsenal"].env?.SSH_PASS).toBe("secret")
 })
 
 test("is idempotent (second run changes nothing)", async () => {

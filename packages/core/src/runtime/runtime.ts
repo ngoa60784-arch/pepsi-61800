@@ -11,6 +11,9 @@ import type {
 } from "./types"
 import { ARCHIVE_SOLVERS_DIR, SOLVERS_DIR, solverDir, solverSessionDir, solverStartupPath, solverWorkspaceDir } from "./types"
 import { ConfigManager, DEFAULT_CONFIG_DIR } from "../config/index"
+import { resolveRepoMcpDir, SOLVER_MCP_MOUNT } from "../config/mcp/paths"
+import { resolveBuiltinSkillsDir, TCH_BUILTIN_SKILLS_ENV } from "../config/skills/index"
+import { existsSync } from "node:fs"
 import { CHALLENGE_ENV_CHALLENGE_ID, ENGAGEMENT_ENV_SCOPE } from "../challenge/env"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 import type { Message } from "@mariozechner/pi-ai"
@@ -142,7 +145,9 @@ function getTextContent(content: unknown): string {
 function getObserverReasonLabel(message: { role?: unknown; content?: unknown }, index: number): string {
     if (message.role !== "user") return `Observer #${index + 1}`
     const text = getTextContent(message.content)
-    const reason = text.match(/本次触发原因:\s*([^\n]+)/)?.[1]?.trim()
+    const reason =
+        text.match(/Trigger reason:\s*([^\n]+)/i)?.[1]?.trim() ??
+        text.match(/\u672c\u6b21\u89e6\u53d1\u539f\u56e0:\s*([^\n]+)/)?.[1]?.trim()
     return reason ? `Observer ${reason}` : `Observer #${index + 1}`
 }
 
@@ -215,9 +220,18 @@ export class RuntimeManager {
     constructor(config: ConfigManager, hostBridgeHandlers: HostBridgeHandler[]) {
         this.docker = new Dockerode()
         const binds = [`${DEFAULT_CONFIG_DIR}:/root/.tch-agent/config:ro`]
+        const repoMcpDir = resolveRepoMcpDir()
+        if (existsSync(repoMcpDir)) {
+            binds.push(`${repoMcpDir}:${SOLVER_MCP_MOUNT}:ro`)
+        }
+        const builtinSkillsDir = resolveBuiltinSkillsDir(DEFAULT_CONFIG_DIR)
+        if (existsSync(builtinSkillsDir) && builtinSkillsDir !== resolve(DEFAULT_CONFIG_DIR, "skills")) {
+            binds.push(`${builtinSkillsDir}:${builtinSkillsDir}:ro`)
+        }
         this.config = {
             image: "tch-agent:latest",
             binds,
+            env: { [TCH_BUILTIN_SKILLS_ENV]: builtinSkillsDir },
         }
         this.hostConfig = config
         this.hostBridgeHandlers = hostBridgeHandlers
@@ -237,14 +251,10 @@ export class RuntimeManager {
 
     async init(onProgress?: (message: string) => void) {
         await this.ensureReady()
-        // 只有 docker 后端需要本地镜像 + 编译注入二进制。
-        // ssh：远端用自己的 remoteBinary；local：solver 直接跑控制面进程，都不需要镜像/编译。
-        if (this.backend.kind === "docker") {
-            await this.ensureImage(onProgress)
-            const execName = basename(process.execPath).toLowerCase()
-            if (execName === "bun" || execName === "bun.exe") {
-                await ensureSolverBinary(onProgress)
-            }
+        await this.ensureImage(onProgress)
+        const execName = basename(process.execPath).toLowerCase()
+        if (execName === "bun" || execName === "bun.exe") {
+            await ensureSolverBinary(onProgress)
         }
     }
 
@@ -457,8 +467,8 @@ export class RuntimeManager {
 
         const readProgress = async (stream: ReadableStream<Uint8Array> | null) => {
             if (!stream) return
-            // 每路流独立的 streaming decoder：stdout/stderr 并发读，共用一个 decoder 会互相污染，
-            // 且非流式 decode 会截断跨 chunk 的多字节字符。
+            // Per-stream streaming decoder: concurrent stdout/stderr reads must not share one decoder,
+            // and non-streaming decode truncates multibyte chars across chunks.
             const decoder = new TextDecoder()
             const reader = stream.getReader()
             let buffer = ""
@@ -491,17 +501,17 @@ export class RuntimeManager {
         onProgress?.(`Image ${this.config.image} built successfully`)
     }
 
-    /** Start a new solver for a given prompt (docker container or remote ssh process) */
+    /** Start a new solver in a local Docker container (pentest commands go to remote Kali via MCP kali-arsenal). */
     async launch(promptName: string, task: string, solverEnv?: Record<string, string>, options?: { solverId?: string; resume?: boolean }): Promise<SolverInstance> {
         await this.ensureReady()
-        // 只有 docker 后端需要本地镜像。ssh：solver 在远程主机跑；local：solver 跑控制面进程。
-        if (this.backend.kind === "docker") {
-            await this.ensureImage()
-        }
+        await this.ensureImage()
 
         const id = options?.solverId?.trim() || crypto.randomUUID().slice(0, 8)
         const name = `${SOLVER_NAME_PREFIX}-${id}`
-        const normalizedSolverEnv = this.normalizeSolverEnv(solverEnv)
+        const normalizedSolverEnv = this.normalizeSolverEnv({
+            ...solverEnv,
+            [TCH_BUILTIN_SKILLS_ENV]: resolveBuiltinSkillsDir(DEFAULT_CONFIG_DIR),
+        })
 
         const solver: SolverInstance = {
             id,
@@ -524,9 +534,7 @@ export class RuntimeManager {
         await mkdir(sessionDir, { recursive: true })
         await mkdir(workspaceDir, { recursive: true })
 
-        // 只有 docker 后端需要把编译好的 solver 二进制注入容器（resolveSolverInjection 触发编译）。
-        // ssh 用远端 remoteBinary；local 直接用控制面 execPath 起进程。两者都跳过注入，避免无谓编译。
-        const injection = this.backend.kind === "docker" ? await resolveSolverInjection() : { cmd: [], binds: [] }
+        const injection = await resolveSolverInjection()
         const hostScopePath = normalizedSolverEnv[ENGAGEMENT_ENV_SCOPE]?.trim() || undefined
 
         try {
@@ -558,8 +566,8 @@ export class RuntimeManager {
             solver.status = "error"
             solver.error = err instanceof Error ? err.message : String(err)
             await this.appendSolverStartupLog(id, `[launch-error] ${solver.error}`)
-            // spawn 成功但 init 握手失败时（如 RPC server 返回 success:false 却仍在运行），
-            // 必须显式杀掉子进程，否则 clearSolverRuntimeState 删掉句柄后本地 client + 远端 solver 双泄漏。
+            // spawn ok but init handshake failed (e.g. RPC success:false while still running),
+            // must kill child or local client + remote solver leak after clearSolverRuntimeState.
             this.procs.get(id)?.kill()
             this.clearSolverRuntimeState(id)
             throw err
@@ -583,16 +591,11 @@ export class RuntimeManager {
         try {
             await this.backend.stop({ solverId, containerName: solver.containerId })
         } catch (error) {
-            // backend.stop 失败不再静默：docker(--rm) 下容器多半已随退出清理，但 ssh 后端靠远端
-            // pkill 关闭，失败时远端 solver 可能孤儿化（本地 proc 仍会被 finally 兜底 kill）。
-            // 记录日志让操作员能察觉并手动清理远端残留。
             console.error(
-                `[runtime] backend.stop failed for solver ${solverId} (backend=${this.backend.kind}): ${error instanceof Error ? error.message : String(error)}`,
+                `[runtime] docker stop failed for solver ${solverId}: ${error instanceof Error ? error.message : String(error)}`,
             )
         } finally {
-            // 显式关闭本地 client 子进程（docker run -i / ssh）。docker 下 --rm 容器退出后
-            // 它本会自行结束；但 ssh 后端依赖远端 pkill 关闭管道，一旦 pkill 失败或连接挂死，
-            // 不主动 kill 就会泄漏一个本地 ssh 进程。这里兜底杀掉。
+            // Explicitly kill local `docker run -i` client; --rm usually cleans the container.
             this.procs.get(solverId)?.kill()
             solver.status = "stopped"
             this.clearSolverRuntimeState(solverId)
@@ -600,9 +603,9 @@ export class RuntimeManager {
     }
 
     /**
-     * 续跑一个已停止的 solver:用同一个 solverId 重新起进程,加载它落盘的旧 session 接着推进。
-     * promptName/task/challengeId 从落盘的 startup.json 恢复;solverEnv 由调用方(ChallengeManager)重建。
-     * 与 launch 的区别只有 resume:true —— session 走 continueRecent、RPC 不重发原始 task。
+     * Resume a stopped solver: same solverId, reload persisted session and continue.
+     * promptName/task/challengeId from startup.json; solverEnv rebuilt by caller (ChallengeManager).
+     * Only difference from launch: resume:true — continueRecent session, RPC does not resend original task.
      */
     async resumeSolver(solverId: string, solverEnv: Record<string, string>): Promise<SolverInstance> {
         const id = solverId.trim()
@@ -765,8 +768,8 @@ export class RuntimeManager {
     }
 
     private readStream(solverId: string, proc: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
-        // stdout / stderr 各自独立的流式 decoder：共用一个 streaming decoder 会让两路字节互相污染；
-        // 且必须 decode(value, { stream: true })，否则跨 read() chunk 的多字节字符（中文等）会被截断成 U+FFFD。
+        // Separate stdout/stderr streaming decoders; sharing corrupts both streams;
+        // must decode(value, { stream: true }) or multibyte chars across chunks become U+FFFD.
         const stdoutDecoder = new TextDecoder()
 
         // Promise resolves when init response is received
@@ -794,9 +797,9 @@ export class RuntimeManager {
                         try {
                             const parsed = JSON.parse(line)
                             if (isHostBridgeRequestEvent(parsed)) {
-                                // 不要 await：host-bridge 动作可能较慢（启动/停止 solver、广播等），
-                                // 在读循环里 await 会卡住后续所有 stdout 事件（tool 结果、agent_end）。
-                                // 异步派发，响应通过 stdin 回写，与读循环解耦。
+                                // Do not await: host-bridge may be slow (start/stop solver, broadcast),
+                                // awaiting in read loop blocks later stdout (tool results, agent_end).
+                                // Dispatch async; reply on stdin, decoupled from read loop.
                                 void this.handleHostBridgeRequest(solverId, parsed)
                                 continue
                             }

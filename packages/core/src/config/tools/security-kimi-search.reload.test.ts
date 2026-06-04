@@ -9,9 +9,7 @@ const listProviderPrefs = mock(async (): Promise<ProviderPrefEntry[]> => [])
 const getApiKeyValue = mock(((_provider: string): string | undefined => undefined))
 const getProvider = mock(async (_provider: string): Promise<Record<string, unknown> | undefined> => undefined)
 const getHostSettings = mock(async () => ({
-    challenge: {
-        answerModeEnabled: false,
-    },
+    challenge: {},
 }))
 
 const getInstance = mock(async () => ({
@@ -101,7 +99,7 @@ test("reloads auth storage before resolving kimi api key", async () => {
     expect(refreshModels).toHaveBeenCalled()
     expect(getApiKeyValue).toHaveBeenCalledWith("provider:65d9d2f9")
     expect(fetchMock).toHaveBeenCalled()
-    // 仅配置了 kimi provider，qwen 源解析失败→内容为空，合并结果只剩 Kimi 段。
+    // only the kimi provider is configured; the qwen source fails to resolve → empty content, so the merged result only keeps the Kimi section.
     expect(result.content).toEqual([{ type: "text", text: "# Kimi Result (REFERENCE)\nsearch ok" }])
 })
 

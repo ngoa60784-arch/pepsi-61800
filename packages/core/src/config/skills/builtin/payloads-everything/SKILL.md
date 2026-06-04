@@ -5,17 +5,17 @@ description: Browse the bundled PayloadsAllTheThings corpus for CTF and web secu
 
 # PayloadsAllTheThings Local Navigator
 
-把 `references/` 当作本地只读 payload 知识库。
+Treat `references/` as a local read-only payload knowledge base.
 
-按下面的顺序工作，不要一次性读取整个语料库：
+Work in this order — don't load the entire corpus at once:
 
-1. 先看一级目录，按漏洞类型缩小范围。
-2. 进入目标目录后先读该目录的 `README.md`，它通常会概述这个类目的 payload、利用技巧、绕过思路、工具和实验环境。
-3. 再查看同级的具体 `*.md`、`Intruder/`、`Images/`、`Configuration*`、`CVE*` 或其他子目录。
-4. 只在当前类目内使用 `rg -n` 搜关键词，避免全仓库大范围搜索。
-5. 输出 payload 或技巧时，带上来源路径，便于继续深入。
+1. Scan top-level directories and narrow by vulnerability type.
+2. In the target directory, read `README.md` first — it usually summarizes payloads, techniques, bypasses, tools, and lab setup for that category.
+3. Then open specific `*.md`, `Intruder/`, `Images/`, `Configuration*`, `CVE*`, or other subdirectories.
+4. Use `rg -n` only within the current category to search keywords — avoid repo-wide scans.
+5. When citing payloads or techniques, include the source path for follow-up.
 
-优先使用这些命令：
+Preferred commands:
 
 ```bash
 find references -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | sort
@@ -27,14 +27,14 @@ rg -n 'gopher|metadata|redirect|localhost' 'references/Server Side Request Forge
 find 'references/Upload Insecure Files' -maxdepth 1 \( -type f -o -type d \) | sort
 ```
 
-按目录导航时遵循这些约束：
+Navigation constraints:
 
-- 先读 `README.md`，再决定是否继续读某个具体子文件。
-- 目录名已经是最重要的索引，不要跳过目录发现直接盲搜全文。
-- 不明确属于哪个漏洞类型时，先看 `references/Methodology and Resources`。
-- 存在多个相近类目时，优先读取最接近的两个类目的 `README.md` 做比较，再决定深入哪个目录。
+- Read `README.md` before deciding whether to open a child file.
+- Directory names are the primary index — don't skip discovery and blind-search the whole tree.
+- If the vuln type is unclear, start with `references/Methodology and Resources`.
+- When several categories are close, read the two nearest `README.md` files and compare before going deep.
 
-当前一级分类如下：
+Top-level categories:
 
 ```text
 API Key Leaks

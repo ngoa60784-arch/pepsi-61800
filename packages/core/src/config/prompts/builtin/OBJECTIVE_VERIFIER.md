@@ -1,6 +1,10 @@
 ---
 mcps:
     - "kali-arsenal"
+skills:
+    - "pentest"
+    - "targeted-pentest"
+    - "remote-cmd-execution"
 tools:
     - "bash"
     - "read"

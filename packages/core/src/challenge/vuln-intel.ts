@@ -1,17 +1,17 @@
-// 控制面侧的轻量漏洞情报查询：record_asset(service+version) 时自动触发，
-// 查 NVD + CISA KEV，把命中的可利用 CVE 广播回 solver（进度驱动的漏洞发现闭环）。
+// Lightweight vuln-intel lookup on the control-plane side: auto-triggered when record_asset(service+version) runs,
+// queries NVD + CISA KEV and broadcasts matched exploitable CVEs back to the solver (a progress-driven vuln-discovery loop).
 //
-// 为何放控制面而非复用 vuln-intel MCP：自动触发发生在 host-bridge 处理 state_upsert 时，
-// 此处在 ChallengeManager 进程内、拿不到某个 solver 的 MCP 会话；NVD/KEV 都是公开 HTTP GET，
-// 直接 fetch 最简单、最稳。solver 主动深查仍走 vuln-intel MCP（结构化 + GHSA + PoC）。
+// Why on the control plane instead of reusing the vuln-intel MCP: the auto-trigger fires while host-bridge handles state_upsert,
+// which is inside the ChallengeManager process and has no access to any solver's MCP session; NVD/KEV are both public HTTP GETs,
+// so a direct fetch is the simplest and most reliable. The solver's own deep lookups still go through the vuln-intel MCP (structured + GHSA + PoC).
 
 const NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 const KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
-// NVD 无 key 限速 5 req/30s。自动触发会被多 solver 放大，所以：去重缓存 + 串行限流。
-const NVD_MIN_INTERVAL_MS = 7000 // 两次 NVD 请求最小间隔（保守，留余量）
-const RESULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 同组件+版本 6h 内不重复查
-const KEV_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // KEV 列表 24h 缓存
+// NVD without a key is rate-limited to 5 req/30s. The auto-trigger gets amplified by multiple solvers, so: dedup cache + serial rate-limiting.
+const NVD_MIN_INTERVAL_MS = 7000 // Minimum interval between two NVD requests (conservative, leaves headroom)
+const RESULT_CACHE_TTL_MS = 6 * 60 * 60 * 1000 // Don't re-query the same component+version within 6h
+const KEV_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // Cache the KEV list for 24h
 const MAX_CVES_REPORTED = 4
 
 export interface VulnHit {
@@ -26,7 +26,7 @@ export interface VulnLookupResult {
     component: string
     version?: string
     hits: VulnHit[]
-    queried: boolean // false = 命中缓存/被限流跳过
+    queried: boolean // false = cache hit / skipped due to rate-limiting
 }
 
 interface CachedResult {
@@ -43,7 +43,7 @@ function cacheKey(component: string, version?: string): string {
     return `${component.trim().toLowerCase()}|${(version ?? "").trim().toLowerCase()}`
 }
 
-/** 把 "nginx 1.25.3" / "OpenSSH 9.2p1" / "Apache/2.4.49" 拆成组件名 + 版本(第一个像版本号的 token)。 */
+/** Split "nginx 1.25.3" / "OpenSSH 9.2p1" / "Apache/2.4.49" into component name + version (the first token that looks like a version number). */
 export function splitServiceVersion(service: string): { component: string; version?: string } {
     const text = service.trim()
     const m = text.match(/^(.*?)[\s/]v?(\d+[\w.\-]*)\b/)
@@ -51,7 +51,7 @@ export function splitServiceVersion(service: string): { component: string; versi
     return { component: text }
 }
 
-/** 串行 + 限速地跑一个 NVD 请求，避免多 solver 并发把 NVD 打 403。 */
+/** Run one NVD request serially and rate-limited, to avoid multiple concurrent solvers getting NVD to return 403. */
 function rateLimitedNvd<T>(fn: () => Promise<T>): Promise<T> {
     const run = nvdQueue.then(async () => {
         const wait = Math.max(0, lastNvdAt + NVD_MIN_INTERVAL_MS - Date.now())
@@ -59,7 +59,7 @@ function rateLimitedNvd<T>(fn: () => Promise<T>): Promise<T> {
         lastNvdAt = Date.now()
         return fn()
     })
-    // 不让前一个失败阻塞队列
+    // Don't let a previous failure block the queue
     nvdQueue = run.then(
         () => undefined,
         () => undefined,
@@ -106,7 +106,7 @@ function parseNvdResponse(payload: unknown): NvdCve[] {
             | undefined
         if (!cve || typeof cve.id !== "string") continue
         const summary = cve.descriptions?.find((d) => d.lang === "en")?.value?.trim() ?? ""
-        // metrics 可能是 cvssMetricV31 / V30 / V2，取第一个有分的。
+        // metrics may be cvssMetricV31 / V30 / V2; take the first one that has a score.
         let cvss: number | undefined
         let severity: string | undefined
         for (const key of Object.keys(cve.metrics ?? {})) {
@@ -138,8 +138,8 @@ async function queryNvd(component: string, version: string | undefined, signal?:
 }
 
 /**
- * 查一个组件(可带版本)的可利用漏洞：NVD 命中 + 标注哪些在 CISA KEV 在野。
- * 结果按"在野优先、CVSS 降序"排序，最多取 MAX_CVES_REPORTED 条。带 6h 去重缓存。
+ * Look up exploitable vulnerabilities for a component (optionally with version): NVD hits + flagging which ones are exploited in the wild per CISA KEV.
+ * Results are sorted by "in-the-wild first, CVSS descending", taking at most MAX_CVES_REPORTED entries. Backed by a 6h dedup cache.
  */
 export async function lookupComponentVulns(component: string, version?: string, signal?: AbortSignal): Promise<VulnLookupResult> {
     const comp = component.trim()
@@ -161,8 +161,8 @@ export async function lookupComponentVulns(component: string, version?: string, 
             inKev: kevIds.has(cve.id.toUpperCase()),
         }))
         .sort((a, b) => {
-            if (a.inKev !== b.inKev) return a.inKev ? -1 : 1 // 在野优先
-            return (b.cvss ?? 0) - (a.cvss ?? 0) // 再按 CVSS 降序
+            if (a.inKev !== b.inKev) return a.inKev ? -1 : 1 // in-the-wild first
+            return (b.cvss ?? 0) - (a.cvss ?? 0) // then by CVSS descending
         })
         .slice(0, MAX_CVES_REPORTED)
 
@@ -171,18 +171,18 @@ export async function lookupComponentVulns(component: string, version?: string, 
     return result
 }
 
-/** 把查询结果格式化成给 solver 的 steer/follow-up 文案。无命中返回空串(不打扰)。 */
+/** Format the lookup result into steer/follow-up copy for the solver. Returns an empty string on no hits (don't nag). */
 export function formatVulnBroadcast(result: VulnLookupResult): string {
     if (result.hits.length === 0) return ""
     const label = result.version ? `${result.component} ${result.version}` : result.component
     const lines = result.hits.map((h) => {
-        const tags = [h.inKev ? "🔥KEV-在野" : "", typeof h.cvss === "number" ? `CVSS ${h.cvss}` : h.severity ?? ""].filter(Boolean).join(" ")
+        const tags = [h.inKev ? "🔥KEV-in-the-wild" : "", typeof h.cvss === "number" ? `CVSS ${h.cvss}` : h.severity ?? ""].filter(Boolean).join(" ")
         return `- ${h.id}${tags ? ` [${tags}]` : ""}: ${h.summary}`
     })
     return [
-        `Auto vuln-intel: 你刚记录的资产 "${label}" 命中以下已知漏洞（NVD + CISA KEV，按可利用性排序）:`,
+        `Auto vuln-intel: the asset you just recorded "${label}" matches the following known vulnerabilities (NVD + CISA KEV, sorted by exploitability):`,
         ...lines,
-        `优先验证标 🔥KEV 的（在野利用，通常有现成 PoC）。用 vuln-intel MCP 的 vuln_exploit_check(cve_id) 查 GitHub PoC，再在远程 Kali 上尝试利用。`,
+        `Prioritize verifying the ones tagged 🔥KEV (exploited in the wild, usually with a ready-made PoC). Use the vuln-intel MCP's vuln_exploit_check(cve_id) to find a GitHub PoC, then try exploiting it on the remote Kali.`,
     ].join("\n")
 }
 

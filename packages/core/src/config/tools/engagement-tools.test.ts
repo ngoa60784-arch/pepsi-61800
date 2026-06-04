@@ -18,7 +18,7 @@ beforeEach(() => {
 test("get_target_intel returns intel text in content", async () => {
     requestHostBridge.mockResolvedValue({
         code: "web-001",
-        hint_content: "仔细阅读公共构建日志",
+        hint_content: "carefully read the public build logs",
     })
 
     const result = await getTargetIntelTool.execute(
@@ -32,10 +32,10 @@ test("get_target_intel returns intel text in content", async () => {
     )
 
     expect(requestHostBridge).toHaveBeenCalledWith("challenge_get_hint", {})
-    expect(result.content).toEqual([{ type: "text", text: "target intel:\n仔细阅读公共构建日志" }])
+    expect(result.content).toEqual([{ type: "text", text: "target intel:\ncarefully read the public build logs" }])
     expect(result.details).toEqual({
         code: "web-001",
-        hint_content: "仔细阅读公共构建日志",
+        hint_content: "carefully read the public build logs",
     })
 })
 

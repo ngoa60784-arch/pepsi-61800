@@ -1,13 +1,11 @@
 import type { FormEvent } from "react"
 import { useEffect, useState } from "react"
-import { hostPlannerPrompt, hostSettings, modelPrefs, providers } from "../../lib/api"
-import type { ProviderEntry } from "../../lib/api"
+import { hostPlannerPrompt, hostSettings, modelPrefs } from "../../lib/api"
 import { useFetch } from "../../hooks/use-fetch"
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { Label } from "../ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
-import { Switch } from "../ui/switch"
 import { Textarea } from "../ui/textarea"
 
 const DEFAULT_MAX_SOLVERS = 1
@@ -23,226 +21,6 @@ function formatPlannerModelLabel(model: { provider: string; providerId?: string;
 
 function normalizeModelPrefId(value: unknown) {
     return value == null ? "" : String(value)
-}
-
-function normalizeBaseUrl(baseUrl?: string) {
-    const text = baseUrl?.trim()
-    if (!text) return ""
-    return text.replace(/\/+$/, "")
-}
-
-function formatProviderNames(providers: ProviderEntry[]) {
-    return providers.map((item) => `${item.name} (${item.id})`).join(", ")
-}
-
-function buildProviderBaseUrlItems(providerList: ProviderEntry[] | null | undefined) {
-    const grouped = new Map<string, ProviderEntry[]>()
-    for (const item of providerList ?? []) {
-        const key = normalizeBaseUrl(item.baseUrl)
-        if (!key) continue
-        const list = grouped.get(key) ?? []
-        list.push(item)
-        grouped.set(key, list)
-    }
-    return [...grouped.entries()]
-        .map(([baseUrl, items]) => ({ baseUrl, items }))
-        .sort((a, b) => a.baseUrl.localeCompare(b.baseUrl))
-}
-
-export function HostPage() {
-    const { data, loading, error, reload } = useFetch(hostSettings.get)
-    const { data: providerList } = useFetch(providers.list)
-    const [mockEnabled, setMockEnabled] = useState(false)
-    const [answerModeEnabled, setAnswerModeEnabled] = useState(false)
-    const [apiBaseUrl, setApiBaseUrl] = useState("")
-    const [agentToken, setAgentToken] = useState("")
-    const [baseUrlMappings, setBaseUrlMappings] = useState<Record<string, string>>({})
-    const [saving, setSaving] = useState(false)
-    const [message, setMessage] = useState("")
-
-    const providerBaseUrlItems = buildProviderBaseUrlItems(providerList)
-    const providerBaseUrlKeys = providerBaseUrlItems.map((item) => item.baseUrl).join("\n")
-
-    useEffect(() => {
-        setMockEnabled(data?.challenge.mockEnabled === true)
-        setAnswerModeEnabled(data?.challenge.answerModeEnabled === true)
-        setApiBaseUrl(data?.challenge.apiBaseUrl ?? "")
-        setAgentToken(data?.challenge.agentToken ?? "")
-    }, [data])
-
-    useEffect(() => {
-        const mappingBySourceBaseUrl: Record<string, string> = {}
-        for (const item of data?.challenge.baseUrlMappings ?? []) {
-            const key = normalizeBaseUrl(item.sourceBaseUrl)
-            if (!key) continue
-            mappingBySourceBaseUrl[key] = item.gatewayBaseUrl ?? ""
-        }
-        setBaseUrlMappings((current) => {
-            const next: Record<string, string> = {}
-            for (const { baseUrl } of providerBaseUrlItems) {
-                const savedValue = mappingBySourceBaseUrl[baseUrl]
-                next[baseUrl] = savedValue && savedValue.trim().length > 0 ? savedValue : (current[baseUrl] ?? "")
-            }
-            return next
-        })
-    }, [data?.challenge.baseUrlMappings, providerBaseUrlKeys])
-
-    useEffect(() => {
-        setBaseUrlMappings((current) => {
-            const next: Record<string, string> = {}
-            let changed = false
-            for (const { baseUrl } of providerBaseUrlItems) {
-                const value = current[baseUrl] ?? ""
-                next[baseUrl] = value
-                if (!(baseUrl in current)) changed = true
-            }
-            if (!changed && Object.keys(current).length === Object.keys(next).length) {
-                return current
-            }
-            return next
-        })
-    }, [providerBaseUrlKeys])
-
-    async function handleSave(event: FormEvent) {
-        event.preventDefault()
-        setSaving(true)
-        setMessage("")
-        try {
-            await hostSettings.set({
-                challenge: {
-                    mockEnabled,
-                    answerModeEnabled,
-                    apiBaseUrl: apiBaseUrl.trim() || undefined,
-                    agentToken: agentToken.trim() || undefined,
-                    baseUrlMappings: providerBaseUrlItems
-                        .map(({ baseUrl }) => ({
-                            sourceBaseUrl: baseUrl,
-                            gatewayBaseUrl: normalizeBaseUrl(baseUrlMappings[baseUrl]),
-                        }))
-                        .filter((item) => item.gatewayBaseUrl),
-                },
-                ...(answerModeEnabled
-                    ? {
-                          planner: {
-                              enabled: true,
-                          },
-                      }
-                    : {}),
-            })
-            setMessage("已保存")
-            reload()
-        } catch (error) {
-            setMessage(error instanceof Error ? error.message : String(error))
-        } finally {
-            setSaving(false)
-        }
-    }
-
-    return (
-        <form onSubmit={handleSave} className="space-y-4">
-            <div className="space-y-4 rounded-lg border p-4">
-                <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium">目标来源</div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Mock 模式</span>
-                        <Switch id="challenge-mock-enabled" checked={mockEnabled} onCheckedChange={setMockEnabled} />
-                    </div>
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="challenge-api-base-url">API 基址</Label>
-                    <Input
-                        id="challenge-api-base-url"
-                        placeholder="https://challenge.example.com"
-                        value={apiBaseUrl}
-                        onChange={(event) => setApiBaseUrl(event.target.value)}
-                        disabled={mockEnabled}
-                    />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="challenge-agent-token">Agent 令牌</Label>
-                    <Input
-                        id="challenge-agent-token"
-                        type="password"
-                        placeholder="agent-token"
-                        value={agentToken}
-                        onChange={(event) => setAgentToken(event.target.value)}
-                        disabled={mockEnabled}
-                    />
-                </div>
-            </div>
-
-            <div className="space-y-4 rounded-lg border p-4">
-                <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium">答题模式</div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">启用</span>
-                        <Switch id="challenge-answer-mode-enabled" checked={answerModeEnabled} onCheckedChange={setAnswerModeEnabled} />
-                    </div>
-                </div>
-                <div className="space-y-3">
-                    <div className="text-sm font-medium">API 基址映射</div>
-                    {providerBaseUrlItems.length === 0 ? (
-                        <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">尚未配置 Provider API 基址。</div>
-                    ) : (
-                        <div className="space-y-3">
-                            {providerBaseUrlItems.map(({ baseUrl, items }) => (
-                                <GatewayMappingRow
-                                    key={baseUrl}
-                                    baseUrl={baseUrl}
-                                    providers={items}
-                                    gatewayBaseUrl={baseUrlMappings[baseUrl] ?? ""}
-                                    onGatewayBaseUrlChange={(value) =>
-                                        setBaseUrlMappings((current) => ({
-                                            ...current,
-                                            [baseUrl]: value,
-                                        }))
-                                    }
-                                />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-            <div className="flex items-center gap-3">
-                <Button type="submit" disabled={saving}>
-                    {saving ? "保存中…" : "保存"}
-                </Button>
-                {loading && <span className="text-sm text-muted-foreground">加载中…</span>}
-                {!loading && message && <span className="text-sm text-muted-foreground">{message}</span>}
-                {!loading && error && <span className="text-sm text-red-500">{error}</span>}
-            </div>
-        </form>
-    )
-}
-
-function GatewayMappingRow(props: {
-    baseUrl: string
-    providers: ProviderEntry[]
-    gatewayBaseUrl: string
-    onGatewayBaseUrlChange: (value: string) => void
-}) {
-    const { baseUrl, providers, gatewayBaseUrl, onGatewayBaseUrlChange } = props
-    const hasValue = gatewayBaseUrl.trim().length > 0
-
-    return (
-        <div className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="space-y-1">
-                <div className="text-xs font-medium text-muted-foreground">原始 API 基址</div>
-                <div className="break-all rounded-md border bg-muted/30 px-3 py-2 font-mono text-xs">{baseUrl}</div>
-                <div className="text-xs text-muted-foreground">{formatProviderNames(providers)}</div>
-            </div>
-            <div className="space-y-1">
-                <Label htmlFor={`gateway-base-url-${baseUrl}`}>Gateway 基址</Label>
-                <Input
-                    id={`gateway-base-url-${baseUrl}`}
-                    value={gatewayBaseUrl}
-                    onChange={(event) => onGatewayBaseUrlChange(event.target.value)}
-                    placeholder="http://10.0.0.24/64_xxxxxxxx"
-                    className={hasValue ? "border-green-500/40 bg-green-500/5 font-mono text-green-700 dark:text-green-400" : ""}
-                />
-            </div>
-        </div>
-    )
 }
 
 export function PlannerPage() {
@@ -311,7 +89,9 @@ export function PlannerPage() {
             <div className="space-y-4 rounded-lg border p-4">
                 <div className="space-y-1">
                     <div className="text-sm font-medium">调度器运行时</div>
-                    <div className="text-sm text-muted-foreground">调度器自动调度始终开启。这里控制 tick 频率、超时和并发上限；策略文案在目标页面配置。</div>
+                    <div className="text-sm text-muted-foreground">
+                        调度器自动调度始终开启。Solver 在本地 Docker 中运行；打靶命令通过「设置 → MCP → kali-arsenal」SSH 到远程 Kali。
+                    </div>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="runtime-max-solvers">最大 Solver 数</Label>
@@ -346,7 +126,7 @@ export function PlannerPage() {
                             value={memory}
                             onChange={(event) => setMemory(event.target.value)}
                         />
-                        <div className="text-sm text-muted-foreground">单个 solver 容器内存上限（Docker `--memory`）。防止失控扫描/爆破吃满宿主。仅 docker 后端生效。</div>
+                        <div className="text-sm text-muted-foreground">单个 solver 容器内存上限（Docker `--memory`）。防止失控扫描/爆破吃满宿主。</div>
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="runtime-cpus">CPU 上限 / Solver</Label>
@@ -359,7 +139,7 @@ export function PlannerPage() {
                             value={cpus}
                             onChange={(event) => setCpus(event.target.value)}
                         />
-                        <div className="text-sm text-muted-foreground">单个 solver 容器 CPU 核数上限（Docker `--cpus`）。仅 docker 后端生效。</div>
+                        <div className="text-sm text-muted-foreground">单个 solver 容器 CPU 核数上限（Docker `--cpus`）。</div>
                     </div>
                 </div>
                 <div className="space-y-2">

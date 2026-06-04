@@ -1,7 +1,6 @@
 import {
     LayoutDashboardIcon,
     ContainerIcon,
-    GlobeIcon,
     ServerIcon,
     CpuIcon,
     WrenchIcon,
@@ -33,7 +32,6 @@ export const mainNavItems: NavItem[] = [
 ]
 
 export const configTabs: ConfigTab[] = [
-    { value: "host", label: "目标", icon: GlobeIcon },
     { value: "planner", label: "调度器", icon: BrainIcon },
     { value: "providers", label: "提供商", icon: ServerIcon },
     { value: "models", label: "模型", icon: CpuIcon },

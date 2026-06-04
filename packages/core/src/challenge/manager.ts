@@ -17,6 +17,8 @@ import {
     type ChallengeSubmissionLogRecord,
     computeChallengeCompleted,
     ensureChallengeStoreBaseDir,
+    challengeRecordDir,
+    deleteChallengeDirectory,
     listChallengeRecords,
     readChallengeRecord,
     resolveChallengeDir,
@@ -78,23 +80,21 @@ const DEFAULT_TICK_INTERVAL_MS = 30_000
 const DEFAULT_STALE_TIMEOUT_MS = 60 * 60 * 1000
 const DEFAULT_MAX_SOLVERS = 1
 const MAX_ACTIVE_CHALLENGES = 3
-const LIST_CHALLENGES_SYNC_COOLDOWN_MS = 10_000
 const NOISY_ERROR_THROTTLE_WINDOW_MS = 60_000
 const NOISY_ERROR_SIGNATURE_LIMIT = 200
 const SOLVER_MEMORY_LIMIT = 10
 const SOLVER_IDEA_LIMIT = 8
-const SOLVER_RELATION_LIMIT = 30
 const SOLVER_HANDOFF_MAX_CHARS = 900
 const SOLVER_MEMORY_CONTENT_MAX_CHARS = 220
 const SOLVER_IDEA_CONTENT_MAX_CHARS = 120
 const SOLVER_RESULT_MAX_CHARS = 180
-// Planner 战果摘要专用上限：比 solver brief 更紧，因为多目标会叠加，调度层只需要高信号要点。
+// Planner outcome-summary cap: tighter than solver brief because multi-target stacks; scheduler only needs high-signal bullets.
 const PLANNER_MEMORY_FACT_LIMIT = 5
 const PLANNER_FAILURE_LIMIT = 4
 const PLANNER_IDEA_LIMIT = 5
 const PLANNER_FINDING_LIMIT = 4
 const PLANNER_SUMMARY_CONTENT_MAX_CHARS = 140
-// research: 高难度路线撞死 >=3 次且无立足点/无活跃假设 → 剪枝该目标，把资源转去更有希望的目标。
+// research: hard route dead-ends >=3 with no foothold/live hypothesis → prune target, shift resources to more promising ones.
 const PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD = 3
 const CHALLENGE_STATE_PLACEHOLDER = "{{CHALLENGE_STATE}}"
 const AVAILABLE_SOLVER_PROMPTS_PLACEHOLDER = "{{AVAILABLE_SOLVER_PROMPTS}}"
@@ -109,8 +109,6 @@ export interface ChallengeListResult {
         local: number
         solved: number
         total: number
-        mockMode: boolean
-        realApiMode: boolean
     }
 }
 
@@ -176,54 +174,42 @@ interface PlannerSnapshotChallenge {
     activeForMinutes?: number
     minutesSinceLastAttempt?: number
     minutesSinceLastCorrectSubmission?: number
-    // 战果感知调度信号：让 planner 不再只看计数，而是读懂下层 solver 实际拿到了什么。
+    // Outcome-aware scheduling: planner reads what solvers actually gained, not just counts.
     memoryFacts: string[]
     failureBoundaries: string[]
     liveIdeas: string[]
     ideaStatusCounts: Record<IdeaStatus, number>
     findings: string[]
     progressPhase: PlannerProgressPhase
-    // 跨 solver 结构化作战资产摘要（hosts/services/credentials/sessions）。
+    // Cross-solver structured battlefield asset summary (hosts/services/credentials/sessions).
     stateAssets: string[]
-    // 难度感知数值信号（research: difficulty-aware planning，Type B 失败 58%→27%）。
-    successRate: number // Laplace 平滑的目标级成功率(correct/submissions)，0..1
-    failedRouteCount: number // 已撞死的路线数(failed ideas + failure memories)
-    effortRank?: number // 跨目标相对投入排名(1=投入最多)，horizon 的相对代理；buildPlannerSnapshot 回填
-    pruneRecommended: boolean // ≥3 死路线 + 无立足点 + 无活跃假设 → 建议剪枝该目标
+    // Difficulty-aware numeric signals (research: difficulty-aware planning, Type B failure 58%→27%).
+    successRate: number // Laplace-smoothed per-target success rate (correct/submissions), 0..1
+    failedRouteCount: number // Dead-end route count (failed ideas + failure memories)
+    effortRank?: number // Cross-target relative effort rank (1=most effort); horizon proxy; filled by buildPlannerSnapshot
+    pruneRecommended: boolean // >=3 dead routes + no foothold + no live hypothesis → recommend pruning this target
 }
 
-// 由战果派生的进度阶段，驱动难度感知调度（广度侦察 vs 深度利用/横向）。
-type PlannerProgressPhase = "untouched" | "recon" | "foothold" | "breakthrough"
+// Progress phase derived from outcomes; drives difficulty-aware scheduling (broad recon vs deep exploit/lateral).
+export type PlannerProgressPhase = "untouched" | "recon" | "foothold" | "breakthrough"
 
-/** Commander 用的目标进度全景（与 planner 快照同源派生信号，单目标版）。 */
+/** Operator/commander view of one target's progress (richer than raw memory/ideas summaries). */
 export interface TargetOverview {
     challengeId: string
     title: string
     instanceStatus: string
-    /** 派生阶段：untouched / recon / foothold / breakthrough。 */
     progressPhase: PlannerProgressPhase
-    /** Laplace 平滑成功率（0..1）。 */
     successRate: number
-    /** 已撞死的路线数（failed ideas + failure memories）。 */
     failedRouteCount: number
-    /** 是否建议剪枝（对当前打法过难）。 */
-    pruneRecommended: boolean
-    /** 真实战果（findings）数量。 */
     findingCount: number
     activeSolverCount: number
-    /** 确认的事实/凭据要点（credential 优先）。 */
-    memoryFacts: string[]
-    /** 已撞死/被防御挡掉的边界。 */
-    failureBoundaries: string[]
-    /** 活跃假设（verified/testing/pending）。 */
-    liveIdeas: string[]
-    /** 战果摘要。 */
-    findings: string[]
-    /** 结构化资产（host/service/credential/session）单行摘要。 */
+    pruneRecommended: boolean
     stateAssets: string[]
-    /** 攻击图谱边 source--relation-->target 单行摘要。 */
     relations: string[]
-    /** 各 running solver 此刻在干嘛（从其本地 board 派生）。 */
+    memoryFacts: string[]
+    failureBoundaries: string[]
+    liveIdeas: string[]
+    findings: string[]
     activeSolvers: Array<{ id: string; status: string; currentFocus: string }>
 }
 
@@ -243,8 +229,8 @@ interface PlannerSnapshot {
         status: string
         activeForMinutes: number
         timeoutStatus: "normal" | "stale"
-        // 该 solver 此刻在干什么（从它自己的 board 派生）：让 planner 区分"在推进"vs"空转"，
-        // 据此决定该 steer 谁、撤谁。
+        // What this solver is doing now (from its board): lets planner separate advancing vs spinning,
+        // so it can decide whom to steer or withdraw.
         currentFocus: string
     }>
     availableSolverPrompts: Array<{
@@ -262,15 +248,15 @@ interface PreviousPlannerRoundRecord {
     snapshot_digest: string
     actions: string[]
     summary: string
-    // 跨轮持续的作战计划：每个目标的当前策略意图 + 下一个检查点。
-    // 让 planner 从"每 tick 重新看快照反应式决策"升级为"带计划的连续指挥"。
+    // Cross-round battle plan: per-target strategy intent + next checkpoint.
+    // Upgrades planner from reactive per-tick snapshots to continuous command with a plan.
     battlePlan?: PlannerBattlePlanEntry[]
 }
 
 interface PlannerBattlePlanEntry {
     challengeId: string
-    strategy: string // 当前对该目标的整体打法/意图
-    nextCheckpoint?: string // 下一轮要复查/验证的具体里程碑
+    strategy: string // Current overall approach/intent for this target
+    nextCheckpoint?: string // Concrete milestone to revisit/verify next round
     updated_at: string
 }
 
@@ -362,7 +348,11 @@ function formatChallengeIdeaBroadcastMessage(action: "added" | "updated" | "dele
         .join("\n")
 }
 
-// 把一个作战资产压成一行可读摘要（凭据按引用名，不外泄明文）。
+// Compress one battlefield asset into a one-line summary (credentials by ref name, no plaintext secrets).
+function formatRelationLine(relation: MemoryRelation): string {
+    return `${relation.source} --${relation.relation}--> ${relation.target}`
+}
+
 function formatStateAssetLine(asset: StateAsset): string {
     const parts: string[] = [`[${asset.kind}] ${clipTaskText(asset.label, 80)}`]
     if (asset.host) parts.push(`host=${asset.host}`)
@@ -383,22 +373,6 @@ function formatChallengeStateAssetBroadcastMessage(action: "added" | "updated" |
         action === "deleted"
             ? "- This asset was removed from shared state; stop relying on it."
             : "- A teammate added/updated a shared battlefield asset (host/service/credential/session). REUSE it — do NOT re-discover or re-brute what's already here. Credentials are referenced by name; pull the secret via your evidence refs.",
-    ].join("\n")
-}
-
-// 把一条关系压成一行可读摘要：source --relation--> target [note]。
-function formatRelationLine(rel: MemoryRelation): string {
-    const base = `${clipTaskText(rel.source, 80)} --${clipTaskText(rel.relation, 40)}--> ${clipTaskText(rel.target, 80)}`
-    return rel.note.trim() ? `${base}  (${clipTaskText(rel.note, 100)})` : base
-}
-
-function formatChallengeRelationBroadcastMessage(action: "added" | "updated" | "deleted", rel: MemoryRelation): string {
-    return [
-        `Collaboration sync: attack-graph relation ${action}.`,
-        `- ${formatRelationLine(rel)}`,
-        action === "deleted"
-            ? "- This edge was removed from the shared attack graph; stop relying on it."
-            : "- A teammate mapped an attack-graph edge (how entities connect: routes_to / exploitable_via / owns_credential / pivots_to ...). Use find_attack_path to chain these into a route to your objective before brute-forcing a fresh path.",
     ].join("\n")
 }
 
@@ -452,10 +426,10 @@ function formatSolverIdeasSection(items: IdeaRecord[]): string {
     return `${table}\n\nNote: initial context shows only the most recent ${selected.length}/${items.length} ideas; call idea_list or idea_search for the full board.`
 }
 
-// 一条提交记录是否算"真实战果"——同时覆盖 CTF 与实战两种语义：
-// - CTF：correct === true（远程裁判判对）
-// - 实战：没有 correct（恒 false），但记录本身即一个已上报发现；只要没被 verifier 判 rejected，就算数。
-//   (verification_status: undefined=普通发现 / pending=待复核 / verified=已复现 / rejected=误报 / inconclusive=无法判定)
+// Whether a submission counts as a "real finding" — CTF and engagement semantics:
+// - CTF: correct === true (remote judge marked correct)
+// - Engagement: no correct (always false), but the record is a reported finding; counts unless verifier rejected.
+//   (verification_status: undefined=plain finding / pending=awaiting review / verified=reproduced / rejected=false positive / inconclusive=undetermined)
 function isRealFinding(item: ChallengeSubmissionLogRecord): boolean {
     if (item.correct) return true
     return item.verification_status !== "rejected"
@@ -473,24 +447,16 @@ function formatSolverSubmissionsSection(items: ChallengeSubmissionLogRecord[]): 
 
 function formatSolverStateAssetsSection(items: StateAsset[]): string {
     if (items.length === 0) return "(none)"
-    // 凭据/会话(可直接复用的访问)排前，主机/服务在后。
+    // Credentials/sessions (reusable access) first, hosts/services after.
     const rank = (kind: StateAsset["kind"]) => (kind === "credential" ? 3 : kind === "session" ? 2 : kind === "service" ? 1 : 0)
     const sorted = [...items].sort((a, b) => rank(b.kind) - rank(a.kind) || (parseTimestamp(b.updated_at) ?? 0) - (parseTimestamp(a.updated_at) ?? 0))
     return sorted.map((asset) => `- ${formatStateAssetLine(asset)}`).join("\n")
 }
 
-function formatSolverRelationsSection(items: MemoryRelation[]): string {
-    if (items.length === 0) return "(none)"
-    const selected = selectRecentItems(items, SOLVER_RELATION_LIMIT)
-    const lines = selected.map((rel) => `- ${formatRelationLine(rel)}`).join("\n")
-    if (selected.length === items.length) return lines
-    return `${lines}\n\nNote: showing the most recent ${selected.length}/${items.length} edges; call query_relations for the full attack graph.`
-}
+// ── Planner outcome summary (feeds scheduler what solvers gained, not just counts) ──
 
-// ── Planner 战果摘要派生（喂给调度层，让它读懂下层 solver 拿到了什么，而不只是计数） ──
-
-// 已确认的事实/凭证：调度层据此决定该不该派提权/横向 solver。
-// credential 优先填充——它是横向/提权的枢纽信号，planner 最需要先看到。
+// Confirmed facts/credentials: scheduler decides privilege-escalation/lateral solvers.
+// Credentials first — hub signal for lateral/priv-esc; planner needs them first.
 function buildPlannerMemoryFacts(items: MemoryEntry[]): string[] {
     const credentials = selectRecentItems(items.filter((item) => item.kind === "credential"), PLANNER_MEMORY_FACT_LIMIT)
     const others = selectRecentItems(items.filter((item) => item.kind === "fact" || item.kind === "evidence"), PLANNER_MEMORY_FACT_LIMIT)
@@ -499,7 +465,7 @@ function buildPlannerMemoryFacts(items: MemoryEntry[]): string[] {
         .map((item) => `[${item.kind}] ${clipTaskText(item.content, PLANNER_SUMMARY_CONTENT_MAX_CHARS)}`)
 }
 
-// 已撞死的边界：调度层据此避免再派同类必败 solver。
+// Dead-end boundaries: scheduler avoids re-dispatching doomed routes.
 function buildPlannerFailureBoundaries(items: MemoryEntry[]): string[] {
     return selectRecentItems(
         items.filter((item) => item.kind === "failure"),
@@ -507,7 +473,7 @@ function buildPlannerFailureBoundaries(items: MemoryEntry[]): string[] {
     ).map((item) => clipTaskText(item.content, PLANNER_SUMMARY_CONTENT_MAX_CHARS))
 }
 
-// 活跃假设（verified/testing 优先）：调度层据此判断哪条链值得加码深挖。
+// Live hypotheses (verified/testing first): scheduler picks chains worth doubling down.
 function buildPlannerLiveIdeas(items: IdeaRecord[]): string[] {
     const rank = (status: IdeaStatus): number => {
         switch (status) {
@@ -536,7 +502,7 @@ function buildPlannerIdeaStatusCounts(items: IdeaRecord[]): Record<IdeaStatus, n
     return counts
 }
 
-// 已记录的发现摘要（writeup 优先于原始 proof，proof 可能含 base64/凭证噪声）。
+// Recorded finding summaries (writeup over raw proof; proof may contain base64/credential noise).
 function buildPlannerFindings(items: ChallengeSubmissionLogRecord[]): string[] {
     return [...items]
         .filter(isRealFinding)
@@ -545,29 +511,27 @@ function buildPlannerFindings(items: ChallengeSubmissionLogRecord[]): string[] {
         .map((item) => clipTaskText((item.writeup?.trim() || item.flag).replaceAll("\n", " "), PLANNER_SUMMARY_CONTENT_MAX_CHARS))
 }
 
-// 由战果派生进度阶段，驱动难度感知调度（无侦察→广度；有立足点→深度利用/横向）。
+// Derive progress phase from outcomes (no recon→breadth; foothold→deep exploit/lateral).
 function derivePlannerProgressPhase(input: {
     untouched: boolean
     correctSubmissionCount: number
     verifiedIdeaCount: number
     hasFootholdSignal: boolean
 }): PlannerProgressPhase {
-    // 战果/立足点优先于 untouched 判定：operator 通过 import_findings 灌入凭据/战果但还没派 solver
-    // （attempts 为空）时，目标显然不是"未触碰"。先认实质进展，再退到 untouched。
     if (input.correctSubmissionCount > 0) return "breakthrough"
     if (input.hasFootholdSignal || input.verifiedIdeaCount > 0) return "foothold"
     if (input.untouched) return "untouched"
     return "recon"
 }
 
-// 判断是否已拿到立足点级别的情报（凭证/会话/访问），驱动是否该转入横向/提权调度。
+// Whether foothold-level intel exists (creds/session/access); drives lateral/priv-esc scheduling.
 const FOOTHOLD_SIGNAL_PATTERN = /\b(cred|credential|password|passwd|token|api[_-]?key|secret|shell|rce|session|cookie|ssh|login|access|foothold|webshell)\b/i
 function hasFootholdSignal(memoryFacts: string[], liveIdeas: string[]): boolean {
     return [...memoryFacts, ...liveIdeas].some((line) => FOOTHOLD_SIGNAL_PATTERN.test(line))
 }
 
-// Laplace(add-one)平滑成功率：样本少时不会被一两次结果带偏(0 次提交 → 0.5 中性，而非 0/0)。
-// research 用它做 per-branch 历史成功率，避免在低样本时误判一条线"必败/必胜"。
+// Laplace (add-one) smoothed success rate: low samples stay neutral (0 submissions → 0.5, not 0/0).
+// research uses per-branch historical success; avoids mislabeling a line as doomed/sure-win on low samples.
 function laplaceSuccessRate(successes: number, total: number): number {
     return (successes + 1) / (total + 2)
 }
@@ -692,7 +656,7 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
             `- Submission count: ${challenge.submissionCount}`,
             `- Correct submissions: ${challenge.correctSubmissionCount}`,
             `- Idea board: ${formatIdeaStatusCounts(challenge.ideaStatusCounts)}`,
-            // 难度感知数值信号（research: difficulty-aware planning）。
+            // Difficulty-aware numeric signals (research: difficulty-aware planning).
             `- Success rate (Laplace-smoothed): ${challenge.successRate.toFixed(2)}`,
             `- Failed/dead-end route count: ${challenge.failedRouteCount}`,
             typeof challenge.effortRank === "number" ? `- Effort rank (1=most effort vs other targets): ${challenge.effortRank}` : "- Effort rank: -",
@@ -708,7 +672,7 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
                 ? `- Minutes since last correct submission: ${challenge.minutesSinceLastCorrectSubmission}`
                 : "- Minutes since last correct submission: -",
             challenge.entrypoint && challenge.entrypoint.length > 0 ? `- Entrypoints: ${challenge.entrypoint.join(", ")}` : "- Entrypoints: -",
-            // 战果摘要：让调度层读懂下层 solver 实际拿到了什么，据此做有依据的派发/收手/handoff。
+            // Outcome summary: scheduler sees what solvers gained for informed dispatch/hold/handoff.
             `- Shared state assets (hosts/services/credentials/sessions — reusable across solvers):`,
             ...(challenge.stateAssets.length > 0 ? challenge.stateAssets.map((line) => `    - ${line}`) : ["    - (none)"]),
             `- Confirmed facts / creds:`,
@@ -776,7 +740,7 @@ function computePlannerSnapshotDigest(snapshot: PlannerSnapshot): string {
 function wrapPlannerResourceLoader(base: ResourceLoader, snapshot: PlannerSnapshot, strategy?: string, previousRound?: PreviousPlannerRoundRecord): ResourceLoader {
     const stateText = formatPlannerSnapshotMarkdown(snapshot)
     const availableSolverPromptsText = formatAvailableSolverPromptsMarkdown(snapshot)
-    const strategyText = strategy?.trim() ? strategy.trim() : "无额外用户偏好。按默认策略执行。"
+    const strategyText = strategy?.trim() ? strategy.trim() : "No extra user preferences. Follow the default strategy."
     const previousPlannerRoundText = formatPreviousPlannerRoundMarkdown(previousRound)
     const basePrompt = base.getSystemPrompt() ?? ""
     const replacedPrompt = basePrompt
@@ -796,14 +760,6 @@ function wrapPlannerResourceLoader(base: ResourceLoader, snapshot: PlannerSnapsh
         extendResources: (paths) => base.extendResources(paths),
         reload: () => base.reload(),
     }
-}
-
-function isMockChallengeId(challengeId: string): boolean {
-    return challengeId.startsWith("mock-")
-}
-
-function hasRealApiConfig(apiBaseUrl?: string, agentToken?: string): boolean {
-    return Boolean(apiBaseUrl && agentToken)
 }
 
 function isChallengeSolved(record: { flag_count: number; flag_got_count: number } | undefined): boolean {
@@ -856,12 +812,12 @@ export class ChallengeManager {
     private syncLoopStarted = false
     private syncRunning = false
     private finishingChallenges = new Set<string>()
-    // 完成时为每个目标记录被停掉的 solver id,供"撤销完成"时精确续跑这些(而非乱起新的)。
+    // On completion, record stopped solver ids per target for precise resume on revoke (not new launches).
     private stoppedOnCompletion = new Map<string, string[]>()
+    /** Solvers stopped by operator pause; resumeTargetTesting restores these sessions. */
+    private stoppedOnPause = new Map<string, string[]>()
     private plannerRunning = false
     private loopTickCount = 0
-    private listChallengesSyncInFlight: Promise<void> | undefined
-    private listChallengesSyncLastAttemptAt = 0
     private noisyErrorLogState = new Map<string, { lastLoggedAt: number; suppressedCount: number }>()
 
     constructor(config: ConfigManager) {
@@ -913,8 +869,6 @@ export class ChallengeManager {
 
     reloadFromConfig(): void {
         this.api = undefined
-        this.listChallengesSyncInFlight = undefined
-        this.listChallengesSyncLastAttemptAt = 0
     }
 
     getRuntime(): RuntimeManager | undefined {
@@ -970,20 +924,7 @@ export class ChallengeManager {
             try {
                 console.log(`\n========== planner round #${tickId} ==========`)
                 nextIntervalMs = resolvePlannerTickIntervalMs((await this.config.getHostSettings()).planner.tickIntervalMs)
-                const realApiMode = await this.hasRealApiMode()
-                let syncSummary: ChallengeListResult["summary"] | undefined
-                if (await this.hasRealApiMode()) {
-                    const result = await this.listChallenges("challenge-api:loop")
-                    syncSummary = result.summary
-                }
                 await this.tickPlanner("challenge-planner:loop")
-                if (syncSummary) {
-                    this.log("challenge:sync-loop", "tick summary", {
-                        tickId,
-                        realApiMode,
-                        sync: syncSummary,
-                    })
-                }
                 console.log(`========== end planner round #${tickId} ==========\n`)
             } catch (error) {
                 this.error("challenge:sync-loop", "tick failed", error, { tickId })
@@ -1039,59 +980,21 @@ export class ChallengeManager {
         await Bun.write(join(rootDir, "planner-last-round.json"), JSON.stringify(record, null, 2))
     }
 
-    private async isMockMode(): Promise<boolean> {
-        // 实战模式下走本地存储语义（等同 mock 的"本地 API"），但绝不连远程评分服务。
-        if (isEngagementMode()) return true
-        const hostSettings = await this.config.getHostSettings()
-        return hostSettings.challenge.mockEnabled === true
-    }
-
-    private async hasRealApiMode(): Promise<boolean> {
-        // 实战模式永不接触远程 CTF 评分 API（彻底断开比赛链路）。
-        if (isEngagementMode()) return false
-        const hostSettings = await this.config.getHostSettings()
-        return hasRealApiConfig(hostSettings.challenge.apiBaseUrl, hostSettings.challenge.agentToken)
-    }
-
     private async filterChallengesByMode(challenges: ChallengeInfoRecord[]): Promise<ChallengeInfoRecord[]> {
-        // 实战模式：所有本地 target 记录都可见，不按 mock- 前缀过滤。
-        if (isEngagementMode()) return challenges
-
-        const mockMode = await this.isMockMode()
-        if (mockMode) return challenges.filter((challenge) => isMockChallengeId(challenge.id))
-
-        const realApiMode = await this.hasRealApiMode()
-        if (realApiMode) return challenges.filter((challenge) => !isMockChallengeId(challenge.id))
-
         return challenges
     }
 
     private async readVisibleChallenge(challengeId: string): Promise<ChallengeInfoRecord | undefined> {
         const rootDir = await this.getRootDir()
         const id = requireText(challengeId, "challengeId")
-        const challenge = await readChallengeRecord(rootDir, id)
-        if (!challenge) return
-        // 实战模式：target id 用原始标识（如 86444xl），不带 mock- 前缀，直接可见。
-        // 与 filterChallengesByMode 的处理保持一致——否则 launchSolver/getChallenge 会把无前缀的
-        // engagement 目标误判成不可见，抛 "challenge not found"。
-        if (isEngagementMode()) return challenge
-        const mockMode = await this.isMockMode()
-        if (mockMode) return isMockChallengeId(id) ? challenge : undefined
-
-        const realApiMode = await this.hasRealApiMode()
-        if (realApiMode) return isMockChallengeId(id) ? undefined : challenge
-
-        return challenge
+        return readChallengeRecord(rootDir, id)
     }
 
     private async getApi(): Promise<ChallengeApiClient> {
         if (this.api) return this.api
-        const hostSettings = await this.config.getHostSettings()
-        // 实战模式或 mock 模式都走本地存储 API（不外联）。
-        if ((await this.isMockMode()) || hostSettings.challenge.mockEnabled === true) {
-            const rootDir = await this.getRootDir()
-            const listStored = async () => this.filterChallengesByMode(await listChallengeRecords(rootDir))
-            const api = ChallengeApiClient.createMock({
+        const rootDir = await this.getRootDir()
+        const listStored = async () => this.filterChallengesByMode(await listChallengeRecords(rootDir))
+        const api = ChallengeApiClient.createMock({
                 listChallenges: async () => {
                     const challenges = await listStored()
                     return {
@@ -1108,20 +1011,14 @@ export class ChallengeManager {
                         return { already_completed: true }
                     }
                     const engagement = isEngagementMode()
-                    // 实战模式:target 的 entrypoint 是真实外部地址,绝不能用 127.0.0.1:8080 占位覆盖
-                    // (否则 solver 会丢掉真目标、拿离自己最近的机器/平台当目标 —— 已发生过的事故根因)。
-                    // CTF mock 模式才允许占位(本地靶机起实例)。
+                    // Engagement: entrypoint is a real external address; never overwrite with 127.0.0.1:8080 placeholder
+                    // (otherwise solver drops the real target and attacks the nearest host — known incident root cause).
                     const resolveEntrypoint = (): string[] => {
                         if (challenge.entrypoint && challenge.entrypoint.length > 0) return challenge.entrypoint
-                        if (engagement) throw new Error(`engagement target "${code}" has no entrypoint; refuse to start with placeholder`)
-                        return ["127.0.0.1:8080"]
+                        throw new Error(`target "${code}" has no entrypoint; refuse to start with placeholder`)
                     }
                     if (challenge.instance_status === "running") {
                         return resolveEntrypoint()
-                    }
-                    const runningCount = (await listStored()).filter((item) => item.instance_status === "running" || item.instance_status === "pending").length
-                    if (!engagement && runningCount >= 3) {
-                        throw new Error("mock mode: at most 3 challenges can run at the same time")
                     }
                     const entrypoint = resolveEntrypoint()
                     await saveChallengeRecord(
@@ -1131,7 +1028,7 @@ export class ChallengeManager {
                             instance_status: "running",
                             entrypoint,
                         },
-                        "challenge-api:mock-start",
+                        "challenge-api:local-start",
                     )
                     return entrypoint
                 },
@@ -1139,7 +1036,7 @@ export class ChallengeManager {
                     const challenge = await this.readVisibleChallenge(code)
                     if (!challenge) throw new Error(`challenge "${code}" not found`)
                     if (challenge.instance_status !== "running" && challenge.instance_status !== "pending") {
-                        throw new Error("mock mode: challenge instance is not running")
+                        throw new Error("target instance is not running")
                     }
                     await saveChallengeRecord(
                         rootDir,
@@ -1148,7 +1045,7 @@ export class ChallengeManager {
                             instance_status: "stopped",
                             entrypoint: null,
                         },
-                        "challenge-api:mock-stop",
+                        "challenge-api:local-stop",
                     )
                     return null
                 },
@@ -1156,7 +1053,7 @@ export class ChallengeManager {
                     const challenge = await this.readVisibleChallenge(code)
                     if (!challenge) throw new Error(`challenge "${code}" not found`)
                     if (challenge.instance_status !== "running") {
-                        throw new Error("mock mode: challenge instance is not running")
+                        throw new Error("target instance is not running")
                     }
                     const flags = challenge.flags ?? []
                     const isCorrect = flags.includes(flag)
@@ -1171,12 +1068,12 @@ export class ChallengeManager {
                                 total_got_score:
                                     challenge.flag_count > 0 ? Math.min(challenge.total_score, Math.round((challenge.total_score * nextGotCount) / challenge.flag_count)) : challenge.total_got_score,
                             },
-                            "challenge-api:mock-submit",
+                            "challenge-api:local-submit",
                         )
                     }
                     return {
                         correct: isCorrect,
-                        message: isCorrect ? "mock mode: flag correct" : "mock mode: flag incorrect",
+                        message: isCorrect ? "flag correct" : "flag incorrect",
                         flag_count: challenge.flag_count,
                         flag_got_count: nextGotCount,
                     }
@@ -1185,7 +1082,7 @@ export class ChallengeManager {
                     const challenge = await this.readVisibleChallenge(code)
                     if (!challenge) throw new Error(`challenge "${code}" not found`)
                     if (challenge.instance_status !== "running") {
-                        throw new Error("mock mode: challenge instance is not running")
+                        throw new Error("target instance is not running")
                     }
                     if (!challenge.hint_viewed) {
                         await saveChallengeRecord(
@@ -1194,7 +1091,7 @@ export class ChallengeManager {
                                 ...challenge,
                                 hint_viewed: true,
                             },
-                            "challenge-api:mock-hint",
+                            "challenge-api:local-hint",
                         )
                     }
                     return {
@@ -1202,15 +1099,9 @@ export class ChallengeManager {
                         hint_content: challenge.hint_content ?? null,
                     }
                 },
-            })
-            this.api = api
-            return api
-        }
-        // CTF 远程评分链路已移除：本工具只在本地存储模式运行，绝不外联远程评分服务。
-        // 走到这里说明既非实战模式、也未开启本地 mock，属于无效配置。
-        throw new Error(
-            "remote CTF scoring API has been removed; run in engagement mode (TCH_ENGAGEMENT_MODE=1) or enable local mock mode",
-        )
+        })
+        this.api = api
+        return api
     }
 
     private async getContext(): Promise<{ api: ChallengeApiClient; rootDir: string }> {
@@ -1248,59 +1139,17 @@ export class ChallengeManager {
                 local: local.length,
                 solved: remote.solved_challenges,
                 total: remote.total_challenges,
-                mockMode: await this.isMockMode(),
-                realApiMode: await this.hasRealApiMode(),
             },
         }
     }
 
-    async listChallengesSafe(source = "challenge-api:list"): Promise<ChallengeInfoRecord[]> {
-        const mockMode = await this.isMockMode()
-        const realApiMode = await this.hasRealApiMode()
-        if (!mockMode && !realApiMode) {
-            return this.listStoredChallenges()
-        }
-
-        const stored = await this.listStoredChallenges()
-        if (stored.length > 0) {
-            if (realApiMode) this.scheduleListChallengesSync(source)
-            return stored
-        }
-
-        try {
-            const result = await this.listChallenges(source)
-            return result.local
-        } catch (error) {
-            this.error(`challenge:list:${source}`, "sync failed, fallback to stored challenges", error)
-            return this.listStoredChallenges()
-        }
+    async listChallengesSafe(_source = "challenge-api:list"): Promise<ChallengeInfoRecord[]> {
+        return this.listStoredChallenges()
     }
 
     async listStoredChallenges(): Promise<ChallengeInfoRecord[]> {
         const rootDir = await this.getRootDir()
         return this.filterChallengesByMode(await listChallengeRecords(rootDir))
-    }
-
-    private scheduleListChallengesSync(source: string): void {
-        if (this.listChallengesSyncInFlight) return
-        const now = Date.now()
-        if (now - this.listChallengesSyncLastAttemptAt < LIST_CHALLENGES_SYNC_COOLDOWN_MS) return
-
-        this.listChallengesSyncLastAttemptAt = now
-        const run = (async () => {
-            try {
-                await this.listChallenges(source)
-            } catch (error) {
-                this.error(`challenge:list:${source}`, "background sync failed", error)
-            }
-        })()
-
-        this.listChallengesSyncInFlight = run
-        void run.finally(() => {
-            if (this.listChallengesSyncInFlight === run) {
-                this.listChallengesSyncInFlight = undefined
-            }
-        })
     }
 
     async createChallenge(challenge: ChallengeRecord, source = "manual"): Promise<ChallengeInfoRecord | undefined> {
@@ -1311,6 +1160,71 @@ export class ChallengeManager {
 
     async getChallenge(challengeId: string): Promise<ChallengeInfoRecord | undefined> {
         return this.readVisibleChallenge(challengeId)
+    }
+
+    async deleteChallenge(challengeId: string): Promise<{ deletedSolvers: string[] }> {
+        const rootDir = await this.getRootDir()
+        const id = requireText(challengeId, "challengeId")
+
+        const challenge = await readChallengeRecord(rootDir, id)
+        if (!challenge && !(await Bun.file(challengeRecordDir(rootDir, id)).exists())) {
+            throw new Error(`challenge "${id}" not found`)
+        }
+
+        this.log("challenge:delete", "deleting challenge and local data", { challengeId: id })
+
+        if (challenge && (challenge.instance_status === "running" || challenge.instance_status === "pending")) {
+            try {
+                await this.stopChallenge(id)
+            } catch (error) {
+                this.error("challenge:delete", "failed to stop challenge instance before delete", error, { challengeId: id })
+            }
+        }
+
+        const deletedSolvers: string[] = []
+        const runtime = this.runtime
+        if (runtime) {
+            const solvers = await runtime.listAll()
+            const matching = solvers.filter((solver) => solver.challengeId === id)
+            for (const solver of matching) {
+                if (solver.status === "running" || solver.status === "starting" || solver.status === "stopping") {
+                    try {
+                        await runtime.stopSolver(solver.id)
+                    } catch (error) {
+                        this.error("challenge:delete", "failed to stop solver before delete", error, {
+                            challengeId: id,
+                            solverId: solver.id,
+                        })
+                    }
+                }
+                try {
+                    await runtime.deleteSolver(solver.id)
+                    deletedSolvers.push(solver.id)
+                } catch (error) {
+                    this.error("challenge:delete", "failed to delete solver workspace", error, {
+                        challengeId: id,
+                        solverId: solver.id,
+                    })
+                }
+            }
+        }
+
+        this.stoppedOnCompletion.delete(id)
+        this.stoppedOnPause.delete(id)
+        await this.prunePlannerRoundForChallenge(id)
+
+        await deleteChallengeDirectory(rootDir, id)
+
+        this.log("challenge:delete", "challenge deleted", { challengeId: id, deletedSolvers })
+        return { deletedSolvers }
+    }
+
+    private async prunePlannerRoundForChallenge(challengeId: string): Promise<void> {
+        const previous = await this.readPreviousPlannerRound()
+        if (!previous?.battlePlan?.length) return
+        const nextPlan = previous.battlePlan.filter((entry) => entry.challengeId !== challengeId)
+        if (nextPlan.length === previous.battlePlan.length) return
+        await this.writePreviousPlannerRound({ ...previous, battlePlan: nextPlan })
     }
 
     async startChallenge(challengeId: string): Promise<ChallengeActionResult<ChallengeApiStartData>> {
@@ -1391,12 +1305,12 @@ export class ChallengeManager {
     }
 
     /**
-     * 实战（engagement）模式下记录一个已验证目标/发现。
+     * Record a verified objective/finding in engagement mode.
      *
-     * 与 submitFlag 的本质区别：
-     * - 不连任何远程评分 API（实战没有裁判）
-     * - 只写本地提交日志，correct 恒为 false（没有"判对"这回事，由操作员复核）
-     * - 绝不自动 finishChallenge / 标记完成——完成由操作员外部确认
+     * Unlike submitFlag:
+     * - No remote scoring API (engagement has no judge)
+     * - Writes local submission log only; correct always false (no "judged correct"; operator reviews)
+     * - Never auto finishChallenge / mark complete — completion confirmed externally by operator
      */
     async recordEngagementObjective(
         engagementId: string,
@@ -1426,10 +1340,10 @@ export class ChallengeManager {
     }
 
     /**
-     * 标记一个实战目标"主目标已达成" → 触发 finishChallenge：
-     * 停掉该目标所有 solver，且因 computeChallengeCompleted 现在返回 true，
-     * planner 的 buildPlannerSnapshot 会把它从未完成集合里排除 → 不再补派。
-     * 来源:solver 经 report_finding(objective_achieved=true) 自报,或操作员手动标记。
+     * Mark engagement target "primary objective achieved" → triggers finishChallenge:
+     * Stops all solvers on that target; computeChallengeCompleted now true,
+     * buildPlannerSnapshot excludes it from incomplete set → no re-dispatch.
+     * Source: solver self-report via report_finding(objective_achieved=true), or operator manual mark.
      */
     async markEngagementComplete(challengeId: string, source = "engagement:objective-achieved"): Promise<void> {
         const rootDir = await this.getRootDir()
@@ -1439,22 +1353,22 @@ export class ChallengeManager {
             this.error("engagement:complete", "target not found, cannot mark complete", undefined, { challengeId: id })
             return
         }
-        if (challenge.objective_achieved === true) return // 幂等:已标记过
+        if (challenge.objective_achieved === true) return // idempotent: already marked
         this.log("engagement:complete", "marking objective achieved", { challengeId: id, source })
         await saveChallengeRecord(rootDir, { ...challenge, objective_achieved: true }, source)
-        // 复用现成的完成清理:停实例 + 停该目标所有 solver。
+        // Reuse finish cleanup: stop instance + all solvers on this target.
         await this.finishChallenge(id)
     }
 
     /**
-     * 独立 verifier 复跑确认(双重验证的"主动复现"那半)。
+     * Independent verifier re-run (the "active reproduction" half of dual verification).
      *
-     * solver 自报主目标达成、且过了证据门禁(确定性首过)后，引擎异步起一个独立 verifier agent，
-     * 在 Kali 容器里用 bash 直接对目标重新复跑 proof 的核心断言，拿到自己生成的新证据
-     * 才判 verified。只有 verified 才触发 markEngagementComplete(自动收尾);rejected/inconclusive
-     * 都不收尾，让 solver 继续推进(rejected 时 steer 提示"复核未通过，继续")。
+     * After solver reports primary objective and passes evidence gate (deterministic first pass), engine starts async verifier agent,
+     * re-runs core proof assertions on target via bash in Kali, with freshly generated evidence
+     * before verified. Only verified triggers markEngagementComplete (auto wind-down); rejected/inconclusive
+     * do not wind down; solvers keep going (rejected steers "verification failed, continue").
      *
-     * 这是真正解决"幻觉 RCE 误停整条战线"的那层——证据正则只是便宜的首过，verifier 才是主动复现。
+     * Fixes hallucinated RCE stopping the whole line — regex gate is cheap first pass; verifier is active reproduction.
      */
     async verifyObjective(input: {
         challengeId: string
@@ -1484,7 +1398,7 @@ export class ChallengeManager {
             sessionOpts = undefined
         }
         if (!sessionOpts?.resourceLoader) {
-            // verifier 不可用时不能默默放行(那等于又回到无验证)；判 inconclusive，交操作员复核。
+            // Verifier unavailable must not silently pass; mark inconclusive for operator review.
             this.log("engagement:verify", "verifier unavailable; leaving for operator review", { challengeId: id })
             await resolve("inconclusive", "verifier prompt unavailable; left for operator confirmation")
             return
@@ -1554,21 +1468,21 @@ export class ChallengeManager {
             await resolve("rejected", verdictNote || "verifier could not reproduce the claim")
             return
         }
-        // 未给判定 / inconclusive：不收尾，交操作员复核。
+        // No verdict / inconclusive: do not wind down; operator reviews.
         this.log("engagement:verify", "verifier inconclusive; left for operator review", { challengeId: id })
         await resolve("inconclusive", verdictNote || "verifier could not run the check")
     }
 
-    /** 操作员手动确认完成(等价于标记主目标达成)。 */
+    /** Operator manually confirms completion (same as marking primary objective achieved). */
     async confirmEngagementComplete(challengeId: string): Promise<void> {
         await this.markEngagementComplete(challengeId, "engagement:operator-confirm")
     }
 
     /**
-     * 操作员撤销"完成"判定(误报兜底):
-     * 1. 清掉 objective_achieved → 目标重新变"未完成"(planner 会重新接管)
-     * 2. 把之前因完成而停掉的 solver 用原 session 续跑(带上下文接着推进,不是从零重启)
-     * 找不到记录的停止列表时,回退到"该目标当前所有 stopped solver"。
+     * Operator revokes "complete" (false-positive safety net):
+     * 1. Clear objective_achieved → target back to incomplete (planner resumes)
+     * 2. Resume solvers stopped on completion with same session (continue with context, not cold restart)
+     * If no recorded stop list, fall back to all stopped solvers on this target.
      */
     async revokeEngagementComplete(challengeId: string): Promise<{ resumed: string[] }> {
         const rootDir = await this.getRootDir()
@@ -1586,7 +1500,7 @@ export class ChallengeManager {
         const runtime = this.runtime
         if (!runtime) return { resumed: [] }
 
-        // 优先续跑"完成时记录下来停掉的那批";没有记录则回退到该目标当前 stopped 的 solver。
+        // Prefer solvers recorded at completion; else fall back to currently stopped solvers on this target.
         let toResume = this.stoppedOnCompletion.get(id)
         if (!toResume || toResume.length === 0) {
             const all = await runtime.listAll()
@@ -1611,6 +1525,113 @@ export class ChallengeManager {
         }
         this.stoppedOnCompletion.delete(id)
         this.log("engagement:revoke", "resumed solvers after revoke", { challengeId: id, resumed })
+        return { resumed }
+    }
+
+    private buildSolverEnvForChallenge(challengeId: string): Record<string, string> {
+        const solverEnv: Record<string, string> = { [CHALLENGE_ENV_CHALLENGE_ID]: challengeId }
+        if (isEngagementMode()) {
+            solverEnv[ENGAGEMENT_ENV_MODE] = "1"
+            const scopePath = process.env[ENGAGEMENT_ENV_SCOPE]?.trim()
+            if (scopePath) solverEnv[ENGAGEMENT_ENV_SCOPE] = scopePath
+        }
+        return solverEnv
+    }
+
+    private async listStoppedSolverIdsForChallenge(challengeId: string): Promise<string[]> {
+        const runtime = this.runtime
+        if (!runtime) return []
+        const all = await runtime.listAll()
+        return all.filter((solver) => solver.challengeId === challengeId && solver.status === "stopped").map((solver) => solver.id)
+    }
+
+    private async stopActiveSolversForChallenge(challengeId: string): Promise<string[]> {
+        const runtime = this.runtime
+        if (!runtime) return []
+        const all = await runtime.listAll()
+        const active = all.filter(
+            (solver) =>
+                solver.challengeId === challengeId &&
+                (solver.status === "running" || solver.status === "starting" || solver.status === "stopping"),
+        )
+        const stopped: string[] = []
+        for (const solver of active) {
+            try {
+                await runtime.stopSolver(solver.id)
+                stopped.push(solver.id)
+            } catch (error) {
+                this.error("challenge:pause", "failed to stop solver", error, { challengeId, solverId: solver.id })
+            }
+        }
+        return stopped
+    }
+
+    /**
+     * Operator pause: stop active solvers on this target and block planner / new launches.
+     * Shared operational state (memory, ideas, assets) is preserved.
+     */
+    async pauseTargetTesting(challengeId: string): Promise<{ stoppedSolvers: string[] }> {
+        const rootDir = await this.getRootDir()
+        const id = requireText(challengeId, "challengeId")
+        const challenge = await readChallengeRecord(rootDir, id)
+        if (!challenge) throw new Error(`challenge "${id}" not found`)
+        if (computeChallengeCompleted(challenge)) {
+            throw new Error(`challenge "${id}" is already completed`)
+        }
+        if (challenge.testing_paused === true) {
+            return { stoppedSolvers: [] }
+        }
+
+        const stoppedSolvers = await this.stopActiveSolversForChallenge(id)
+        if (stoppedSolvers.length > 0) {
+            this.stoppedOnPause.set(id, stoppedSolvers)
+        }
+
+        await saveChallengeRecord(rootDir, { ...challenge, testing_paused: true }, "engagement:pause-testing")
+        this.log("challenge:pause", "target testing paused", { challengeId: id, stoppedSolvers })
+        return { stoppedSolvers }
+    }
+
+    /**
+     * Operator resume: clear pause flag and continue stopped solvers with persisted sessions (same as revoke-complete resume path).
+     */
+    async resumeTargetTesting(challengeId: string): Promise<{ resumed: string[] }> {
+        const rootDir = await this.getRootDir()
+        const id = requireText(challengeId, "challengeId")
+        const challenge = await readChallengeRecord(rootDir, id)
+        if (!challenge) throw new Error(`challenge "${id}" not found`)
+        if (computeChallengeCompleted(challenge)) {
+            throw new Error(`challenge "${id}" is already completed`)
+        }
+        if (challenge.testing_paused !== true) {
+            return { resumed: [] }
+        }
+
+        await saveChallengeRecord(rootDir, { ...challenge, testing_paused: false }, "engagement:resume-testing")
+
+        const runtime = this.runtime
+        if (!runtime) {
+            this.stoppedOnPause.delete(id)
+            this.log("challenge:resume", "target testing resumed (no runtime attached)", { challengeId: id })
+            return { resumed: [] }
+        }
+
+        let toResume = this.stoppedOnPause.get(id)
+        if (!toResume || toResume.length === 0) {
+            toResume = await this.listStoppedSolverIdsForChallenge(id)
+        }
+        const solverEnv = this.buildSolverEnvForChallenge(id)
+        const resumed: string[] = []
+        for (const solverId of toResume) {
+            try {
+                await runtime.resumeSolver(solverId, solverEnv)
+                resumed.push(solverId)
+            } catch (error) {
+                this.error("challenge:resume", "failed to resume solver", error, { challengeId: id, solverId })
+            }
+        }
+        this.stoppedOnPause.delete(id)
+        this.log("challenge:resume", "target testing resumed", { challengeId: id, resumed })
         return { resumed }
     }
 
@@ -1679,9 +1700,7 @@ export class ChallengeManager {
 
     async appendRelation(input: AddRelationInput): Promise<MemoryRelation> {
         const rootDir = await this.getRootDir()
-        const relation = await appendChallengeRelation(rootDir, input)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(input.challengeId, formatChallengeRelationBroadcastMessage("added", relation))
-        return relation
+        return appendChallengeRelation(rootDir, input)
     }
 
     async listRelations(challengeId: string): Promise<MemoryRelation[]> {
@@ -1691,16 +1710,12 @@ export class ChallengeManager {
 
     async updateRelation(challengeId: string, relationIdOrPrefix: string, patch: UpdateRelationInput): Promise<MemoryRelation> {
         const rootDir = await this.getRootDir()
-        const relation = await updateChallengeRelation(rootDir, challengeId, relationIdOrPrefix, patch)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeRelationBroadcastMessage("updated", relation))
-        return relation
+        return updateChallengeRelation(rootDir, challengeId, relationIdOrPrefix, patch)
     }
 
     async deleteRelation(challengeId: string, relationIdOrPrefix: string): Promise<MemoryRelation> {
         const rootDir = await this.getRootDir()
-        const relation = await deleteChallengeRelation(rootDir, challengeId, relationIdOrPrefix)
-        this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeRelationBroadcastMessage("deleted", relation))
-        return relation
+        return deleteChallengeRelation(rootDir, challengeId, relationIdOrPrefix)
     }
 
     async queryRelations(challengeId: string, filter: { source?: string; relation?: string; target?: string }): Promise<MemoryRelation[]> {
@@ -1712,6 +1727,77 @@ export class ChallengeManager {
         const rootDir = await this.getRootDir()
         const relations = await listChallengeRelations(rootDir, challengeId)
         return findChallengeRelationShortestPath(relations, start, end)
+    }
+
+    /** Full target progress panorama for Commander / operator tools. */
+    async buildTargetOverview(targetId: string): Promise<TargetOverview> {
+        const challengeId = requireText(targetId, "targetId")
+        const challenge = await this.getChallenge(challengeId)
+        if (!challenge) {
+            throw new Error(`challenge "${challengeId}" not found`)
+        }
+
+        const rootDir = await this.getRootDir()
+        const [attempts, submissions, memory, ideas, stateAssets, relations] = await Promise.all([
+            listChallengeAttemptLogs(rootDir, challengeId),
+            listChallengeSubmissionLogs(rootDir, challengeId),
+            listChallengeMemory(rootDir, challengeId),
+            listChallengeIdeas(rootDir, challengeId),
+            listChallengeStateAssets(rootDir, challengeId),
+            listChallengeRelations(rootDir, challengeId),
+        ])
+
+        const settings = await this.config.getHostSettings()
+        const staleTimeoutMs = clampInt(settings.planner.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS, 5 * 60 * 1000, 24 * 60 * 60 * 1000)
+
+        let activeSolvers: SolverInstance[] = []
+        if (this.runtime) {
+            const allSolvers =
+                typeof this.runtime.listAll === "function" ? await this.runtime.listAll() : this.runtime.list()
+            activeSolvers = allSolvers.filter(isActiveSolver).filter((solver) => solver.challengeId === challengeId)
+        }
+
+        const snapshot = this.buildPlannerSnapshotItem(
+            challenge,
+            attempts,
+            submissions,
+            memory,
+            ideas,
+            stateAssets,
+            activeSolvers,
+            staleTimeoutMs,
+        )
+
+        const activeSolverRows = await Promise.all(
+            activeSolvers.map(async (solver) => ({
+                id: solver.id,
+                status: solver.status,
+                currentFocus: await this.deriveSolverFocus(solver),
+            })),
+        )
+
+        const relationLines = sortByUpdatedAtDesc(relations)
+            .slice(0, PLANNER_MEMORY_FACT_LIMIT)
+            .map((item) => formatRelationLine(item))
+
+        return {
+            challengeId: challenge.id,
+            title: challenge.title,
+            instanceStatus: challenge.instance_status,
+            progressPhase: snapshot.progressPhase,
+            successRate: snapshot.successRate,
+            failedRouteCount: snapshot.failedRouteCount,
+            findingCount: snapshot.correctSubmissionCount,
+            activeSolverCount: snapshot.activeSolverCount,
+            pruneRecommended: snapshot.pruneRecommended,
+            stateAssets: snapshot.stateAssets,
+            relations: relationLines,
+            memoryFacts: snapshot.memoryFacts,
+            failureBoundaries: snapshot.failureBoundaries,
+            liveIdeas: snapshot.liveIdeas,
+            findings: snapshot.findings,
+            activeSolvers: activeSolverRows,
+        }
     }
 
     async listIdeas(challengeId: string): Promise<IdeaRecord[]> {
@@ -1745,7 +1831,7 @@ export class ChallengeManager {
         return item
     }
 
-    // ── 结构化作战状态库（跨 solver 共享的 hosts/services/credentials/sessions） ──
+    // ── Structured battlefield state (cross-solver hosts/services/credentials/sessions) ──
 
     async listStateAssets(challengeId: string): Promise<StateAsset[]> {
         const rootDir = await this.getRootDir()
@@ -1755,7 +1841,7 @@ export class ChallengeManager {
     async upsertStateAsset(challengeId: string, input: AddStateAssetInput): Promise<UpsertStateAssetResult> {
         const rootDir = await this.getRootDir()
         const result = await upsertChallengeStateAsset(rootDir, challengeId, input)
-        // 新资产(尤其凭据/会话)对其它 solver 是高价值情报 → 广播,避免重复爆破/重复获取。
+        // New assets (especially creds/sessions) are high-value intel → broadcast to avoid duplicate brute/re-acquisition.
         this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeStateAssetBroadcastMessage(result.created ? "added" : "updated", result.asset))
         return result
     }
@@ -1821,25 +1907,15 @@ export class ChallengeManager {
             throw new Error(`subagent prompt cannot be started as solver: ${promptNameText}`)
         }
 
-        // 并发硬门禁：UI 配的 maxSolvers 此前只作为文字喂给 planner（软约束），planner 可能不守、
-        // Commander 完全无视。这里在唯一的 solver 启动咽喉做代码层强制——按全局活跃 solver 数(starting|running)
-        // 与上限比对，达到上限就拒绝(plannerHandoff?.allowOverflow 不存在，两条路径一视同仁)。这样 UI 的数字才真正生效。
-        const hostSettings = await this.config.getHostSettings()
-        const maxSolvers = clampInt(hostSettings.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS, 0, 64)
-        const activeSolverCount = this.runtime.list().filter(isActiveSolver).length
-        if (activeSolverCount >= maxSolvers) {
-            this.log("challenge:solver", "launch rejected: at solver capacity", { challengeId, activeSolverCount, maxSolvers })
-            throw new Error(
-                `solver capacity reached: ${activeSolverCount}/${maxSolvers} active solvers. Raise maxSolvers in Config → 调度器, or stop a running solver before launching another.`,
-            )
-        }
-
         const current = await this.getChallenge(challengeId)
         if (!current) {
             throw new Error(`challenge "${challengeId}" not found`)
         }
         if (computeChallengeCompleted(current)) {
             throw new Error(`challenge "${challengeId}" is already completed`)
+        }
+        if (current.testing_paused === true) {
+            throw new Error(`target "${challengeId}" testing is paused; use resume testing on the target page first`)
         }
 
         let challenge: ChallengeInfoRecord | undefined = current
@@ -1861,6 +1937,15 @@ export class ChallengeManager {
             throw new Error(`challenge "${challengeId}" is already completed`)
         }
 
+        const settings = await this.config.getHostSettings()
+        const maxSolvers = clampInt(settings.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS, 0, 64)
+        const allSolvers =
+            typeof this.runtime.listAll === "function" ? await this.runtime.listAll() : this.runtime.list()
+        const activeSolvers = allSolvers.filter(isActiveSolver)
+        if (activeSolvers.length >= maxSolvers) {
+            throw new Error(`solver capacity reached: ${activeSolvers.length}/${maxSolvers}`)
+        }
+
         const solverId = crypto.randomUUID().slice(0, 8)
         const task = await this.buildSolverTask(challenge, options)
         try {
@@ -1872,8 +1957,8 @@ export class ChallengeManager {
             })
         }
         const solverEnv: Record<string, string> = { [CHALLENGE_ENV_CHALLENGE_ID]: challengeId }
-        // 实战模式：把 engagement 标记与 scope 路径透传给 solver，
-        // 让 host-bridge-handler 经 getSolverEnvValue 走实战分支（本地记录，不连远程评分）。
+        // Engagement: pass engagement flag and scope path to solver,
+        // so host-bridge-handler uses engagement branch via getSolverEnvValue (local records, no remote scoring).
         if (isEngagementMode()) {
             solverEnv[ENGAGEMENT_ENV_MODE] = "1"
             const scopePath = process.env[ENGAGEMENT_ENV_SCOPE]?.trim()
@@ -1916,7 +2001,7 @@ export class ChallengeManager {
             const solvers = await this.runtime.listAll()
             const active = solvers.filter((solver) => solver.challengeId === id && (solver.status === "starting" || solver.status === "running" || solver.status === "stopping"))
             await Promise.allSettled(active.map((solver) => this.runtime!.stopSolver(solver.id)))
-            // 记录这次因完成而停掉的 solver,供"撤销完成"时精确续跑。
+            // Record solvers stopped on completion for precise resume on revoke.
             if (active.length > 0) this.stoppedOnCompletion.set(id, active.map((solver) => solver.id))
             this.log("challenge:finish", "finished solved challenge cleanup", { challengeId: id, stoppedSolvers: active.map((solver) => solver.id) })
         } finally {
@@ -1944,13 +2029,13 @@ export class ChallengeManager {
         const resourceLoader = wrapPlannerResourceLoader(sessionOpts.resourceLoader, snapshot, settings.planner.strategy, previousRound)
         await resourceLoader.reload()
 
-        // 作战计划收集器：用上一轮的计划做种子(未改动的目标计划自动延续)，
-        // planner 本轮通过 planner_set_plan 工具增量更新，结束后整体持久化。
+        // Battle plan collector: seed from previous round (unchanged targets carry over),
+        // planner updates incrementally via planner_set_plan, persisted at end.
         const battlePlan = new Map<string, PlannerBattlePlanEntry>()
         for (const entry of previousRound?.battlePlan ?? []) {
             battlePlan.set(entry.challengeId, entry)
         }
-        // 只保留仍可见(未完成)目标的计划，避免计划无限堆积已完成/消失的目标。
+        // Keep only visible (incomplete) targets to avoid unbounded plan growth.
         const visibleChallengeIds = new Set(snapshot.challenges.map((challenge) => challenge.id))
         for (const id of [...battlePlan.keys()]) {
             if (!visibleChallengeIds.has(id)) battlePlan.delete(id)
@@ -2096,6 +2181,9 @@ export class ChallengeManager {
                 execute: async (_toolCallId, params) => {
                     const promptName = requireText(params.promptName, "promptName")
                     const solverHandoff = clipTaskText(requireText(params.solverHandoff, "solverHandoff"), SOLVER_HANDOFF_MAX_CHARS)
+                    if ((await this.getChallenge(params.challengeId))?.testing_paused === true) {
+                        throw new Error(`target "${params.challengeId}" testing is paused by operator`)
+                    }
                     this.log("challenge:planner-tool", "launch solver requested", { challengeId: params.challengeId, promptName })
                     try {
                         const solver = await this.launchSolver(params.challengeId, promptName, { plannerHandoff: solverHandoff })
@@ -2201,7 +2289,7 @@ export class ChallengeManager {
         const maxSolvers = clampInt(settings.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS, 0, 64)
         const staleTimeoutMs = clampInt(settings.planner.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MS, 5 * 60 * 1000, 24 * 60 * 60 * 1000)
         const challenges = await this.listChallengesSafe(source)
-        const unsolved = challenges.filter((item) => !computeChallengeCompleted(item))
+        const unsolved = challenges.filter((item) => !computeChallengeCompleted(item) && item.testing_paused !== true)
         const solvers = await runtime.listAll()
         const activeSolvers = solvers.filter(isActiveSolver)
         const modelPrefs = await this.config.listModelPrefs()
@@ -2235,15 +2323,15 @@ export class ChallengeManager {
                 return this.buildPlannerSnapshotItem(challenge, attempts, submissions, memory, ideas, stateAssets, activeSolvers, staleTimeoutMs)
             }),
         )
-        // 回填跨目标相对投入排名(horizon 的相对代理)：投入(attempt)最多的排第 1。
-        // research 强调用相对排序而非原始计数，避免 planner 被绝对数字误导。
+        // Backfill cross-target effort rank (horizon proxy): most attempts ranks #1.
+        // research prefers relative ranking over raw counts to avoid misleading absolutes.
         const effortOrder = [...challengeItems].sort((a, b) => b.attemptCount - a.attemptCount)
         effortOrder.forEach((item, index) => {
             item.effortRank = index + 1
         })
 
-        // 每个 active solver 此刻在干什么：从它自己的 board 派生一行 focus，
-        // 让 planner 能区分"在推进的"和"空转的"，据此决定 steer 谁 / 撤谁。
+        // Per active solver focus line from its board,
+        // so planner separates advancing vs idle and decides steer/withdraw.
         const solverFocusById = new Map<string, string>(
             await Promise.all(
                 activeSolvers.map(async (solver): Promise<[string, string]> => {
@@ -2327,10 +2415,10 @@ export class ChallengeManager {
             })
             .slice(0, PLANNER_MEMORY_FACT_LIMIT)
             .map((asset) => formatStateAssetLine(asset))
-        // "真实战果"计数：CTF 用 correct，实战用"已记录且未被 verifier 否决"(见 isRealFinding)。
-        // 难度感知/阶段/剪枝都用它——否则实战恒为 0，successRate 会反向、findings 永远空。
+        // "Real finding" count: CTF uses correct; engagement uses recorded and not verifier-rejected (isRealFinding).
+        // Difficulty/phase/pruning depend on it — else engagement stays 0, successRate inverts, findings empty.
         const correctSubmissionCount = submissions.filter(isRealFinding).length
-        // 立足点信号(精确优先)：credential/session 资产 > credential memory > 文本启发式。
+        // Foothold signal (precision first): credential/session assets > credential memory > text heuristic.
         const hasCredentialAsset = stateAssets.some((asset) => asset.kind === "credential" || asset.kind === "session")
         const hasCredentialMemory = memory.some((item) => item.kind === "credential")
         const footholdSignal = hasCredentialAsset || hasCredentialMemory || hasFootholdSignal(memoryFacts, liveIdeas)
@@ -2341,13 +2429,13 @@ export class ChallengeManager {
             hasFootholdSignal: footholdSignal,
         })
 
-        // 难度感知数值信号。
+        // Difficulty-aware numeric signals.
         const successRate = laplaceSuccessRate(correctSubmissionCount, submissions.length)
-        // 死路线 = failed ideas + failure memories（两边都算，因为 observer 可能记在任一处）。
+        // Dead routes = failed ideas + failure memories (both; observer may write either).
         const failureMemoryCount = memory.filter((item) => item.kind === "failure").length
         const failedRouteCount = ideaStatusCounts.failed + failureMemoryCount
         const hasLiveHypothesis = ideaStatusCounts.testing > 0 || ideaStatusCounts.pending > 0 || ideaStatusCounts.verified > 0
-        // 撞死 >=3 条路线、且既无立足点又无活跃假设 → 这目标对当前打法过难，建议剪枝换目标。
+        // >=3 dead routes, no foothold, no live hypothesis → target too hard for current approach; prune.
         const pruneRecommended = failedRouteCount >= PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD && !footholdSignal && !hasLiveHypothesis && correctSubmissionCount === 0
 
         return {
@@ -2383,7 +2471,7 @@ export class ChallengeManager {
             stateAssets: stateAssetLines,
             successRate,
             failedRouteCount,
-            effortRank: undefined, // buildPlannerSnapshot 回填
+            effortRank: undefined, // filled by buildPlannerSnapshot
             pruneRecommended,
         }
     }
@@ -2392,14 +2480,14 @@ export class ChallengeManager {
         if (!challenge.entrypoint || challenge.entrypoint.length === 0) {
             throw new Error(`challenge ${challenge.id} is missing entrypoint`)
         }
-        // 只剩实战(engagement)一条路径;CTF 赛题文案已彻底移除。
+        // Engagement-only path; CTF challenge copy removed.
         return this.buildEngagementSolverTask(challenge, options)
     }
 
     /**
-     * 从 solver 自己的 board 派生一行"此刻在干什么"，喂给 planner 的 Active Solvers 表。
-     * 优先级：正在验证的假设(testing) > 待测假设(pending) > 最近一条 memory。
-     * 都没有 → 提示尚无 board 信号（刚起步 / 在空转），planner 可据此判断是否该 steer/撤。
+     * Derive one-line "what am I doing now" from solver board for planner Active Solvers table.
+     * Priority: testing hypothesis > pending > latest memory.
+     * None → no board signal yet (just started or idle); planner decides steer/withdraw.
      */
     private async deriveSolverFocus(solver: SolverInstance): Promise<string> {
         if (solver.status !== "running") return `(${solver.status})`
@@ -2414,94 +2502,16 @@ export class ChallengeManager {
     }
 
     /**
-     * 目标进度全景（给 Commander 用）：复用 planner 同款派生信号，但聚焦单个目标。
-     * 让人驱动的指挥官能一把拿到 phase / 成功率 / 剪枝建议 / 资产 / 图谱 / 各 solver 在干嘛，
-     * 而不只是 memory/ideas/findings 三类原始摘要。
-     */
-    async buildTargetOverview(challengeId: string): Promise<TargetOverview> {
-        const id = requireText(challengeId, "challengeId")
-        const challenge = await this.getChallenge(id)
-        if (!challenge) throw new Error(`challenge "${id}" not found`)
-
-        const [attempts, submissions, memory, ideas, stateAssets, relations] = await Promise.all([
-            this.listAttemptLogs(id).catch(() => [] as ChallengeAttemptLogRecord[]),
-            this.listSubmissionLogs(id).catch(() => [] as ChallengeSubmissionLogRecord[]),
-            this.listMemory(id).catch(() => [] as MemoryEntry[]),
-            this.listIdeas(id).catch(() => [] as IdeaRecord[]),
-            this.listStateAssets(id).catch(() => [] as StateAsset[]),
-            this.listRelations(id).catch(() => [] as MemoryRelation[]),
-        ])
-
-        const memoryFacts = buildPlannerMemoryFacts(memory)
-        const failureBoundaries = buildPlannerFailureBoundaries(memory)
-        const liveIdeas = buildPlannerLiveIdeas(ideas)
-        const ideaStatusCounts = buildPlannerIdeaStatusCounts(ideas)
-        const findings = buildPlannerFindings(submissions)
-        const correctSubmissionCount = submissions.filter(isRealFinding).length
-        const hasCredentialAsset = stateAssets.some((a) => a.kind === "credential" || a.kind === "session")
-        const hasCredentialMemory = memory.some((item) => item.kind === "credential")
-        const footholdSignal = hasCredentialAsset || hasCredentialMemory || hasFootholdSignal(memoryFacts, liveIdeas)
-        const progressPhase = derivePlannerProgressPhase({
-            untouched: attempts.length === 0,
-            correctSubmissionCount,
-            verifiedIdeaCount: ideaStatusCounts.verified,
-            hasFootholdSignal: footholdSignal,
-        })
-        const successRate = laplaceSuccessRate(correctSubmissionCount, submissions.length)
-        const failureMemoryCount = memory.filter((item) => item.kind === "failure").length
-        const failedRouteCount = ideaStatusCounts.failed + failureMemoryCount
-        const hasLiveHypothesis = ideaStatusCounts.testing > 0 || ideaStatusCounts.pending > 0 || ideaStatusCounts.verified > 0
-        const pruneRecommended = failedRouteCount >= PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD && !footholdSignal && !hasLiveHypothesis && correctSubmissionCount === 0
-
-        const stateAssetLines = [...stateAssets]
-            .sort((a, b) => {
-                const rank = (kind: StateAsset["kind"]) => (kind === "credential" ? 3 : kind === "session" ? 2 : kind === "service" ? 1 : 0)
-                return rank(b.kind) - rank(a.kind) || (parseTimestamp(b.updated_at) ?? 0) - (parseTimestamp(a.updated_at) ?? 0)
-            })
-            .map((asset) => formatStateAssetLine(asset))
-        const relationLines = relations.slice(0, SOLVER_RELATION_LIMIT).map((rel) => formatRelationLine(rel))
-
-        const activeSolvers = (this.getRuntime()?.list() ?? []).filter((s) => s.challengeId === id && isActiveSolver(s))
-        const activeSolverFocus = await Promise.all(
-            activeSolvers.map(async (solver) => ({
-                id: solver.id,
-                status: solver.status,
-                currentFocus: await this.deriveSolverFocus(solver).catch(() => "(no board signal yet)"),
-            })),
-        )
-
-        return {
-            challengeId: id,
-            title: challenge.title,
-            instanceStatus: challenge.instance_status,
-            progressPhase,
-            successRate,
-            failedRouteCount,
-            pruneRecommended,
-            findingCount: correctSubmissionCount,
-            activeSolverCount: activeSolvers.length,
-            memoryFacts,
-            failureBoundaries,
-            liveIdeas,
-            findings,
-            stateAssets: stateAssetLines,
-            relations: relationLines,
-            activeSolvers: activeSolverFocus,
-        }
-    }
-
-    /**
-     * 实战（engagement）模式的 solver 任务文案：
-     * 授权演练框架，不提 CTF/flag；注入 scope 授权范围与交战规则。
+     * Engagement-mode solver task brief:
+     * Authorized exercise framing, no CTF/flag; inject scope and rules of engagement.
      */
     private async buildEngagementSolverTask(challenge: ChallengeInfoRecord, options?: LaunchSolverOptions): Promise<string> {
         const entrypoint = (challenge.entrypoint ?? []).map((item) => `- ${item}`).join("\n")
-        const [memoryItems, ideaItems, submissionItems, stateAssets, relations] = await Promise.all([
+        const [memoryItems, ideaItems, submissionItems, stateAssets] = await Promise.all([
             this.listMemory(challenge.id),
             this.listIdeas(challenge.id),
             this.listSubmissionLogs(challenge.id),
             this.listStateAssets(challenge.id).catch(() => [] as StateAsset[]),
-            this.listRelations(challenge.id).catch(() => [] as MemoryRelation[]),
         ])
         const plannerHandoff = options?.plannerHandoff?.trim()
 
@@ -2541,9 +2551,6 @@ export class ChallengeManager {
             ``,
             `Shared battlefield state (hosts/services/credentials/sessions already obtained by the team — REUSE, do not re-discover):`,
             formatSolverStateAssetsSection(stateAssets),
-            ``,
-            `Attack graph (edges the team has mapped — how entities connect; chain them with find_attack_path to reach your objective):`,
-            formatSolverRelationsSection(relations),
             ``,
             `Requirements:`,
             `- The moment you verify a vuln / obtain control / get high-value evidence, record it with report_finding (proof + route writeup).`,

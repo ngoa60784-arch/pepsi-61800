@@ -7,7 +7,7 @@ export interface SolverInitPayload {
     promptName: string
     task: string
     challengeId?: string
-    /** true = 续跑:加载该 solver 落盘的旧 session 接着推进,而非新建空 session 从头跑 init.task。 */
+    /** true = resume: load the old session this solver persisted and continue from there, instead of creating an empty session and running init.task from scratch. */
     resume?: boolean
 }
 

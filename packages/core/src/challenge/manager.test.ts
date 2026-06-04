@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "fs/promises"
 import { tmpdir } from "os"
 import { resolve } from "path"
 import type { ConfigManager } from "../config/index"
-import { CHALLENGE_ENV_DIR, ENGAGEMENT_ENV_MODE } from "./env"
+import { CHALLENGE_ENV_DIR } from "./env"
 import { ChallengeManager } from "./manager"
 import { appendChallengeAttemptLog, appendChallengeSubmissionLog, saveChallengeRecord } from "./store"
 import { readSolverBoardSnapshot } from "../solver/board-store"
@@ -16,10 +16,8 @@ const originalFetch = globalThis.fetch
 beforeEach(async () => {
     challengeDir = await mkdtemp(resolve(tmpdir(), "tch-challenge-manager-test-"))
     process.env[CHALLENGE_ENV_DIR] = challengeDir
-    // 这些用例覆盖的是本地存储底座 + 传统任务文案；用逃生口关掉实战默认，确定性地走 mock 语义。
-    process.env[ENGAGEMENT_ENV_MODE] = "0"
     const config = {
-        getHostSettings: async () => ({ runtime: {}, challenge: { mockEnabled: true }, planner: {} }),
+        getHostSettings: async () => ({ runtime: {}, challenge: {}, planner: {} }),
         getPrompt: async () => ({ meta: { isSubagent: false } }),
         listAgentPrompts: async () => [],
         listModelPrefs: async () => [],
@@ -29,38 +27,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
     delete process.env[CHALLENGE_ENV_DIR]
-    delete process.env[ENGAGEMENT_ENV_MODE]
     globalThis.fetch = originalFetch
     await rm(challengeDir, { recursive: true, force: true })
 })
 
-describe("challenge-manager mock api", () => {
-    test("limits running challenges to 3", async () => {
-        for (const id of ["mock-a", "mock-b", "mock-c", "mock-d"]) {
-            await manager.createChallenge({
-                id,
-                title: id,
-                difficulty: "easy",
-                description: "",
-                level: 1,
-                total_score: 100,
-                total_got_score: 0,
-                flag_count: 1,
-                flag_got_count: 0,
-                hint_viewed: false,
-                instance_status: "stopped",
-                entrypoint: ["127.0.0.1:8080"],
-                flags: ["flag{ok}"],
-            })
-        }
-
-        await manager.startChallenge("mock-a")
-        await manager.startChallenge("mock-b")
-        await manager.startChallenge("mock-c")
-
-        await expect(manager.startChallenge("mock-d")).rejects.toThrow("at most 3 challenges can run at the same time")
-    })
-
+describe("challenge-manager local api", () => {
     test("requires running instance before submit and hint", async () => {
         await manager.createChallenge({
             id: "mock-web-1",
@@ -79,8 +50,8 @@ describe("challenge-manager mock api", () => {
             flags: ["flag{ok}"],
         })
 
-        await expect(manager.submitFlag("mock-web-1", "flag{ok}")).rejects.toThrow("challenge instance is not running")
-        await expect(manager.getHint("mock-web-1")).rejects.toThrow("challenge instance is not running")
+        await expect(manager.submitFlag("mock-web-1", "flag{ok}")).rejects.toThrow("target instance is not running")
+        await expect(manager.getHint("mock-web-1")).rejects.toThrow("target instance is not running")
 
         await manager.startChallenge("mock-web-1")
         const submit = await manager.submitFlag("mock-web-1", "flag{ok}")
@@ -93,10 +64,10 @@ describe("challenge-manager mock api", () => {
         expect(challenge?.hint_content).toBe("mock hint")
     })
 
-    test("mock mode only lists mock challenges", async () => {
+    test("lists all local targets regardless of id prefix", async () => {
         await manager.createChallenge({
-            id: "mock-visible",
-            title: "mock-visible",
+            id: "target-a",
+            title: "target-a",
             difficulty: "easy",
             description: "",
             level: 1,
@@ -113,8 +84,8 @@ describe("challenge-manager mock api", () => {
         await saveChallengeRecord(
             challengeDir,
             {
-                id: "web-real",
-                title: "web-real",
+                id: "target-b",
+                title: "target-b",
                 difficulty: "easy",
                 description: "",
                 level: 1,
@@ -124,27 +95,22 @@ describe("challenge-manager mock api", () => {
                 flag_got_count: 0,
                 hint_viewed: false,
                 instance_status: "running",
-                entrypoint: ["127.0.0.1:8080"],
+                entrypoint: ["10.0.0.1:443"],
             },
             "test",
         )
 
         const challenges = await manager.listStoredChallenges()
-        expect(challenges.map((item) => item.id)).toEqual(["mock-visible"])
-        expect(await manager.getChallenge("web-real")).toBeUndefined()
+        expect(challenges.map((item) => item.id).sort()).toEqual(["target-a", "target-b"])
+        expect((await manager.getChallenge("target-b"))?.id).toBe("target-b")
     })
 
-    test("without mock and api config, listChallengesSafe reads local files", async () => {
-        const localConfig = {
-            getHostSettings: async () => ({ runtime: {}, challenge: {}, planner: {} }),
-        } as unknown as ConfigManager
-        const localManager = new ChallengeManager(localConfig)
-
+    test("listChallengesSafe reads local files", async () => {
         await saveChallengeRecord(
             challengeDir,
             {
-                id: "mock-local",
-                title: "mock-local",
+                id: "local-a",
+                title: "local-a",
                 difficulty: "easy",
                 description: "",
                 level: 1,
@@ -162,8 +128,8 @@ describe("challenge-manager mock api", () => {
         await saveChallengeRecord(
             challengeDir,
             {
-                id: "real-local",
-                title: "real-local",
+                id: "local-b",
+                title: "local-b",
                 difficulty: "easy",
                 description: "",
                 level: 1,
@@ -178,16 +144,13 @@ describe("challenge-manager mock api", () => {
             "test",
         )
 
-        const challenges = await localManager.listChallengesSafe("test")
-        expect(challenges.map((item) => item.id)).toEqual(["mock-local", "real-local"])
+        const challenges = await manager.listChallengesSafe("test")
+        expect(challenges.map((item) => item.id).sort()).toEqual(["local-a", "local-b"])
     })
-
-    // NOTE: 远程 CTF 评分 API 已移除。原先三个针对 real-api 模式
-    // （apiBaseUrl/agentToken + fetch 行为）的测试随该功能一并删除。
 
     test("launchSolver starts challenge and records attempt", async () => {
         const config = {
-            getHostSettings: async () => ({ runtime: {}, challenge: { mockEnabled: true }, planner: { strategy: "不要把这整段 planner 策略原样拼给 solver。" } }),
+            getHostSettings: async () => ({ runtime: {}, challenge: {}, planner: { strategy: "Do not splice this whole planner strategy verbatim into the solver." } }),
             getPrompt: async () => ({ meta: { isSubagent: false } }),
             listAgentPrompts: async () => [],
             listModelPrefs: async () => [],
@@ -235,7 +198,7 @@ describe("challenge-manager mock api", () => {
             modelName: "anthropic/claude-sonnet",
             flag: "flag{login-guess}",
             correct: false,
-            // verifier 判定为误报 → 不应进入 brief 的 Findings 摘要（实战里"无效发现"= rejected，而非 correct:false）。
+            // Judged a false positive by the verifier -> must not enter the brief's Findings summary (in engagement an "invalid finding" = rejected, not correct:false).
             verificationStatus: "rejected",
             writeup: "tried login SQLi on /admin/login and captcha bypass, no flag",
         })
@@ -253,7 +216,7 @@ describe("challenge-manager mock api", () => {
         manager.attachRuntime({ launch, list: () => [] } as never)
 
         const solver = await manager.launchSolver("mock-launch", "pentest-orchestrator", {
-            plannerHandoff: "优先检查上传链；只有明确需要时再看 hint。",
+            plannerHandoff: "Prioritize checking the upload chain; only look at the hint when clearly necessary.",
         })
         const attempts = await manager.listAttemptLogs("mock-launch")
 
@@ -262,9 +225,9 @@ describe("challenge-manager mock api", () => {
         expect(solver.task).toContain("Target id: mock-launch")
         expect(solver.task).toContain("authorized penetration-test operator")
         expect(solver.task).toContain("Startup brief:")
-        expect(solver.task).toContain("优先检查上传链；只有明确需要时再看 hint。")
-        expect(solver.task).not.toContain("用户额外策略（包含 hint 策略，如果有）:")
-        expect(solver.task).not.toContain("不要把这整段 planner 策略原样拼给 solver。")
+        expect(solver.task).toContain("Prioritize checking the upload chain; only look at the hint when clearly necessary.")
+        expect(solver.task).not.toContain("User extra strategy (includes hint strategy, if any):")
+        expect(solver.task).not.toContain("Do not splice this whole planner strategy verbatim into the solver.")
         expect(solver.task).toContain("Current Memory summary:")
         expect(solver.task).toContain("login page exposes /admin")
         expect(solver.task).toContain("Current Ideas summary:")
@@ -277,7 +240,7 @@ describe("challenge-manager mock api", () => {
         expect(solver.task).not.toContain("flag{login-guess}")
         expect(solver.task).not.toContain("tried login SQLi on /admin/login and captcha bypass, no flag")
         expect(solver.task).toContain("check the Findings summary")
-        // Opt 3: 共享作战状态段始终注入(即便当前为空),让 solver 知道去复用而非重新发现。
+        // Opt 3: the shared operational-state section is always injected (even when currently empty), so the solver knows to reuse rather than re-discover.
         expect(solver.task).toContain("Shared battlefield state")
         const seededBoard = await readSolverBoardSnapshot(solverSessionDir(solver.id))
         expect(seededBoard.memory).toEqual(
@@ -353,8 +316,8 @@ describe("challenge-manager mock api", () => {
 
     test("launchSolver enforces maxSolvers as a hard cap (rejects when at capacity)", async () => {
         const config = {
-            // maxSolvers=2：UI 配的并发上限。
-            getHostSettings: async () => ({ runtime: { maxSolvers: 2 }, challenge: { mockEnabled: true }, planner: {} }),
+            // maxSolvers=2: the concurrency cap configured in the UI.
+            getHostSettings: async () => ({ runtime: { maxSolvers: 2 }, challenge: {}, planner: {} }),
             getPrompt: async () => ({ meta: { isSubagent: false } }),
             listAgentPrompts: async () => [],
             listModelPrefs: async () => [],
@@ -387,18 +350,18 @@ describe("challenge-manager mock api", () => {
             status: "running" as const,
             createdAt: Date.now(),
         }))
-        // 已有 2 个活跃 solver（starting|running 都算），正好等于上限。
+        // Already 2 active solvers (both starting|running count), exactly at the cap.
         const activeSolvers = [
             { id: "live-1", challengeId: "mock-cap-target", status: "running" },
             { id: "live-2", challengeId: "mock-cap-target", status: "starting" },
         ]
         manager.attachRuntime({ launch, list: () => activeSolvers } as never)
 
-        // 第 3 个启动请求必须被代码层硬拒，且绝不调用 runtime.launch。
+        // The 3rd launch request must be hard-rejected at the code layer and must never call runtime.launch.
         await expect(manager.launchSolver("mock-cap-target", "kimi-security")).rejects.toThrow(/solver capacity reached: 2\/2/)
         expect(launch).not.toHaveBeenCalled()
 
-        // 降到 1 个活跃（一个停了）→ 还有空位 → 放行。
+        // Drop to 1 active (one stopped) -> a slot is free -> allowed through.
         activeSolvers.pop()
         const solver = await manager.launchSolver("mock-cap-target", "kimi-security")
         expect(solver.challengeId).toBe("mock-cap-target")
@@ -460,6 +423,77 @@ describe("challenge-manager mock api", () => {
  - result: png header accepted but php tail blocked
  - This is a target-level background update; treat it as a reference hypothesis, not a conclusion.`.replace(/^ /gm, ""),
         })
+    })
+
+    test("deleteChallenge removes local data and stops matching solvers", async () => {
+        await manager.createChallenge({
+            id: "mock-delete",
+            title: "mock-delete",
+            difficulty: "easy",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "running",
+            entrypoint: ["127.0.0.1:8080"],
+            flags: ["flag{ok}"],
+        })
+        await manager.appendMemory({ challengeId: "mock-delete", kind: "note", content: "keep me gone", source: "test" })
+
+        const stopSolver = mock(async () => {})
+        const deleteSolver = mock(async () => {})
+        const listAll = mock(async () => [
+            { id: "solver-del-a", challengeId: "mock-delete", status: "running" },
+            { id: "solver-del-b", challengeId: "other", status: "running" },
+        ])
+        manager.attachRuntime({ listAll, stopSolver, deleteSolver } as never)
+
+        const result = await manager.deleteChallenge("mock-delete")
+        expect(result.deletedSolvers).toEqual(["solver-del-a"])
+        expect(stopSolver).toHaveBeenCalledWith("solver-del-a")
+        expect(deleteSolver).toHaveBeenCalledWith("solver-del-a")
+        expect(await manager.getChallenge("mock-delete")).toBeUndefined()
+        expect(await manager.listMemory("mock-delete")).toEqual([])
+        await expect(manager.deleteChallenge("mock-delete")).rejects.toThrow("not found")
+    })
+
+    test("pauseTargetTesting stops solvers and blocks launch; resume clears pause flag", async () => {
+        await manager.createChallenge({
+            id: "mock-pause",
+            title: "mock-pause",
+            difficulty: "-",
+            description: "",
+            level: 0,
+            total_score: 0,
+            total_got_score: 0,
+            flag_count: 0,
+            flag_got_count: 0,
+            hint_viewed: false,
+            instance_status: "running",
+            entrypoint: ["https://example.com"],
+            flags: [],
+        })
+        const stopSolver = mock(async () => {})
+        const listAll = mock(async () => [{ id: "solver-p1", challengeId: "mock-pause", status: "running" }])
+        manager.attachRuntime({ listAll, stopSolver } as never)
+
+        const paused = await manager.pauseTargetTesting("mock-pause")
+        expect(paused.stoppedSolvers).toEqual(["solver-p1"])
+        expect(stopSolver).toHaveBeenCalledWith("solver-p1")
+        const afterPause = await manager.getChallenge("mock-pause")
+        expect(afterPause?.testing_paused).toBe(true)
+        await expect(manager.launchSolver("mock-pause", "kimi-security")).rejects.toThrow("paused")
+
+        const resumeSolver = mock(async () => ({ id: "solver-p1", status: "running" }))
+        manager.attachRuntime({ listAll, stopSolver, resumeSolver } as never)
+        const resumed = await manager.resumeTargetTesting("mock-pause")
+        expect(resumed.resumed).toEqual(["solver-p1"])
+        expect(resumeSolver).toHaveBeenCalled()
+        const afterResume = await manager.getChallenge("mock-pause")
+        expect(afterResume?.testing_paused).toBe(false)
     })
 
     test("finishChallenge stops challenge instance and matching active solvers", async () => {
@@ -559,7 +593,7 @@ describe("challenge-manager mock api", () => {
         expect(steer).toBeDefined()
         await steer?.execute("call-1", { solverId: "solver-live", message: "creds obtained for /admin; pivot from recon to privilege escalation" })
 
-        // 关键:steer 走 sendCommand(type:"steer"),不重启 solver(不调用 stop/launch)。
+        // Key point: steer goes through sendCommand(type:"steer"), without restarting the solver (no stop/launch call).
         expect(sendCommand).toHaveBeenCalledTimes(1)
         expect(sendCommand.mock.calls[0]?.[0]).toBe("solver-live")
         expect(sendCommand.mock.calls[0]?.[1]).toMatchObject({ type: "steer" })
@@ -603,7 +637,7 @@ describe("challenge-manager mock api", () => {
         expect(entry.nextCheckpoint).toContain("root")
     })
 
-    test("planner snapshot carries solver results (战果感知调度)", async () => {
+    test("planner snapshot carries solver results (result-aware scheduling)", async () => {
         await manager.createChallenge({
             id: "mock-results",
             title: "mock-results",
@@ -621,20 +655,20 @@ describe("challenge-manager mock api", () => {
             flags: ["flag{ok}"],
         })
 
-        // 落一个 credential memory（枢纽信号）、一个 failure 边界、一条 verified idea、一条已记录 finding。
+        // Drop one credential memory (pivot signal), one failure boundary, one verified idea, and one recorded finding.
         await manager.appendMemory({ challengeId: "mock-results", kind: "credential", content: "admin:Sup3r! for /admin panel", source: "observer" })
         await manager.appendMemory({ challengeId: "mock-results", kind: "failure", content: "union/error SQLi on /login dead-ended; parameterized", source: "observer" })
         await manager.addIdea("mock-results", { content: "polyglot php upload bypass", status: "verified", result: "webshell dropped" })
         await appendChallengeSubmissionLog(challengeDir, {
             challengeId: "mock-results",
             flag: "webshell at /uploads/x.php",
-            // 实战语义:report_finding 写 correct:false(无裁判)。这条仍应被算作真实战果(未被 verifier 否决)。
+            // Engagement semantics: report_finding writes correct:false (no judge). This entry should still count as a real result (not rejected by the verifier).
             correct: false,
             writeup: "upload bypass -> webshell -> dumped db creds",
         })
-        // 制造一次 attempt 记录，让目标不被判为 untouched。
+        // Create an attempt record so the target is not judged untouched.
         await appendChallengeAttemptLog(challengeDir, { challengeId: "mock-results", solverId: "solver-x", promptName: "p", task: "recon" })
-        // 结构化作战资产:一个凭据(跨 solver 复用)。
+        // Structured operational asset: one credential (reused across solvers).
         await manager.upsertStateAsset("mock-results", { kind: "credential", label: "admin@webapp", host: "10.0.0.5", account: "admin", secretRef: "finding:rec-1" })
 
         const listAll = mock(async () => [])
@@ -655,28 +689,28 @@ describe("challenge-manager mock api", () => {
               }
             | undefined
         expect(item).toBeDefined()
-        // credential memory → foothold 信号 → 进入 foothold/breakthrough 阶段（有 correct finding → breakthrough）。
+        // credential memory -> foothold signal -> enters the foothold/breakthrough phase (with a correct finding -> breakthrough).
         expect(item?.progressPhase).toBe("breakthrough")
-        // credential 优先填充 facts 段。
+        // credential fills the facts section first.
         expect(item?.memoryFacts.some((line) => line.includes("[credential]") && line.includes("admin:Sup3r!"))).toBe(true)
-        // 失败边界单列，供 planner 避开已死路线。
+        // Failure boundaries listed separately, so the planner avoids already-dead routes.
         expect(item?.failureBoundaries.some((line) => line.includes("union/error SQLi"))).toBe(true)
-        // 活跃假设带状态。
+        // Live hypotheses carry status.
         expect(item?.liveIdeas.some((line) => line.includes("[verified]") && line.includes("polyglot"))).toBe(true)
-        // 已记录发现以 writeup 为主。
+        // Recorded findings are driven by the writeup.
         expect(item?.findings.some((line) => line.includes("upload bypass"))).toBe(true)
         expect(item?.ideaStatusCounts.verified).toBe(1)
-        // 难度感知数值信号。回归防护:实战 finding(correct:false)仍须计入 → successRate 反映出战果，
-        // 而不是退化成"越多发现分越低"的反向值。
+        // Difficulty-aware numeric signal. Regression guard: an engagement finding (correct:false) must still count -> successRate reflects the result,
+        // rather than degrading into a reverse value of "more findings = lower score".
         expect(typeof (item as unknown as { successRate: number })?.successRate).toBe("number")
         expect((item as unknown as { successRate: number })?.successRate).toBeGreaterThan(0)
-        // 1 条真实战果 / (1 总提交) 经 Laplace → (1+1)/(1+2) ≈ 0.667，必须明显高于"零战果"的 1/3。
+        // 1 real result / (1 total submission) via Laplace -> (1+1)/(1+2) ≈ 0.667, which must be clearly higher than the 1/3 of "zero results".
         expect((item as unknown as { successRate: number })?.successRate).toBeGreaterThan(0.5)
         expect((item as unknown as { failedRouteCount: number })?.failedRouteCount).toBeGreaterThanOrEqual(1)
         expect(typeof (item as unknown as { effortRank: number })?.effortRank).toBe("number")
-        // 有立足点(credential) + verified idea + correct finding → 绝不建议剪枝。
+        // With a foothold (credential) + verified idea + correct finding -> never recommend pruning.
         expect((item as unknown as { pruneRecommended: boolean })?.pruneRecommended).toBe(false)
-        // 结构化作战资产进入 snapshot,凭据可被调度层看到。
+        // The structured operational asset enters the snapshot; the credential is visible to the scheduling layer.
         expect((item as unknown as { stateAssets: string[] })?.stateAssets.some((line) => line.includes("[credential]") && line.includes("admin@webapp"))).toBe(true)
     })
 
@@ -697,7 +731,7 @@ describe("challenge-manager mock api", () => {
             entrypoint: ["10.0.0.7:443"],
             flags: ["flag{ok}"],
         })
-        // 3 条死路线：2 个 failure memory + 1 个 failed idea。无 credential、无 testing/pending/verified。
+        // 3 dead routes: 2 failure memories + 1 failed idea. No credential, no testing/pending/verified.
         await manager.appendMemory({ challengeId: "mock-prune", kind: "failure", content: "SQLi everywhere parameterized; dead", source: "observer" })
         await manager.appendMemory({ challengeId: "mock-prune", kind: "failure", content: "no file upload endpoint exists", source: "observer" })
         await manager.addIdea("mock-prune", { content: "brute force admin login", status: "failed", result: "account lockout after 5" })
@@ -743,8 +777,8 @@ describe("challenge-manager mock api", () => {
         })
 
         const resolved: Array<{ verdict: string; note: string }> = []
-        // config stub 没有 resolvePromptSession → verifyObjective 走"verifier 不可用"兜底:
-        // 判 inconclusive、绝不收尾。
+        // config stub has no resolvePromptSession -> verifyObjective takes the "verifier unavailable" fallback:
+        // judges inconclusive, never winds down.
         await manager.verifyObjective({
             challengeId: "verify-fallback",
             recordId: record.id,
@@ -754,7 +788,7 @@ describe("challenge-manager mock api", () => {
 
         expect(resolved).toHaveLength(1)
         expect(resolved[0].verdict).toBe("inconclusive")
-        // 关键:verifier 不可用绝不能默默收尾。
+        // Key point: an unavailable verifier must never silently wind down.
         const challenge = await manager.getChallenge("verify-fallback")
         expect(challenge?.objective_achieved).not.toBe(true)
         const submissions = await manager.listSubmissionLogs("verify-fallback")

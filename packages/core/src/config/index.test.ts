@@ -138,6 +138,11 @@ describe("built-in reference", () => {
         expect(anthropic!.apis).toContain("anthropic-messages")
         expect(anthropic!.baseUrls.some((u) => u.includes("anthropic.com"))).toBe(true)
         expect(anthropic!.modelCount).toBeGreaterThan(0)
+        const deepseek = providers.find((p) => p.provider === "deepseek")
+        expect(deepseek).toBeDefined()
+        expect(deepseek!.apis).toContain("openai-completions")
+        expect(deepseek!.baseUrls).toContain("https://api.deepseek.com")
+        expect(deepseek!.modelCount).toBeGreaterThanOrEqual(4)
     })
 
     test("listBuiltInModels returns Model<Api> objects", () => {
@@ -179,8 +184,9 @@ describe("skills", () => {
         await Bun.write(resolve(configDir, "skills", "a", "SKILL.md"), "---\ndescription: Skill A\n---\nskill a")
         await Bun.write(resolve(configDir, "skills", "b", "SKILL.md"), "---\ndescription: Skill B\n---\nskill b")
         const skills = config.listSkills()
-        expect(skills).toHaveLength(2)
-        expect(skills.map((s) => s.name).sort()).toEqual(["a", "b"])
+        const names = skills.map((s) => s.name)
+        expect(names).toContain("a")
+        expect(names).toContain("b")
         // Each should be a full SDK Skill object
         for (const s of skills) {
             expect(s.filePath).toContain("SKILL.md")
@@ -288,12 +294,12 @@ describe("prompts", () => {
 
     test("builtin prompt does not overwrite user changes on restart", async () => {
         const { initBuiltinPrompts } = await import("./prompts/index")
-        // 首次释放内置 prompt 到用户目录
+        // First, release the builtin prompt to the user directory
         await initBuiltinPrompts(configDir)
         const promptPath = resolve(configDir, "prompts", "kimi-security.md")
         const original = await Bun.file(promptPath).text()
 
-        // 用户改写后再次释放：已存在的文件必须被跳过，用户改动保留
+        // After the user overrides it, release again: existing files must be skipped and user changes preserved
         await Bun.write(promptPath, `${original}\n\nuser override`)
         await initBuiltinPrompts(configDir)
 
@@ -304,7 +310,7 @@ describe("prompts", () => {
 // ── resolvePromptSession ──
 
 describe("resolvePromptSession", () => {
-    // ── 基础 ──
+    // ── Basics ──
 
     test("returns undefined for non-existent prompt", async () => {
         expect(await config.resolvePromptSession("nope")).toBeUndefined()
@@ -353,7 +359,7 @@ describe("resolvePromptSession", () => {
         expect(opts?.customTools?.find((tool) => tool.name === "subagent")).toBeDefined()
     })
 
-    // ── 工具分类 ──
+    // ── Tool classification ──
 
     test("no tools configured → all builtin tools disabled", async () => {
         await config.setPrompt({ name: "no-tools", meta: {}, content: "basic prompt" })
@@ -438,7 +444,7 @@ describe("resolvePromptSession", () => {
         expect(opts!.tools).toHaveLength(3)
     })
 
-    // ── Model 解析 ──
+    // ── Model resolution ──
 
     test("no model configured → opts.model and opts.thinkingLevel undefined", async () => {
         await config.setPrompt({ name: "no-model", meta: {}, content: "no model" })
@@ -485,6 +491,34 @@ describe("resolvePromptSession", () => {
         expect(opts!.model).toBeDefined()
         expect(opts!.model!.id).toBe(baseModel.id)
         expect(opts!.model!.provider).toBe(baseModel.provider)
+    })
+
+    test("activateModelGlobally sets default and rewrites prompt models", async () => {
+        const allModels = config.listAllModels()
+        const modelA = allModels.find((m) => m.provider === "anthropic")
+        const modelB = allModels.find((m) => m.provider === "openai") ?? allModels.find((m) => m.id !== modelA?.id)
+        if (!modelA || !modelB) return
+
+        await config.addModelPref({ id: "pref-a", provider: modelA.provider, modelId: modelA.id })
+        const second = await config.addModelPref({ id: "pref-b", provider: modelB.provider, modelId: modelB.id })
+        expect(second.rejected).toBeUndefined()
+
+        await config.setPrompt({
+            name: "agent-one",
+            meta: { model: "pref-a", observerEnabled: true, observerModel: "pref-a" },
+            content: "agent",
+        })
+
+        const result = await config.activateModelGlobally("pref-b")
+        expect(result.defaultModelPrefId).toBe("pref-b")
+        expect(result.promptsUpdated).toBeGreaterThanOrEqual(1)
+
+        const settings = await config.getHostSettings()
+        expect(settings.defaultModelPrefId).toBe("pref-b")
+
+        const agent = await config.getPrompt("agent-one")
+        expect(agent!.meta.model).toBe("pref-b")
+        expect(agent!.meta.observerModel).toBe("pref-b")
     })
 
     test("model pref persistence strips inherited api and baseUrl", async () => {
@@ -709,112 +743,6 @@ describe("resolvePromptSession", () => {
         expect(saved?.baseUrl).toBeUndefined()
     })
 
-    test("updating provider baseUrl removes old gateway mapping instead of migrating it", async () => {
-        await config.addProviderPref({
-            id: "moonshot",
-            name: "moonshot",
-            api: "openai-responses",
-            baseUrl: "https://api.moonshot.cn/v1",
-            apiKey: "sk-test",
-        })
-
-        await config.setHostSettings({
-            challenge: {
-                baseUrlMappings: [
-                    {
-                        sourceBaseUrl: "https://api.moonshot.cn/v1",
-                        gatewayBaseUrl: "http://10.0.0.24/64_idijevnj",
-                    },
-                ],
-            },
-        })
-
-        await config.updateProviderPref("moonshot", {
-            baseUrl: "https://api.moonshot.cn/v1/chat/completions",
-        })
-
-        const hostSettings = await config.getHostSettings()
-        expect(hostSettings.challenge.baseUrlMappings).toBeUndefined()
-    })
-
-    test("updating one provider keeps mapping when another provider still uses the old baseUrl", async () => {
-        await config.addProviderPref({
-            id: "moonshot-a",
-            name: "moonshot-a",
-            api: "openai-responses",
-            baseUrl: "https://api.moonshot.cn/v1",
-            apiKey: "sk-a",
-        })
-        await config.addProviderPref({
-            id: "moonshot-b",
-            name: "moonshot-b",
-            api: "openai-responses",
-            baseUrl: "https://api.moonshot.cn/v1",
-            apiKey: "sk-b",
-        })
-
-        await config.setHostSettings({
-            challenge: {
-                baseUrlMappings: [
-                    {
-                        sourceBaseUrl: "https://api.moonshot.cn/v1",
-                        gatewayBaseUrl: "http://10.0.0.24/64_idijevnj",
-                    },
-                ],
-            },
-        })
-
-        await config.updateProviderPref("moonshot-a", {
-            baseUrl: "https://api.moonshot.cn/v1/chat/completions",
-        })
-
-        const hostSettings = await config.getHostSettings()
-        expect(hostSettings.challenge.baseUrlMappings).toEqual([
-            {
-                sourceBaseUrl: "https://api.moonshot.cn/v1",
-                gatewayBaseUrl: "http://10.0.0.24/64_idijevnj",
-            },
-        ])
-    })
-
-    test("removing one provider keeps mapping when another provider still uses the same baseUrl", async () => {
-        await config.addProviderPref({
-            id: "moonshot-a",
-            name: "moonshot-a",
-            api: "openai-responses",
-            baseUrl: "https://api.moonshot.cn/v1",
-            apiKey: "sk-a",
-        })
-        await config.addProviderPref({
-            id: "moonshot-b",
-            name: "moonshot-b",
-            api: "openai-responses",
-            baseUrl: "https://api.moonshot.cn/v1",
-            apiKey: "sk-b",
-        })
-
-        await config.setHostSettings({
-            challenge: {
-                baseUrlMappings: [
-                    {
-                        sourceBaseUrl: "https://api.moonshot.cn/v1",
-                        gatewayBaseUrl: "http://10.0.0.24/64_idijevnj",
-                    },
-                ],
-            },
-        })
-
-        await config.removeProviderPref("moonshot-a")
-
-        const hostSettings = await config.getHostSettings()
-        expect(hostSettings.challenge.baseUrlMappings).toEqual([
-            {
-                sourceBaseUrl: "https://api.moonshot.cn/v1",
-                gatewayBaseUrl: "http://10.0.0.24/64_idijevnj",
-            },
-        ])
-    })
-
     test("model pref with thinkingLevel → opts.thinkingLevel set", async () => {
         const allModels = config.listAllModels()
         const reasoningModel = allModels.find((m) => m.reasoning)
@@ -844,14 +772,15 @@ describe("resolvePromptSession", () => {
     })
 
     test("skills configured → skillsOverride filters skills", async () => {
+        await Bun.write(resolve(configDir, "skills", "recon", "SKILL.md"), "---\ndescription: Recon\n---\n# Recon")
+        await Bun.write(resolve(configDir, "skills", "exploit", "SKILL.md"), "---\ndescription: Exploit\n---\n# Exploit")
         await config.setPrompt({ name: "with-skills", meta: { skills: ["recon", "exploit"] }, content: "skills" })
         const opts = await config.resolvePromptSession("with-skills")
         const loader = opts!.resourceLoader as any
         const overrideFn = loader.skillsOverride
         expect(overrideFn).toBeDefined()
 
-        const baseSkills = [{ name: "recon" }, { name: "exploit" }, { name: "unrelated" }]
-        const result = overrideFn({ skills: baseSkills })
+        const result = overrideFn({ skills: [{ name: "unrelated" }] })
         expect(result.skills).toHaveLength(2)
         expect(result.skills.map((s: any) => s.name).sort()).toEqual(["exploit", "recon"])
     })

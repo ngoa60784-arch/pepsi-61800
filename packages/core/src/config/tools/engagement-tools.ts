@@ -20,13 +20,13 @@ const ReportFindingParams = Type.Object({
 type ReportFindingInput = Static<typeof ReportFindingParams>
 
 /**
- * report_finding — 记录一个已验证的发现（实战/演练模式）。
+ * report_finding — record a verified finding (engagement / exercise mode).
  *
- * 不外联任何远程评分服务；发现写入本地 findings/提交日志。
- * objective_achieved=true 时表示主目标已达成 → 引擎据此停掉该目标所有 solver、planner 不再补派。
+ * Does not call out to any remote scoring service; findings are written to the local findings/submission log.
+ * objective_achieved=true means the primary objective has been met → the engine stops all solvers for that target and the planner stops dispatching more.
  *
- * 注意：内部 host-bridge action 仍沿用 "challenge_submit_flag" 这个稳定的 wire 字符串，
- * 避免改动 RPC 契约与历史日志匹配；模型只看到 report_finding 这个工具名。
+ * Note: the internal host-bridge action still uses the stable wire string "challenge_submit_flag",
+ * to avoid changing the RPC contract and breaking historical log matching; the model only sees the report_finding tool name.
  */
 export const reportFindingTool = defineTool({
     name: "report_finding",
@@ -58,9 +58,9 @@ export const reportFindingTool = defineTool({
 })
 
 /**
- * get_target_intel — 读取当前目标的本地缓存情报。
+ * get_target_intel — read the locally cached intel for the current target.
  *
- * 实战模式没有 hint 裁判：通常返回空，提示模型依赖主动侦察。
+ * Engagement mode has no hint oracle: usually returns empty, prompting the model to rely on active recon.
  */
 export const getTargetIntelTool = defineTool({
     name: "get_target_intel",
@@ -100,11 +100,11 @@ const RecordAssetParams = Type.Object({
 type RecordAssetInput = Static<typeof RecordAssetParams>
 
 /**
- * record_asset — 把一个结构化作战资产写入跨 solver 共享状态库。
+ * record_asset — write a structured battlefield asset into the cross-solver shared state store.
  *
- * 与 report_finding 区别:finding 是"已验证的发现/战果"(进验证流程);asset 是"可被其它 solver
- * 直接复用的结构化资产"(主机/服务/凭据/会话)。目的是让团队不重复发现、凭据高效复用。
- * 引擎会去重合并、广播给同目标其它 solver、并喂给调度层 planner。
+ * Difference from report_finding: a finding is a "verified discovery/result" (enters the verification flow); an asset is a "structured
+ * asset other solvers can reuse directly" (host/service/credential/session). The goal is to keep the team from re-discovering and to reuse credentials efficiently.
+ * The engine de-dupes and merges, broadcasts to other solvers on the same target, and feeds it to the scheduling-layer planner.
  */
 export const recordAssetTool = defineTool({
     name: "record_asset",
@@ -152,11 +152,11 @@ const RecordRelationParams = Type.Object({
 type RecordRelationInput = Static<typeof RecordRelationParams>
 
 /**
- * record_relation — 往跨 solver 共享的攻击图谱里写一条边。
+ * record_relation — write an edge into the cross-solver shared attack graph.
  *
- * 与 record_asset 互补:asset 是"实体本身"(主机/服务/凭据/会话);relation 是"实体之间怎么连"
- * (Host routes_to Subnet、Cred owns Host、Host exploitable_via Vuln)。把这些边连起来就能用
- * find_attack_path 算出从立足点到目标的可行路线,不必每次重新摸索。底层按三元组去重、写后广播给队友。
+ * Complements record_asset: an asset is "the entity itself" (host/service/credential/session); a relation is "how entities connect"
+ * (Host routes_to Subnet, Cred owns Host, Host exploitable_via Vuln). Connecting these edges lets you use
+ * find_attack_path to compute a viable route from foothold to target, without re-deriving it every time. Internally it de-dupes by triple and broadcasts to teammates after writing.
  */
 export const recordRelationTool = defineTool({
     name: "record_relation",
@@ -196,7 +196,7 @@ interface RelationEdge {
 }
 
 /**
- * query_relations — 按 source/relation/target 子串过滤查询攻击图谱。全空 = 返回整张图。
+ * query_relations — query the attack graph filtered by source/relation/target substrings. All empty = return the whole graph.
  */
 export const queryRelationsTool = defineTool({
     name: "query_relations",
@@ -232,9 +232,9 @@ interface PathStep {
 }
 
 /**
- * find_attack_path — 在共享攻击图谱里求 start→end 的最短可行路径(BFS, 有向)。
+ * find_attack_path — compute the shortest viable path from start→end in the shared attack graph (BFS, directed).
  *
- * 这是图谱的核心价值:把零散的边连成"从立足点到目标"的具体路线,避免每个 solver 重新摸索。
+ * This is the core value of the graph: connecting scattered edges into a concrete "foothold to target" route, so each solver doesn't have to re-derive it.
  */
 export const findAttackPathTool = defineTool({
     name: "find_attack_path",

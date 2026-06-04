@@ -1,23 +1,23 @@
 import { ENGAGEMENT_ENV_MODE, ENGAGEMENT_ENV_SCOPE } from "./env"
 
 /**
- * Engagement（实战）模式 scope 定义。
+ * Engagement-mode scope definition.
  *
- * 与 CTF 模式不同，实战没有远程裁判：目标范围、约束、结束判定全部本地化。
- * 这个 scope 文件是实战模式的唯一授权来源——没有它，或白名单为空，引擎拒绝启动。
+ * Unlike CTF mode, an engagement has no remote referee: the target scope, constraints, and end conditions are all defined locally.
+ * This scope file is the sole authorization source for engagement mode — without it, or with an empty allowlist, the engine refuses to start.
  */
 export interface EngagementScope {
-    /** 本次演练名称，仅用于报告与审计标识（如 "HVV-2026-蓝队A"）。 */
+    /** Name of this exercise, used only as a report/audit label (e.g. "HVV-2026-BlueTeamA"). */
     engagement: string
-    /** 授权目标白名单：IP / 域名 / CIDR / URL 前缀。空数组视为非法。 */
+    /** Authorized-target allowlist: IP / domain / CIDR / URL prefix. An empty array is treated as invalid. */
     allowed_targets: string[]
-    /** 明确排除的目标（优先级高于 allowed_targets），用于排除范围内的敏感资产。 */
+    /** Explicitly excluded targets (takes precedence over allowed_targets); used to carve out sensitive assets within the range. */
     out_of_scope?: string[]
-    /** 是否禁止主动扫描类命令（nmap/ffuf 等）。默认 false（实战通常允许扫描）。 */
+    /** Whether active-scanning commands (nmap/ffuf, etc.) are forbidden. Defaults to false (engagements usually allow scanning). */
     no_scan?: boolean
-    /** 额外禁用的命令 token，叠加在默认禁用集之上。 */
+    /** Additional forbidden command tokens, layered on top of the default forbidden set. */
     forbidden_commands?: string[]
-    /** 自由文本约束/备注，注入到 solver 上下文（如「禁止 DoS」「仅工作时间」）。 */
+    /** Free-text constraints/notes injected into the solver context (e.g. "no DoS", "working hours only"). */
     rules_of_engagement?: string
 }
 
@@ -27,10 +27,10 @@ export interface LoadedEngagement {
 }
 
 /**
- * 当前进程是否处于实战(engagement)模式。
+ * Whether the current process is in engagement mode.
  *
- * CTF 链路已移除，实战是**唯一**运行形态——默认开启。
- * 仅当显式设置 `TCH_ENGAGEMENT_MODE=0` 时关闭（保留逃生口，主要给历史 mock 测试用）。
+ * The CTF path has been removed; engagement is the **only** operating form — enabled by default.
+ * It is disabled only when `TCH_ENGAGEMENT_MODE=0` is explicitly set (an escape hatch kept mainly for legacy mock tests).
  */
 export function isEngagementMode(getEnv: (key: string) => string | undefined = (k) => process.env[k]): boolean {
     return getEnv(ENGAGEMENT_ENV_MODE)?.trim() !== "0"
@@ -45,8 +45,8 @@ function asStringArray(value: unknown): string[] {
 }
 
 /**
- * 校验并归一化一个原始 scope 对象。
- * 任何不合法（缺 engagement 名、白名单为空）都抛错——实战模式不允许"无范围运行"。
+ * Validate and normalize a raw scope object.
+ * Anything invalid (missing engagement name, empty allowlist) throws — engagement mode does not permit "running with no scope".
  */
 export function parseEngagementScope(raw: unknown, scopePath: string): EngagementScope {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -80,8 +80,8 @@ export function parseEngagementScope(raw: unknown, scopePath: string): Engagemen
 }
 
 /**
- * 从 TCH_ENGAGEMENT_SCOPE 指向的文件加载 scope。
- * 实战模式下必须成功，否则上层应拒绝启动 solver。
+ * Load the scope from the file pointed to by TCH_ENGAGEMENT_SCOPE.
+ * Must succeed in engagement mode, otherwise the caller should refuse to start a solver.
  */
 export async function loadEngagementScope(
     getEnv: (key: string) => string | undefined = (k) => process.env[k],

@@ -25,7 +25,7 @@ function createContext(overrides?: Partial<HostBridgeHandleContext>): HostBridge
 
 describe("engagement host bridge notifications", () => {
     test("report_finding records objective and notifies other solvers with board summary", async () => {
-        // 无 scope 文件时，storeKey 回退到 solver 的 challengeId ("chal-1")。
+        // Without scope file, storeKey falls back to solver challengeId ("chal-1").
         const recordEngagementObjective = mock(async (_challengeId: string, _proof: string) => ({ id: "submission-123" }))
         const listMemory = mock(async () => [
             {
@@ -91,18 +91,18 @@ describe("engagement host bridge notifications", () => {
         )
 
         expect(result.handled).toBe(true)
-        // 实战模式永远不自动判完成。
+        // Engagement mode never auto-marks complete.
         expect((result.data as { is_completed: boolean }).is_completed).toBe(false)
         expect((result.data as { recorded: boolean }).recorded).toBe(true)
         expect(recordEngagementObjective).toHaveBeenCalledTimes(1)
-        // 记录/读取/广播一律以 challenge(target) id 为 key（"chal-1"），而非 scope 名。
-        // 这正是 HIGH-1 修复的核心：写读 key 必须一致，否则 findings 永不回灌、广播失效。
+        // Record/read/broadcast always use challenge (target) id ("chal-1"), not scope name.
+        // HIGH-1 fix: read/write key must match or findings never replay and broadcast fails.
         expect(recordEngagementObjective.mock.calls[0]?.[0]).toBe("chal-1")
         expect(listMemory).toHaveBeenCalledWith("chal-1")
         expect(listIdeas).toHaveBeenCalledWith("chal-1")
         expect((result.data as { challenge_id: string }).challenge_id).toBe("chal-1")
 
-        // 只广播给同范围、运行中、非自身的 solver（solver-2）；solver-4 是 starting 跳过。
+        // Broadcast only to same-scope running peers (solver-2); solver-4 starting is skipped.
         expect(sendCommand).toHaveBeenCalledTimes(1)
         expect(sendCommand).toHaveBeenCalledWith("solver-2", {
             type: "steer",
@@ -121,24 +121,24 @@ describe("engagement host bridge notifications", () => {
     })
 
     test("challenge_is_completed reflects target objective_achieved state", async () => {
-        // 未达成目标(isChallengeCompleted=false) → is_completed=false
+        // Objective not achieved (isChallengeCompleted=false) → is_completed=false
         const notDone = createChallengeHostBridgeHandler({ isChallengeCompleted: async () => false } as unknown as ChallengeManager)
         const r1 = await notDone.handle(createContext({ action: "challenge_is_completed" }))
         expect(r1.handled).toBe(true)
         expect((r1.data as { is_completed: boolean }).is_completed).toBe(false)
 
-        // 主目标达成(isChallengeCompleted=true) → is_completed=true,让 solver 续跑循环收手
+        // Primary objective achieved → is_completed=true so solver loop can stop
         const done = createChallengeHostBridgeHandler({ isChallengeCompleted: async () => true } as unknown as ChallengeManager)
         const r2 = await done.handle(createContext({ action: "challenge_is_completed" }))
         expect((r2.data as { is_completed: boolean }).is_completed).toBe(true)
     })
 
     test("challenge_get_state returns target record and real completion status", async () => {
-        // challenge_get_state 必须带上目标记录与真实完成状态：observer review 靠 challenge 字段填充
-        // 上下文(标题/入口)，靠 is_completed 判断是否还要继续 review。
+        // challenge_get_state must include target record and real completion for observer review
+        // context (title/entry); is_completed decides whether review continues.
         const challengeRecord = {
             id: "chal-1",
-            title: "ACME 上传点",
+            title: "ACME Upload Point",
             entrypoint: ["http://acme.test", "https://acme.test"],
             instance_status: "running",
         }
@@ -149,18 +149,18 @@ describe("engagement host bridge notifications", () => {
         const result = await handler.handle(createContext({ action: "challenge_get_state" }))
 
         expect(result.handled).toBe(true)
-        // 用 storeKey("chal-1") 查询，而非 scope 名。
+        // Query with storeKey("chal-1"), not scope name.
         expect(getChallenge).toHaveBeenCalledWith("chal-1")
         expect(isChallengeCompleted).toHaveBeenCalledWith("chal-1")
         const data = result.data as { challenge: typeof challengeRecord | null; is_completed: boolean; challenge_id: string }
         expect(data.challenge_id).toBe("chal-1")
-        expect(data.challenge).toMatchObject({ title: "ACME 上传点", entrypoint: ["http://acme.test", "https://acme.test"] })
-        // 真实完成状态透传，不再硬编码 false。
+        expect(data.challenge).toMatchObject({ title: "ACME Upload Point", entrypoint: ["http://acme.test", "https://acme.test"] })
+        // Real completion status passed through, not hardcoded false.
         expect(data.is_completed).toBe(true)
     })
 
     test("challenge_get_state degrades gracefully when manager lookups fail", async () => {
-        // getChallenge / isChallengeCompleted 抛错时不应让整个 review 流程崩溃，回退到 null / false。
+        // getChallenge/isChallengeCompleted errors must not crash review; fall back to null/false.
         const handler = createChallengeHostBridgeHandler({
             getChallenge: async () => {
                 throw new Error("store unavailable")
@@ -199,14 +199,14 @@ describe("engagement host bridge notifications", () => {
             }),
         )
         expect(result.handled).toBe(true)
-        // 进入复核流程,尚未收尾。
+        // In verification, not wound down yet.
         expect((result.data as { is_completed: boolean }).is_completed).toBe(false)
         expect((result.data as { under_verification?: boolean }).under_verification).toBe(true)
         expect((result.data as { objective_downgraded?: boolean }).objective_downgraded).toBe(false)
-        // 关键:过证据门禁 → 起独立 verifier 复跑(不直接 markEngagementComplete)。
+        // Key: passed evidence gate → independent verifier (not direct markEngagementComplete).
         expect(verifyObjective).toHaveBeenCalledTimes(1)
         expect(verifyObjective.mock.calls[0]?.[0]).toMatchObject({ challengeId: "chal-1", recordId: "rec-1" })
-        // 自动收尾只能由 verifier 在复现确认后从内部触发,handler 不直接调用。
+        // Auto wind-down only from verifier after reproduction; handler does not call directly.
         expect(markEngagementComplete).not.toHaveBeenCalled()
     })
 
@@ -228,13 +228,13 @@ describe("engagement host bridge notifications", () => {
             }),
         )
         expect(result.handled).toBe(true)
-        // 空口号无产物 → 不进验证流程、不自动收尾，降级为普通 finding（仍记录）。
+        // Empty claim without artifacts → no verification, no auto wind-down; downgraded finding (still logged).
         expect((result.data as { is_completed: boolean }).is_completed).toBe(false)
         expect((result.data as { under_verification?: boolean }).under_verification).toBe(false)
         expect((result.data as { objective_downgraded?: boolean }).objective_downgraded).toBe(true)
         expect((result.data as { recorded: boolean }).recorded).toBe(true)
         expect(recordEngagementObjective).toHaveBeenCalledTimes(1)
-        // 关键:证据不足 → 既不起 verifier，也绝不自动停，整条战线保留。
+        // Key: insufficient evidence → no verifier, no auto stop; line stays active.
         expect(verifyObjective).not.toHaveBeenCalled()
         expect(markEngagementComplete).not.toHaveBeenCalled()
     })
@@ -268,103 +268,5 @@ describe("engagement host bridge notifications", () => {
         expect(result.handled).toBe(true)
         expect((result.data as { recorded: boolean }).recorded).toBe(false)
         expect(upsertStateAsset).not.toHaveBeenCalled()
-    })
-
-    test("relation_upsert records an attack-graph edge via the manager (keyed by challenge id)", async () => {
-        const appendRelation = mock(async (input: { challengeId: string }) => ({
-            id: "rel_abc123",
-            challengeId: input.challengeId,
-            source: "Host:10.0.0.5",
-            relation: "exploitable_via",
-            target: "Vuln:CVE-2023-1234",
-            note: "confirmed via nuclei",
-            source_ref: "",
-            created_at: "2026-04-12T00:00:00.000Z",
-            updated_at: "2026-04-12T00:00:00.000Z",
-        }))
-        const handler = createChallengeHostBridgeHandler({ appendRelation } as unknown as ChallengeManager)
-        const result = await handler.handle(
-            createContext({
-                action: "relation_upsert" as never,
-                params: { source: "Host:10.0.0.5", relation: "exploitable_via", target: "Vuln:CVE-2023-1234", note: "confirmed via nuclei" },
-            }),
-        )
-        expect(result.handled).toBe(true)
-        expect((result.data as { recorded: boolean }).recorded).toBe(true)
-        expect((result.data as { relation_id: string }).relation_id).toBe("rel_abc123")
-        expect(appendRelation).toHaveBeenCalledTimes(1)
-        // 写攻击图谱同样以 challenge(target) id 为 key,而非 scope 名。
-        expect(appendRelation.mock.calls[0]?.[0]).toMatchObject({
-            challengeId: "chal-1",
-            source: "Host:10.0.0.5",
-            relation: "exploitable_via",
-            target: "Vuln:CVE-2023-1234",
-            note: "confirmed via nuclei",
-        })
-    })
-
-    test("relation_upsert rejects a missing required field without touching the manager", async () => {
-        const appendRelation = mock(async () => ({}) as never)
-        const handler = createChallengeHostBridgeHandler({ appendRelation } as unknown as ChallengeManager)
-        // 缺 target → getRequiredString 抛错,handler 不应吞掉成功;调用方(rpc)会把它作为失败回传。
-        await expect(
-            handler.handle(
-                createContext({
-                    action: "relation_upsert" as never,
-                    params: { source: "Host:A", relation: "routes_to" },
-                }),
-            ),
-        ).rejects.toThrow("target is required")
-        expect(appendRelation).not.toHaveBeenCalled()
-    })
-
-    test("relation_query filters edges via the manager and returns a trimmed projection", async () => {
-        const queryRelations = mock(async (_id: string, _filter: Record<string, string | undefined>) => [
-            {
-                id: "rel_1",
-                challengeId: "chal-1",
-                source: "Cred:admin@web01",
-                relation: "grants_access_to",
-                target: "Host:10.0.0.9",
-                note: "reused on dc",
-                source_ref: "asset_x",
-                created_at: "2026-04-12T00:00:00.000Z",
-                updated_at: "2026-04-12T00:00:00.000Z",
-            },
-        ])
-        const handler = createChallengeHostBridgeHandler({ queryRelations } as unknown as ChallengeManager)
-        const result = await handler.handle(
-            createContext({
-                action: "relation_query" as never,
-                params: { relation: "grants" },
-            }),
-        )
-        expect(result.handled).toBe(true)
-        expect((result.data as { count: number }).count).toBe(1)
-        expect(queryRelations).toHaveBeenCalledWith("chal-1", { source: undefined, relation: "grants", target: undefined })
-        const edges = (result.data as { relations: Array<Record<string, string>> }).relations
-        // 投影只暴露 id/source/relation/target/note,不外泄内部 timestamp / challengeId。
-        expect(edges[0]).toEqual({ id: "rel_1", source: "Cred:admin@web01", relation: "grants_access_to", target: "Host:10.0.0.9", note: "reused on dc" })
-    })
-
-    test("relation_path returns the shortest mapped chain via the manager", async () => {
-        const findRelationShortestPath = mock(async (_id: string, _start: string, _end: string) => ({
-            found: true,
-            path: [
-                { source: "Host:A", relation: "routes_to", target: "Subnet:B", note: "" },
-                { source: "Subnet:B", relation: "contains", target: "Host:C", note: "" },
-            ],
-        }))
-        const handler = createChallengeHostBridgeHandler({ findRelationShortestPath } as unknown as ChallengeManager)
-        const result = await handler.handle(
-            createContext({
-                action: "relation_path" as never,
-                params: { start: "Host:A", end: "Host:C" },
-            }),
-        )
-        expect(result.handled).toBe(true)
-        expect((result.data as { found: boolean }).found).toBe(true)
-        expect((result.data as { hops: number }).hops).toBe(2)
-        expect(findRelationShortestPath).toHaveBeenCalledWith("chal-1", "Host:A", "Host:C")
     })
 })

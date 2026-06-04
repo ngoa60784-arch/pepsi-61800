@@ -92,8 +92,8 @@ mock.module("./tools", () => ({
     createObserverSidecarToolsWithOptions,
 }))
 
-// Bun 的 mock.module 是进程级全局：只列部分导出会让真实 SDK 的其余导出（如 defineTool）
-// 在别的测试文件里变成 undefined，污染 manager.test.ts 等。先展开真实模块，再覆盖本测试要 fake 的导出。
+// Bun's mock.module is a process-wide global: listing only some exports turns the real SDK's remaining exports (such as defineTool)
+// into undefined in other test files, polluting manager.test.ts and others. Spread the real module first, then override the exports this test wants to fake.
 const realPiCodingAgent = await import("@mariozechner/pi-coding-agent")
 mock.module("@mariozechner/pi-coding-agent", () => ({
     ...realPiCodingAgent,
@@ -117,8 +117,8 @@ beforeEach(async () => {
     solverWorkspaceDir = await mkdtemp(resolve(tmpdir(), "tch-observer-workspace-"))
     process.env.TCH_SOLVER_SESSION_DIR = solverSessionDir
     process.env.TCH_SOLVER_WORKSPACE = solverWorkspaceDir
-    // 这些断言针对 CTF 模式的 challenge-context 格式（difficulty/flags/hint 等），
-    // 显式关闭 engagement 模式，避免默认开启时切到 Target State 文案。
+    // These assertions target the CTF-mode challenge-context format (difficulty/flags/hint, etc.);
+    // explicitly turn off engagement mode so the default-on case doesn't switch to the Target State wording.
     process.env.TCH_ENGAGEMENT_MODE = "0"
     capturedLoaderOptions = undefined
     capturedCreateSessionOptions = undefined
@@ -192,8 +192,8 @@ describe("runSolverObserverReview", () => {
         expect(capturedPrompt).toContain("## Recent Solver Activity")
         expect(capturedPrompt).toContain("### Round 2")
         expect(capturedPrompt).toContain("- assistant: try upload")
-        expect(capturedPrompt).not.toContain("不要自己解题，只做策略看板维护。")
-        expect(capturedPrompt).not.toContain("目标是维护 ideas / memory 看板，不是解释 solver 过程。")
+        expect(capturedPrompt).not.toContain("Do not solve the challenge yourself; only maintain the strategy board.")
+        expect(capturedPrompt).not.toContain("The goal is to maintain the ideas / memory board, not to explain the solver process.")
         expect(lastSession?.dispose).toHaveBeenCalled()
     })
 })

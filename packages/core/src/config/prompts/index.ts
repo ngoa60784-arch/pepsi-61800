@@ -7,18 +7,19 @@ import { BUILTIN_PROMPTS } from "../builtin-assets.generated"
 
 export const CHALLENGE_PLANNER_PROMPT_NAME = "CHALLENGE_PLANNER"
 export const OBJECTIVE_VERIFIER_PROMPT_NAME = "OBJECTIVE_VERIFIER"
+export const KALI_PROVISIONER_PROMPT_NAME = "KALI_PROVISIONER"
 
 export interface PromptMeta {
     description?: string
-    model?: string // model-pref 短 ID
+    model?: string // model-pref short ID
     observerEnabled?: boolean
-    observerModel?: string // observer 专用 model-pref 短 ID
+    observerModel?: string // observer-specific model-pref short ID
     disabled?: boolean
-    mcps?: string[] // 启用的 mcp server 名列表，白名单模式，空表示全部禁用
-    tools?: string[] // 启用的工具名列表
-    skills?: string[] // 启用的 skill 名列表
-    subagents?: string[] // 允许调用的 subagent prompt 名列表
-    isSubagent?: boolean // 是否为 subagent 专用 prompt
+    mcps?: string[] // list of enabled mcp server names; whitelist mode, empty means all disabled
+    tools?: string[] // list of enabled tool names
+    skills?: string[] // list of enabled skill names
+    subagents?: string[] // list of subagent prompt names allowed to be invoked
+    isSubagent?: boolean // whether this is a subagent-only prompt
     [key: string]: unknown
 }
 
@@ -75,7 +76,7 @@ function promptPath(configDir: string, name: string) {
 
 // ── Builtin release ──
 
-/** 已删除内置 prompt 的记录文件 */
+/** Record file of deleted built-in prompts */
 function deletedBuiltinsPath(configDir: string) {
     return resolve(promptsDir(configDir), ".deleted-builtins.json")
 }
@@ -95,7 +96,19 @@ async function saveDeletedBuiltins(configDir: string, deleted: Set<string>): Pro
     await Bun.write(deletedBuiltinsPath(configDir), JSON.stringify([...deleted], null, 2))
 }
 
-/** 将内置 prompts 释放到用户 config 目录（跳过用户已删除的） */
+/** Overwrite one built-in prompt from repo (used so KALI_PROVISIONER stays in sync after upgrades). */
+export async function refreshBuiltinPrompt(configDir: string, name: string): Promise<void> {
+    const entry = `${name}.md`
+    const builtinPrompts = BUILTIN_PROMPTS as unknown as Record<string, string>
+    const sourcePath = builtinPrompts[entry]
+    if (!sourcePath) return
+    const deleted = await loadDeletedBuiltins(configDir)
+    if (deleted.has(name)) return
+    await mkdir(promptsDir(configDir), { recursive: true })
+    await Bun.write(promptPath(configDir, name), Bun.file(sourcePath))
+}
+
+/** Release the built-in prompts into the user's config directory (skipping ones the user has deleted) */
 export async function initBuiltinPrompts(configDir: string) {
     const destDir = promptsDir(configDir)
     await mkdir(destDir, { recursive: true })
@@ -112,7 +125,7 @@ export async function initBuiltinPrompts(configDir: string) {
     }
 }
 
-/** 检查 prompt 是否为内置 */
+/** Check whether a prompt is built-in */
 function isBuiltin(name: string): boolean {
     return Object.prototype.hasOwnProperty.call(BUILTIN_PROMPTS, `${name}.md`)
 }
@@ -145,7 +158,7 @@ export async function savePrompt(configDir: string, prompt: PromptFile): Promise
     for (const [k, v] of Object.entries(meta)) {
         if (v === undefined) continue
         if (k === "mcps" || k === "tools" || k === "skills" || k === "subagents") {
-            // YAML 数组格式
+            // YAML array format
             const arr = v as string[]
             if (arr.length > 0) {
                 yamlLines.push(`${k}:`)
@@ -166,7 +179,7 @@ export async function savePrompt(configDir: string, prompt: PromptFile): Promise
 export async function removePrompt(configDir: string, name: string): Promise<void> {
     const path = promptPath(configDir, name)
     if (existsSync(path)) await unlink(path)
-    // 如果是内置 prompt，记录删除以防重启后恢复
+    // If it's a built-in prompt, record the deletion to prevent it from being restored after restart
     if (isBuiltin(name)) {
         const deleted = await loadDeletedBuiltins(configDir)
         deleted.add(name)
@@ -214,9 +227,9 @@ export async function listSubagentPrompts(configDir: string): Promise<PromptFile
     return prompts.filter((prompt) => prompt.meta.isSubagent === true)
 }
 
-// ── SDK 转换 ──
+// ── SDK conversion ──
 
-/** 转换为 SDK PromptTemplate（用于 createAgentSession） */
+/** Convert to an SDK PromptTemplate (used by createAgentSession) */
 export function toPromptTemplate(prompt: PromptFile): PromptTemplate {
     return {
         name: prompt.name,

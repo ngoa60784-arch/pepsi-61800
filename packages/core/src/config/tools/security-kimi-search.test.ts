@@ -2,7 +2,7 @@ import { test, expect } from "bun:test"
 import { ConfigManager } from "../index"
 import { securityKimiSearchTool } from "./security-kimi-search"
 
-const DEFAULT_QUERY = "请检索 CVE-2024-4577 的公开 PoC、利用条件、受影响版本和缓解建议"
+const DEFAULT_QUERY = "Search for the public PoC, exploitation prerequisites, affected versions, and mitigation recommendations for CVE-2024-4577"
 const KIMI_SEARCH_TEST_TIMEOUT_MS = 120000
 
 function hasEnvKimiApiKey(): boolean {

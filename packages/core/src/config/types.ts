@@ -3,6 +3,14 @@ export interface AddResult {
     rejected?: string
 }
 
+/** Result of setting one model-pref as the fleet-wide default. */
+export interface ActivateModelResult {
+    defaultModelPrefId: string
+    promptsUpdated: number
+    plannerUpdated: boolean
+    verifierUpdated: boolean
+}
+
 export interface HostRuntimeSettings {
     image?: string
     env?: Record<string, string>
@@ -11,39 +19,19 @@ export interface HostRuntimeSettings {
     maxSolvers?: number
     networkMode?: "bridge" | "host"
     /**
-     * 单个 solver 容器的内存上限（仅 docker 后端），Docker `--memory` 语法，如 "2g" / "512m"。
-     * 不设则不限制——一个失控的扫描/爆破可能吃满宿主内存。
+     * Per-solver container memory cap (docker backend only), Docker `--memory` syntax, e.g. "2g" / "512m".
+     * Omit for unlimited — a runaway scan/brute may exhaust host memory.
      */
     memory?: string
     /**
-     * 单个 solver 容器的 CPU 上限（仅 docker 后端），Docker `--cpus` 语法，如 1.5 / 2。
-     * 不设则不限制。
+     * Per-solver container CPU cap (docker only), Docker `--cpus` syntax, e.g. 1.5 / 2.
+     * Omit for unlimited.
      */
     cpus?: number
-    /** 执行后端：docker（默认本地容器）| ssh（远程主机直跑，去 docker） */
-    backend?: "docker" | "ssh"
-    /** backend="ssh" 时的远程执行配置（host/port/alias/remoteBinary/remoteSolversDir 等） */
-    ssh?: {
-        host?: string
-        port?: number
-        username?: string
-        password?: string
-        alias?: string
-        remoteBinary?: string
-        remoteSolversDir?: string
-    }
 }
 
-export interface HostChallengeSettings {
-    mockEnabled?: boolean
-    apiBaseUrl?: string
-    agentToken?: string
-    answerModeEnabled?: boolean
-    baseUrlMappings?: Array<{
-        sourceBaseUrl: string
-        gatewayBaseUrl: string
-    }>
-}
+/** Reserved for future host-level challenge options; engagement targets are managed in the UI. */
+export interface HostChallengeSettings {}
 
 export interface HostPlannerSettings {
     enabled?: boolean
@@ -57,8 +45,8 @@ export interface HostSettings {
     challenge: HostChallengeSettings
     planner: HostPlannerSettings
     /**
-     * 全局默认 Agent 模型(model-pref id)。所有 agent(planner/solver/verifier/commander/observer)
-     * 在自身提示词未显式声明 model 时，统一回退到这个模型。UI 选一次，全员一致。
+     * Global default Agent model (model-pref id). All agents (planner/solver/verifier/commander/observer)
+     * fall back here when the prompt does not declare a model. One UI choice, consistent fleet.
      */
     defaultModelPrefId?: string
 }

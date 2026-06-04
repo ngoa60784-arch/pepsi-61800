@@ -5,16 +5,16 @@ import { resolve } from "node:path"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../../../challenge/env"
 
 const reviewCalls: Array<[string, unknown, unknown]> = []
-// 通过 attachObserverLoop 的 runReview 选项注入，而不是 mock.module("./observer-agent")。
-// 后者是进程级全局，会泄漏到 observer-agent.test.ts 让其拿到这个桩（summary: "ok"）。
+// Injected via attachObserverLoop's runReview option, rather than mock.module("./observer-agent").
+// The latter is a process-wide global that would leak into observer-agent.test.ts and hand it this stub (summary: "ok").
 const runSolverObserverReview = mock(async (challengeId: string, payload: unknown, options: unknown) => {
     reviewCalls.push([challengeId, payload, options])
     return { applied: true, summary: "ok" }
 })
 
-// observer-loop 静态 import 了 observer-agent，后者又需要 pi-coding-agent 的多个真实导出
-// （DefaultResourceLoader / parseFrontmatter 等）。这里展开真实模块再覆盖 buildSessionContext，
-// 避免独立运行本文件时因 stub 缺少导出而报 "Export named ... not found"。
+// observer-loop statically imports observer-agent, which in turn needs several real exports from pi-coding-agent
+// (DefaultResourceLoader / parseFrontmatter, etc.). Spread the real module here and then override buildSessionContext,
+// to avoid "Export named ... not found" from a stub missing exports when this file is run on its own.
 const realPiCodingAgent = await import("@mariozechner/pi-coding-agent")
 mock.module("@mariozechner/pi-coding-agent", () => ({
     ...realPiCodingAgent,
@@ -96,7 +96,7 @@ describe("attachObserverLoop", () => {
                         content: [
                             {
                                 type: "text",
-                                text: "你正在处理一道CTF赛题。\n\n题目标题: demo\n目标入口:\n- http://target\n\n要求:\n- Solve the challenge and submit the flag.\n- Prefer checking auth edges before broad fuzzing.\n- Check ideas before repeating a route.",
+                                text: "You are working on a CTF challenge.\n\nTitle: demo\nEntry point:\n- http://target\n\nRequirements:\n- Solve the challenge and submit the flag.\n- Prefer checking auth edges before broad fuzzing.\n- Check ideas before repeating a route.",
                             },
                         ],
                     },
@@ -153,8 +153,8 @@ describe("attachObserverLoop", () => {
         expect((payload as { session_context: string }).session_context).toContain("Prefer checking auth edges before broad fuzzing.")
         expect((payload as { session_context: string }).session_context).not.toContain("huge tool result should not appear")
         expect((payload as { session_context: string }).session_context).not.toContain("ignore me")
-        expect((payload as { session_context: string }).session_context).not.toContain("题目标题: demo")
-        expect((payload as { session_context: string }).session_context).not.toContain("目标入口:")
+        expect((payload as { session_context: string }).session_context).not.toContain("Title: demo")
+        expect((payload as { session_context: string }).session_context).not.toContain("Entry point:")
 
         const rounds = await loadRecentObserverRounds(6)
         expect(rounds).toHaveLength(6)
@@ -214,10 +214,10 @@ describe("attachObserverLoop", () => {
 
         const [, , options] = reviewCalls[0]
         const sendCorrectionNotice = (options as { sendCorrectionNotice: (message: string) => Promise<boolean> }).sendCorrectionNotice
-        expect(await sendCorrectionNotice("重复纠偏")).toBe(true)
-        expect(await sendCorrectionNotice("重复纠偏")).toBe(false)
+        expect(await sendCorrectionNotice("repeat correction")).toBe(true)
+        expect(await sendCorrectionNotice("repeat correction")).toBe(false)
         expect(harness.sendUserMessage).toHaveBeenCalledTimes(1)
-        expect(harness.sendUserMessage).toHaveBeenCalledWith("纠偏提醒：重复纠偏", { deliverAs: "steer" })
+        expect(harness.sendUserMessage).toHaveBeenCalledWith("Course correction: repeat correction", { deliverAs: "steer" })
 
         for (let i = 7; i <= 12; i += 1) {
             await harness.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: `changed round ${i}` }] } }, ctx)
@@ -227,7 +227,7 @@ describe("attachObserverLoop", () => {
         const [, nextPayload, nextOptions] = reviewCalls[1]
         expect((nextPayload as { rounds: Array<{ round: number }> }).rounds.at(-1)?.round).toBe(12)
         const nextSendCorrectionNotice = (nextOptions as { sendCorrectionNotice: (message: string) => Promise<boolean> }).sendCorrectionNotice
-        expect(await nextSendCorrectionNotice("新的纠偏")).toBe(true)
+        expect(await nextSendCorrectionNotice("new correction")).toBe(true)
         expect(harness.sendUserMessage).toHaveBeenCalledTimes(2)
     })
 
@@ -244,7 +244,7 @@ describe("attachObserverLoop", () => {
         requestHostBridge.mockResolvedValueOnce({ is_completed: true })
         const [, , options] = reviewCalls[0]
         const sendCorrectionNotice = (options as { sendCorrectionNotice: (message: string) => Promise<boolean> }).sendCorrectionNotice
-        expect(await sendCorrectionNotice("完成后不该发")).toBe(false)
+        expect(await sendCorrectionNotice("should not send after completion")).toBe(false)
         expect(harness.sendUserMessage).not.toHaveBeenCalled()
     })
 })

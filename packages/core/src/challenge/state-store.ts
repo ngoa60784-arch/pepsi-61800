@@ -1,15 +1,18 @@
 /**
- * 跨 solver 的结构化作战状态库（structured cross-solver state store）。
+ * Structured cross-solver state store for operational state.
  *
- * 背景(research gap 3)：原来 board 只有自由文本 memory/ideas，凭据/已控主机这类"作战资产"
- * 散落在文本里，solver 之间靠广播文本降重、靠正则猜，没法高效复用——一个 solver 拿到的凭据，
- * 另一个 solver 经常重新爆破一遍。
+ * Background (research gap 3): board previously only had free-text memory/ideas, so "operational
+ * assets" like credentials and compromised hosts were scattered across text. Solvers relied on
+ * broadcast text for dedup and regex guessing, with no efficient reuse — credentials obtained by
+ * one solver were often re-brute-forced by another.
  *
- * 这里给每个目标维护一张结构化资产表：hosts / services / credentials / sessions，
- * 带 host/port/账号/权限/来源 finding/时间戳。observer 负责维护（与 board 架构一致：observer curate、
- * solver 读），solver 任务文案 + 一个只读工具能看到，planner snapshot 也能读到。
+ * Here we maintain a structured asset table per target: hosts / services / credentials / sessions,
+ * with host/port/account/privilege/source finding/timestamp. The observer maintains it (consistent
+ * with the board architecture: observer curates, solver reads); it's visible in the solver task
+ * copy plus a read-only tool, and the planner snapshot can read it too.
  *
- * 存储：每个目标一个 index.json（仿 ideas index），原子写 + 目录锁串行化跨 solver 写入。
+ * Storage: one index.json per target (mirroring the ideas index), with atomic writes + a directory
+ * lock to serialize cross-solver writes.
  */
 
 import { mkdir, rename, rm } from "fs/promises"
@@ -20,25 +23,25 @@ export type StateAssetKind = "host" | "service" | "credential" | "session"
 export interface StateAsset {
     id: string
     kind: StateAssetKind
-    /** 人类可读标签：host=ip/hostname；service=proto://host:port；credential=account@scope；session=会话描述 */
+    /** Human-readable label: host=ip/hostname; service=proto://host:port; credential=account@scope; session=session description */
     label: string
-    /** host: ip/hostname；service/session 所在主机 */
+    /** host: ip/hostname; the host that the service/session lives on */
     host?: string
-    /** service: 端口；可空 */
+    /** service: port; may be empty */
     port?: number
-    /** service: 服务名/产品/版本，如 "nginx 1.25" / "OpenSSH 9.2" */
+    /** service: service name/product/version, e.g. "nginx 1.25" / "OpenSSH 9.2" */
     service?: string
-    /** credential/session: 账号（用户名/角色），密文按引用名走 secretRef，不存明文 */
+    /** credential/session: account (username/role); secrets are referenced by name via secretRef, never stored in plaintext */
     account?: string
-    /** 权限级别，如 "user" / "root" / "admin" / "www-data" */
+    /** Privilege level, e.g. "user" / "root" / "admin" / "www-data" */
     privilege?: string
-    /** credential: 凭据的引用名（不是明文！指向 evidence_refs / secret store） */
+    /** credential: reference name for the credential (NOT plaintext! points at evidence_refs / secret store) */
     secretRef?: string
-    /** session: 会话类型，如 "ssh" / "reverse-shell" / "web-cookie" */
+    /** session: session type, e.g. "ssh" / "reverse-shell" / "web-cookie" */
     sessionType?: string
-    /** 自由补充说明：如何获得、注意事项 */
+    /** Free-form additional notes: how it was obtained, caveats */
     note?: string
-    /** 来源 finding/idea/memory 的 id，建立"资产←发现"链接（research 强调的 discovery-node 链接） */
+    /** id of the source finding/idea/memory, establishing the "asset←discovery" link (the discovery-node link emphasized in research) */
     sourceRefs: string[]
     created_at: string
     updated_at: string
@@ -191,7 +194,7 @@ function applyPatch(asset: StateAsset, patch: AddStateAssetInput | UpdateStateAs
     }
 }
 
-/** 资产去重键：同 kind + 同 label(归一)视为同一资产，避免 N 个 solver 各记一遍同一台主机/同一凭据。 */
+/** Asset dedup key: same kind + same label (normalized) is treated as the same asset, avoiding N solvers each recording the same host/credential separately. */
 function dedupeKey(kind: StateAssetKind, label: string, account?: string, host?: string, port?: number): string {
     return [kind, label.trim().toLowerCase(), (account ?? "").trim().toLowerCase(), (host ?? "").trim().toLowerCase(), port ?? ""].join("|")
 }
@@ -202,8 +205,8 @@ export async function listChallengeStateAssets(rootDir: string, challengeId: str
 }
 
 /**
- * 新增或合并一个作战资产。同 kind+label(+account/host/port) 已存在 → 合并更新(不新增重复)。
- * 返回 created 表示是否为新建。
+ * Add or merge an operational asset. If one with the same kind+label(+account/host/port) already
+ * exists → merge-update (no duplicate added). The returned `created` indicates whether it was newly created.
  */
 export async function upsertChallengeStateAsset(rootDir: string, challengeId: string, input: AddStateAssetInput): Promise<UpsertStateAssetResult> {
     const id = requireText(challengeId, "challengeId")
@@ -214,7 +217,7 @@ export async function upsertChallengeStateAsset(rootDir: string, challengeId: st
         const existing = index.assets.find((asset) => dedupeKey(asset.kind, asset.label, asset.account, asset.host, asset.port) === key)
         if (existing) {
             const merged = applyPatch(existing, input)
-            // 合并 sourceRefs(累积来源)而非覆盖。
+            // Merge sourceRefs (accumulate sources) rather than overwrite.
             merged.sourceRefs = normalizeRefs([...existing.sourceRefs, ...(input.sourceRefs ?? [])])
             index.assets = index.assets.map((asset) => (asset.id === existing.id ? merged : asset))
             index.updated_at = nowIso()

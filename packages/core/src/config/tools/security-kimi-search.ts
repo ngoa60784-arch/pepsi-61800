@@ -1,8 +1,6 @@
 import type { ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent"
 import { Type } from "@sinclair/typebox"
 import type { ConfiguredModel, ProviderPrefEntry } from "../providers/types"
-import type { HostChallengeSettings } from "../types"
-
 const QWEN_DEFAULT_MODEL = "qwen-plus"
 const KIMI_MAX_ROUNDS = 6
 const KIMI_REQUIRED_TEMPERATURE = 0.6
@@ -105,16 +103,6 @@ function normalizeBaseUrl(baseUrl?: string): string | undefined {
     return text.replace(/\/+$/, "")
 }
 
-function resolveGatewayBaseUrl(
-    baseUrl: string | undefined,
-    mappings: HostChallengeSettings["baseUrlMappings"] | undefined,
-): string | undefined {
-    const normalized = normalizeBaseUrl(baseUrl)
-    if (!normalized || !mappings || mappings.length === 0) return
-    const match = mappings.find((item) => normalizeBaseUrl(item.sourceBaseUrl) === normalized)
-    return normalizeBaseUrl(match?.gatewayBaseUrl)
-}
-
 function buildChatCompletionsUrl(baseUrl: string): string {
     const normalized = normalizeBaseUrl(baseUrl)
     if (!normalized) {
@@ -206,11 +194,6 @@ function orderKimiModelCandidates(candidates: KimiModelCandidate[], preferredRun
     })
 }
 
-function applyGatewayMapping(baseUrl: string, challengeSettings: HostChallengeSettings): string {
-    if (challengeSettings.answerModeEnabled !== true) return baseUrl
-    return resolveGatewayBaseUrl(baseUrl, challengeSettings.baseUrlMappings) ?? baseUrl
-}
-
 async function loadMountedConfigState() {
     const { ConfigManager } = await import("../index")
     const config = await ConfigManager.getInstance()
@@ -219,7 +202,6 @@ async function loadMountedConfigState() {
     return {
         config,
         providerPrefs: await config.listProviderPrefs(),
-        challengeSettings: (await config.getHostSettings()).challenge,
     }
 }
 
@@ -271,13 +253,12 @@ async function resolveNamedProviderRequestConfig(
         throw new Error(`missing api key for provider "${runtimeProvider}"`)
     }
 
-    const baseUrl = applyGatewayMapping(resolvedBaseUrl, state.challengeSettings)
     return {
         api,
         runtimeProvider,
         modelId,
-        baseUrl,
-        requestUrl: buildChatCompletionsUrl(baseUrl),
+        baseUrl: resolvedBaseUrl,
+        requestUrl: buildChatCompletionsUrl(resolvedBaseUrl),
         apiKey,
     }
 }
@@ -291,7 +272,7 @@ async function resolveKimiRequestConfig(state: MountedConfigState, preferredRunt
         throw new Error("No configured Kimi model found")
     }
 
-    // 记录被跳过候选的原因，供最终报错时给出可诊断信息。
+    // Record the reason each candidate was skipped, to provide diagnosable info in the final error.
     const skipped: string[] = []
     for (const candidate of candidates) {
         const providerPref = pickProviderPrefById(state.providerPrefs, candidate.providerId)
@@ -303,7 +284,7 @@ async function resolveKimiRequestConfig(state: MountedConfigState, preferredRunt
 
         const api = typeof candidate.api === "string" ? candidate.api.trim() : ""
         if (!api) {
-            // 不要 throw：一个配错的候选不应短路掉后面有效的 Kimi 模型。继续试下一个。
+            // Do not throw: one misconfigured candidate should not short-circuit later valid Kimi models. Continue to the next one.
             skipped.push(`${candidate.runtimeProvider}: api not configured`)
             continue
         }
@@ -318,13 +299,12 @@ async function resolveKimiRequestConfig(state: MountedConfigState, preferredRunt
             continue
         }
 
-        const baseUrl = applyGatewayMapping(resolvedBaseUrl, state.challengeSettings)
         return {
             api,
             runtimeProvider: candidate.runtimeProvider,
             modelId: candidate.id,
-            baseUrl,
-            requestUrl: buildChatCompletionsUrl(baseUrl),
+            baseUrl: resolvedBaseUrl,
+            requestUrl: buildChatCompletionsUrl(resolvedBaseUrl),
             apiKey,
         }
     }
@@ -581,7 +561,7 @@ export const securityKimiSearchTool: ToolDefinition = {
     name: "security_kimi_search",
     label: "Security Kimi Search",
     description: "Search cybersecurity intelligence with multi-source web search (Kimi + Qwen) for CVE PoC, EXP chains, and bypass techniques.",
-    promptSnippet: "security_kimi_search:联网检索安全情报（Kimi+Qwen 双源）并汇总关键线索",
+    promptSnippet: "security_kimi_search: search security intelligence online (dual-source Kimi+Qwen) and summarize key leads",
     promptGuidelines: [
         "When exploit intelligence may be outdated or uncertain, call security_kimi_search first.",
         "Prefer concrete evidence: affected versions, prerequisites, exploit chain, and mitigation clues.",

@@ -36,12 +36,12 @@ interface SessionContextMessageLike {
 export function buildObserverExtensionAppendPrompt(): string {
     return [
         "## Observer Sidecar Contract",
-        "- 已启用 observer sidecar。observer 会定期审查你最近几轮行为，保守地维护 ideas 和 memory。",
-        "- observer 不直接替你解题，也不会替你验证漏洞；它负责整理策略看板和 durable memory，你负责实际验证与推进。",
-        "- ideas 看板由 observer 异步维护。你把它当成只读策略板，用来避免重复试错和判断下一步。",
-        "- observer 维护的 ideas 只是候选假设。不要把 idea 当结论，必须通过你的实测结果来确认、证伪或推进。",
-        "- 如果 observer 新增或更新了某条 idea / memory，先理解其含义，再决定是否立即验证；不要机械照抄，也不要无视。",
-        "- observer 的判断也是建议，不是替你下结论；如果它和你当前实测冲突，优先重新验证关键分歧点。",
+        "- Observer sidecar is enabled. The observer periodically reviews your recent rounds and conservatively maintains ideas and memory.",
+        "- The observer does not solve or verify for you; it maintains the strategy board and durable memory; you verify and advance.",
+        "- The ideas board is maintained asynchronously. Treat it as read-only to avoid repeat mistakes and choose next steps.",
+        "- Observer ideas are hypotheses only. Do not treat ideas as conclusions; confirm, falsify, or advance with your own tests.",
+        "- When the observer adds or updates an idea/memory, understand it before deciding to verify; do not copy blindly or ignore.",
+        "- Observer judgments are suggestions, not conclusions; if they conflict with your tests, re-verify the key disagreement.",
     ].join("\n")
 }
 
@@ -183,7 +183,10 @@ function extractStructuredLines(text: string, heading: string): string[] {
 }
 
 function buildBaselineSummary(text: string): string {
-    const directives = extractStructuredLines(text, "要求:")
+    const directives = [
+        ...extractStructuredLines(text, "Requirements:"),
+        ...extractStructuredLines(text, "\u8981\u6c42:"),
+    ]
         .map((line) => normalizeInlineText(line.replace(/^[-*]\s*/, "")))
         .filter((line) => line.length > 0)
         .slice(0, SESSION_DIRECTIVE_LIMIT)
@@ -282,19 +285,19 @@ export function attachObserverLoop(
                             if (!(await shouldSendEfficiencyReminder(next.payload, message))) {
                                 return false
                             }
-                            pi.sendUserMessage(`纠偏提醒：${message.trim()}`, { deliverAs: "steer" })
+                            pi.sendUserMessage(`Course correction: ${message.trim()}`, { deliverAs: "steer" })
                             return true
                         },
                     })
-                    // 只有成功才出队，保证 at-least-once（之前是 takeNext 即删 = 失败就丢）。
+                    // Dequeue only on success for at-least-once (previously takeNext deleted = loss on failure).
                     await completeObserverReview(next.filePath)
                 } catch (error) {
                     const { dropped } = await failObserverReview(next.filePath, next.attempts)
                     console.error(
                         `[observer] review failed (attempt ${next.attempts + 1}${dropped ? ", dropped after max retries" : ", will retry"}): ${error instanceof Error ? error.message : String(error)}`,
                     )
-                    // 保留待重试时退出本轮 drain，避免在同一 turn 内对毒丸紧密自旋；
-                    // 下一次 round/agent_end 事件会重新触发 drain 重试。
+                    // Exit drain when retry pending to avoid tight spin on poison pill in one turn;
+                    // next round/agent_end retriggers drain retry.
                     if (!dropped) return
                 }
             }

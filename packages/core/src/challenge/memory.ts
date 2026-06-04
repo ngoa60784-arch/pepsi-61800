@@ -126,9 +126,10 @@ function createEntityId(prefix: string): string {
     return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`
 }
 
-// 同一毫秒内可能写入多条 memory；文件名仅靠 Date.now() 前缀会撞毫秒，
-// 此时排序落到随机 entry.id 上，导致 listChallengeMemory 顺序非确定。
-// 用进程内单调递增序号补齐，保证文件名按真实写入顺序排序。
+// Multiple memory entries may be written within the same millisecond; a filename relying only on
+// the Date.now() prefix will collide on the millisecond, at which point sorting falls back to the
+// random entry.id, making listChallengeMemory order non-deterministic.
+// Pad with a process-local monotonically increasing sequence number so filenames sort by true write order.
 let memoryWriteSeq = 0
 
 function challengeDir(rootDir: string, challengeId: string): string {

@@ -20,8 +20,10 @@ export interface ChallengeRecord {
     instance_status: string
     entrypoint: string[] | null
     flags?: string[]
-    /** 实战模式：主目标达成标记（solver 自报 / 操作员确认）。置 true 即视为该目标完成。 */
+    /** Engagement mode: marker that the primary objective is achieved (solver self-report / operator confirmation). Setting it true counts the objective as complete. */
     objective_achieved?: boolean
+    /** Operator paused testing: planner and manual solver launch are blocked; resume restores stopped solvers. Shared memory/ideas are kept. */
+    testing_paused?: boolean
 }
 
 export interface ChallengeInfoRecord extends ChallengeRecord {
@@ -50,12 +52,12 @@ export interface ChallengeSubmissionLogRecord {
     writeup?: string
     created_at: string
     /**
-     * 独立 verifier 的复跑判定状态(双重验证)。
-     * - 未设置 / "unverified": 普通 finding，无需复跑(只有 objective_achieved 才触发 verifier)
-     * - "pending": 已自报主目标达成，等待 verifier 复跑确认
-     * - "verified": verifier 复跑确认通过(才允许自动收尾)
-     * - "rejected": verifier 复跑未能复现，判为误报(不自动收尾)
-     * - "inconclusive": verifier 无法判定(执行环境不可用等)，回退到操作员复核
+     * The independent verifier's re-run verdict status (dual validation).
+     * - unset / "unverified": ordinary finding, no re-run needed (only objective_achieved triggers the verifier)
+     * - "pending": primary objective self-reported as achieved, awaiting verifier re-run confirmation
+     * - "verified": verifier re-run confirmed it passed (only then is auto-finalize allowed)
+     * - "rejected": verifier re-run could not reproduce it, judged a false positive (no auto-finalize)
+     * - "inconclusive": verifier could not decide (execution environment unavailable, etc.), falls back to operator review
      */
     verification_status?: "unverified" | "pending" | "verified" | "rejected" | "inconclusive"
     verifier_note?: string
@@ -238,9 +240,9 @@ export async function appendChallengeSubmissionLog(
 }
 
 /**
- * 更新一条提交记录的 verifier 判定状态(双重验证回写)。
- * 提交日志一文件一记录、文件名带 record id；按 id 后缀定位文件后整文件重写。
- * 用提交目录锁串行化，避免并发 verifier 写同一目标时互相覆盖。
+ * Update one submission record's verifier verdict status (dual-validation write-back).
+ * Submission logs are one file per record, with the record id in the filename; locate the file by id suffix, then rewrite the whole file.
+ * Serialized with the submission directory lock to prevent concurrent verifiers from overwriting each other when writing the same objective.
  */
 export async function updateChallengeSubmissionVerification(
     rootDir: string,
@@ -251,7 +253,7 @@ export async function updateChallengeSubmissionVerification(
     const id = requireText(challengeId, "challengeId")
     const targetId = requireText(recordId, "recordId")
     const dir = submissionLogsDir(rootDir, id)
-    // 先无锁探测目标文件是否存在：不存在(未知 id / 目标从未创建)直接返回，避免去 mkdir 一个父目录都不存在的锁目录。
+    // Probe lock-free first whether the target file exists: if not (unknown id / objective never created) return directly, avoiding mkdir of a lock directory whose parent doesn't even exist.
     let preMatches: string[] = []
     try {
         preMatches = (await readdir(dir)).filter((file) => file.endsWith(`-${targetId}.json`))
@@ -323,6 +325,15 @@ async function listChallengeIds(rootDir: string): Promise<string[]> {
     }
 }
 
+export function challengeRecordDir(rootDir: string, challengeId: string): string {
+    return join(rootDir, encodeURIComponent(challengeId))
+}
+
+export async function deleteChallengeDirectory(rootDir: string, challengeId: string): Promise<void> {
+    const id = requireText(challengeId, "challengeId")
+    await rm(challengeRecordDir(rootDir, id), { recursive: true, force: true })
+}
+
 export async function listChallengeRecords(rootDir: string): Promise<ChallengeInfoRecord[]> {
     const ids = await listChallengeIds(rootDir)
     const records = await Promise.all(ids.map((id) => readChallengeRecord(rootDir, id)))
@@ -331,7 +342,7 @@ export async function listChallengeRecords(rootDir: string): Promise<ChallengeIn
 
 export function computeChallengeCompleted(challenge: ChallengeInfoRecord | undefined): boolean {
     if (!challenge) return false
-    // 实战模式没有 flag，靠 objective_achieved 标记完成（solver 自报主目标达成 / 操作员标记）。
+    // Engagement mode has no flag; completion relies on the objective_achieved marker (solver self-reports primary objective achieved / operator marks it).
     if (challenge.objective_achieved === true) return true
     return challenge.flag_count > 0 && challenge.flag_got_count >= challenge.flag_count
 }

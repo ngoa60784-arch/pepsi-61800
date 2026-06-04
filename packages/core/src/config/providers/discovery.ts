@@ -106,26 +106,26 @@ function assertValidBaseUrl(baseUrl: string) {
     try {
         new URL(baseUrl)
     } catch {
-        throw new Error("Base URL 格式不正确，请检查 Provider 配置")
+        throw new Error("Base URL is malformed, please check the Provider configuration")
     }
 }
 
 function assertValidApiKey(apiKey: string, provider: string) {
     if (apiKey !== apiKey.trim()) {
-        throw new Error(`Provider "${provider}" 的 API Key 首尾包含空白字符，请重新粘贴`)
+        throw new Error(`The API Key for provider "${provider}" has leading or trailing whitespace, please paste it again`)
     }
 
     for (const char of apiKey) {
         const code = char.charCodeAt(0)
         if (code < 0x20 || code === 0x7f) {
-            throw new Error(`Provider "${provider}" 的 API Key 包含不可见控制字符，请重新粘贴`)
+            throw new Error(`The API Key for provider "${provider}" contains invisible control characters, please paste it again`)
         }
     }
 
     try {
         new Headers({ Authorization: `Bearer ${apiKey}` })
     } catch {
-        throw new Error(`Provider "${provider}" 的 API Key 包含非法字符，请重新粘贴`)
+        throw new Error(`The API Key for provider "${provider}" contains illegal characters, please paste it again`)
     }
 }
 

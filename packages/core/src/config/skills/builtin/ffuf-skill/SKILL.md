@@ -71,7 +71,7 @@ Default paths to use in commands (all on the remote Kali):
 | Passwords | `/usr/share/wordlists/rockyou.txt` |
 | API endpoints | `/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt` |
 
-If a needed path is missing on the host, `ssh_execute("ls /usr/share/seclists/Discovery/Web-Content/")` to discover the actual file, or install more via `apt-get install -y seclists`. For values/payloads not in SecLists, grep the bundled corpus (`~/.tch-agent/config/skills/payloads-everything/`) on the control plane and `ssh_upload` the snippet you need.
+If a needed path is missing on the host, `ssh_execute("ls /usr/share/seclists/Discovery/Web-Content/")` to discover the actual file, or install more via `apt-get install -y seclists`. For values/payloads not in SecLists, grep the bundled corpus at `$TCH_BUILTIN_SKILLS_DIR/payloads-everything/` on the control plane and `ssh_upload` the snippet you need.
 
 ## Core workflow
 
@@ -273,9 +273,9 @@ Read `references/ffuf-web-params.md` when:
 
 ## Example prompts this skill should handle well
 
-- `帮我写一个 ffuf 命令，fuzz 这个 GET 请求里可能存在的隐藏参数名。`
-- `我有个 Burp 导出的 request.txt，想 fuzz JSON body 里的字段名。`
-- `这个站所有响应都是 200，我该怎么用 ffuf 过滤误报？`
-- `我想 fuzz X-Forwarded-For 头的值，并把命中的请求转发到 Burp。`
-- `帮我根据这个 POST 请求写 ffuf，目标是 fuzz form body 里的字段名。`
-- `这个 API 返回长度会变，状态码没区别，ffuf 应该先用 fs 还是 fw？`
+- `Help me write an ffuf command to fuzz the hidden parameter names that might exist in this GET request.`
+- `I have a request.txt exported from Burp and want to fuzz the field names in the JSON body.`
+- `Every response on this site is 200. How do I filter out false positives with ffuf?`
+- `I want to fuzz the value of the X-Forwarded-For header and forward the matching requests to Burp.`
+- `Help me write an ffuf command based on this POST request to fuzz the field names in the form body.`
+- `This API's response length varies but the status code doesn't change. Should ffuf use fs or fw first?`

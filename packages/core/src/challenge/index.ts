@@ -1,9 +1,4 @@
 export { ChallengeManager } from "./manager"
-export type { IdeaStatus, MemoryKind } from "./manager"
+export type { IdeaStatus, MemoryKind, TargetOverview, PlannerProgressPhase } from "./manager"
 
-export {
-    CHALLENGE_ENV_CHALLENGE_ID,
-    CHALLENGE_ENV_DIR,
-    CHALLENGE_ENV_API_BASE_URL,
-    CHALLENGE_ENV_AGENT_TOKEN,
-} from "./env"
+export { CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_DIR, ENGAGEMENT_ENV_MODE, ENGAGEMENT_ENV_SCOPE } from "./env"

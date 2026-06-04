@@ -64,7 +64,7 @@ Provide one or two commands using the files you recommended. Prefer `ffuf`, `fer
 
 ## Command behavior
 
-- **These dict files live on the control plane (`~/.tch-agent/config/skills/fuzz-dicts-skills/`), but ffuf/gobuster run on the remote Kali via `ssh_execute`.** So before using one, `ssh_upload` it to the Kali host (e.g. to `/tmp/`), then reference the uploaded path in the command. For generic English wordlists, prefer the Kali-preinstalled SecLists (`/usr/share/seclists/...`) and skip the upload — only upload these bundled dicts when you specifically need their CN/enterprise-flavored content (中文弱口令、国内常见路径、厂商默认口令) that SecLists lacks.
+- **These dict files live on the control plane at `$TCH_BUILTIN_SKILLS_DIR/fuzz-dicts-skills/` (repo: `packages/core/src/config/skills/builtin/fuzz-dicts-skills/`), but ffuf/gobuster run on the remote Kali via `ssh_execute`.** So before using one, `ssh_upload` it to the Kali host (e.g. to `/tmp/`), then reference the uploaded path in the command. For generic English wordlists, prefer the Kali-preinstalled SecLists (`/usr/share/seclists/...`) and skip the upload — only upload these bundled dicts when you specifically need their CN/enterprise-flavored content (Chinese weak passwords, common domestic paths, vendor default credentials) that SecLists lacks.
 - Keep command templates short and editable.
 - For directory brute force, include extensions only when they fit the stack.
 - For parameter fuzzing, show where `FUZZ` should go.
@@ -85,7 +85,7 @@ Provide one or two commands using the files you recommended. Prefer `ffuf`, `fer
 ## Examples
 
 **Example 1**
-Input: "目标像是 PHP 站点，我想先跑目录扫描，再看看有没有常见后台文件。"
+Input: "The target looks like a PHP site. I want to run a directory scan first, then check for common admin/backend files."
 
 Output shape:
 - Recommend `directoryDicts/php/top3000.txt` first
@@ -94,7 +94,7 @@ Output shape:
 - Give a short `ffuf` or `feroxbuster` command
 
 **Example 2**
-Input: "给我一个适合 Spring Boot 的接口和参数 fuzz 组合。"
+Input: "Give me a good API endpoint and parameter fuzzing combo for Spring Boot."
 
 Output shape:
 - Recommend `apiDict/api.txt`
@@ -103,7 +103,7 @@ Output shape:
 - Give one API path command and one parameter fuzz command
 
 **Example 3**
-Input: "这是 IIS 上传点，想测扩展名绕过。"
+Input: "This is an IIS upload point. I want to test extension bypass."
 
 Output shape:
 - Recommend `uploadFileExtDicts/iis_upload_fuzz.txt`

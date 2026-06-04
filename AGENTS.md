@@ -1,59 +1,59 @@
 # tch-agent
 
-授权渗透测试多 Agent 协作平台：Commander / Planner / Solver / Observer 架构，基于 pi-coding-agent SDK。
+Multi-agent collaboration platform for authorized penetration testing: Commander / Planner / Solver / Observer architecture, built on the pi-coding-agent SDK.
 
-## 快速参考
+## Quick Reference
 
-- **运行时**: Bun（非 Node.js）
-- **包管理器**: bun install / bun run
-- **开发**: `bun run dev`（Web HMR）
-- **测试**: `bun test`（packages/core）
-- **类型检查**: `bun run typecheck`
+- **Runtime**: Bun (not Node.js)
+- **Package manager**: bun install / bun run
+- **Development**: `bun run dev` (Web HMR)
+- **Tests**: `bun test` (packages/core)
+- **Type checking**: `bun run typecheck`
 
-## 仓库结构
+## Repository Structure
 
 ```
 packages/
-  core/       → @tch/core        配置管理、provider/model/tool/skill/prompt 注册
-  ui-web/     → @tch/ui-web      Web UI + REST API（Bun.serve）
-  ui-tui/     → @tch/ui-tui      终端 UI（Ink）
+  core/       → @tch/core        Config management, provider/model/tool/skill/prompt registration
+  ui-web/     → @tch/ui-web      Web UI + REST API (Bun.serve)
+  ui-tui/     → @tch/ui-tui      Terminal UI (Ink)
 apps/
-  cli/        → @tch/cli         命令行入口（Commander → web/tui 模式）
+  cli/        → @tch/cli         CLI entry (Commander → web/tui mode)
 ```
 
-## 关键文档
+## Key Documentation
 
-| 文档     | 位置                               | 内容                     |
+| Document | Location | Content |
 | -------- | ---------------------------------- | ------------------------ |
-| 架构概览 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构、多 Agent 协作、数据流、部署引用 |
+| Architecture overview | [ARCHITECTURE.md](ARCHITECTURE.md) | Layered architecture, multi-agent collaboration, data flow, deployment references |
 
-## 架构分层
+## Architecture Layers
 
 ```
 Types → Config → Service → Runtime → UI
 ```
 
-依赖方向严格单向：UI 依赖 Runtime → Service → Config → Types。禁止反向依赖。
+Dependencies flow strictly in one direction: UI depends on Runtime → Service → Config → Types. Reverse dependencies are forbidden.
 
-## 配置路径
+## Config Paths
 
-用户配置存储在 `~/.tch-agent/config/`，包含：
+User configuration is stored in `~/.tch-agent/config/`, including:
 
-- `api-keys.json` — API 密钥
-- `provider-prefs.json` — Provider 偏好
-- `model-prefs.json` — 模型偏好
-- `models.json` — SDK 模型注册（同步自 model-prefs）
-- `mcp.json` — MCP 服务配置
-- `prompts/` — Prompt 文件（YAML frontmatter + Markdown）
-- `skills/` — Skill 目录
+- `api-keys.json` — API keys
+- `provider-prefs.json` — Provider preferences
+- `model-prefs.json` — Model preferences
+- `models.json` — SDK model registry (synced from model-prefs)
+- `mcp.json` — MCP server configuration
+- `prompts/` — Prompt files (YAML frontmatter + Markdown)
+- `skills/` — Skill directories
 
-## SDK 依赖
+## SDK Dependencies
 
-- `@mariozechner/pi-coding-agent` — Agent session、工具定义、资源加载
-- `@mariozechner/pi-ai` — Model/Api 类型、Provider 注册表
-- `pi-mcp-adapter` — MCP 配置加载
+- `@mariozechner/pi-coding-agent` — Agent session, tool definitions, resource loading
+- `@mariozechner/pi-ai` — Model/Api types, provider registry
+- `pi-mcp-adapter` — MCP configuration loading
 
-## Bun 偏好
+## Bun Preferences
 
 Default to using Bun instead of Node.js.
 
@@ -95,79 +95,79 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 
 ## Code Style
 
-写代码必须遵循以下项目风格。不符合者必须修正。
+All code must follow the project conventions below. Non-conforming code must be corrected.
 
-### 文件命名
+### File Naming
 
-- 文件/目录：kebab-case（`api-keys.tsx`, `use-fetch.ts`, `sidebar-data.ts`）
-- React 组件文件同样 kebab-case（不用 PascalCase 文件名）
+- Files/directories: kebab-case (`api-keys.tsx`, `use-fetch.ts`, `sidebar-data.ts`)
+- React component files also use kebab-case (not PascalCase filenames)
 
-### 导入规范
+### Import Conventions
 
 ```ts
-// 1. 类型导入用 `import type`，值导入用 `import`，不要混合
+// 1. Use `import type` for types, `import` for values — do not mix
 import type { ModelConfigEntry, ProviderPrefEntry } from "./providers"
 import { ConfigManager } from "./config"
 
-// 2. 模块内聚合用命名空间导入
+// 2. Use namespace imports for module aggregation
 import * as prompts from "./prompts"
 import * as mcp from "./mcp"
 
-// 3. SDK 类型 re-export 用 `export type`
+// 3. Re-export SDK types with `export type`
 export type { Skill, ToolDefinition } from "@mariozechner/pi-coding-agent"
 ```
 
-### 函数风格
+### Function Style
 
 ```ts
-// React 组件：export function 声明（不用 arrow + export default）
+// React components: export function declarations (not arrow + export default)
 export function ModelsPage() { ... }
 
-// 组件内事件处理：async function 声明
+// In-component event handlers: async function declarations
 async function handleSave() { ... }
 
-// 工具方法/hooks：export function
+// Utility methods/hooks: export function
 export function useFetch<T>(fetcher: () => Promise<T>) { ... }
 
-// 不要用 export default（组件、模块均用 named export）
+// Do not use export default (components and modules use named exports)
 ```
 
-### 状态管理
+### State Management
 
 ```ts
-// 行级 useState，无状态管理库
+// Line-level useState, no state management library
 const [name, setName] = useState("")
 const [loading, setLoading] = useState(false)
 
-// 数据获取统一用 useFetch hook
+// Data fetching uses the useFetch hook uniformly
 const { data: list, loading, reload } = useFetch(models.list)
 
-// 派生状态用 const，不用额外 state
+// Derived state uses const, not additional state
 const filtered = list?.filter(...)
 ```
 
-### 错误处理
+### Error Handling
 
-- HTTP 层：`if (!res.ok) throw new Error(await res.text())`
-- 文件操作：`try-catch` + null fallback
-- 不要为不可能的场景加防御代码
+- HTTP layer: `if (!res.ok) throw new Error(await res.text())`
+- File operations: `try-catch` + null fallback
+- Do not add defensive code for impossible scenarios
 
 ### TypeScript
 
-- `strict: true`，不要用 `any`（SDK 边界除外）
-- 接口/类型：PascalCase（`ModelConfigEntry`）
-- 常量：UPPER_SNAKE_CASE（`DEFAULT_CONFIG_DIR`）
-- 变量/函数：camelCase
+- `strict: true`, do not use `any` (except at SDK boundaries)
+- Interfaces/types: PascalCase (`ModelConfigEntry`)
+- Constants: UPPER_SNAKE_CASE (`DEFAULT_CONFIG_DIR`)
+- Variables/functions: camelCase
 
-### UI 组件
+### UI Components
 
-- 基础组件在 `components/ui/` 下，CVA variants + Tailwind
-- 业务组件在 `components/config/` 下，每个配置领域一个文件
-- 样式：Tailwind utility classes，`cn()` 组合条件类名
-- 不写内联 style，不用 CSS modules
+- Base components under `components/ui/`, CVA variants + Tailwind
+- Business components under `components/config/`, one file per config domain
+- Styling: Tailwind utility classes, `cn()` for conditional class names
+- No inline styles, no CSS modules
 
-### 配置文件格式
+### Config File Formats
 
-- JSON：`Bun.file().json()` 读，`Bun.write(path, JSON.stringify(data, null, 2))` 写
-- YAML（Prompt frontmatter）：`yaml` 包解析
-- 不要用 node:fs 的 readFile/writeFile，用 Bun.file
+- JSON: read with `Bun.file().json()`, write with `Bun.write(path, JSON.stringify(data, null, 2))`
+- YAML (Prompt frontmatter): parsed with the `yaml` package
+- Do not use node:fs readFile/writeFile; use Bun.file

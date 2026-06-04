@@ -1,132 +1,132 @@
 # fuzzDicts
-Web Pentesting Fuzz 字典,一个就够了。
+Web Pentesting Fuzz dictionaries — this is all you need.
 
 ## log 
 
-不定期更新，使用前建议git pull一下，同步更新。
+Updated irregularly. It is recommended to run a git pull before use to stay in sync.
 
 
-  **分享字典建议直接提交PR** 
+  **To share a dictionary, just submit a PR directly.** 
 
 20210608:
 
-* 在rcePayloads字典下添加了一个[Remote Code Execution ( Unix and Windows )](https://ansar0047.medium.com/remote-code-execution-unix-and-windows-4ed3367158b3)中提到的所有Payload。
+* Added all the payloads mentioned in [Remote Code Execution ( Unix and Windows )](https://ansar0047.medium.com/remote-code-execution-unix-and-windows-4ed3367158b3) under the rcePayloads dictionary.
 
 20201202:
 
-* 在目录字典下更新了一个[Se7en](https://github.com/r00tSe7en)师傅给的admin目录变种。
+* Updated an admin directory variant provided by [Se7en](https://github.com/r00tSe7en) under the directory dictionary.
 
 20200510:
 
-* 用户名字典下新增了一个百家姓top3000的拼音，去重后188条，Attack!!!.
+* Added the pinyin of the top 3000 Chinese surnames to the username dictionary — 188 entries after dedup. Attack!!!.
 
 
 20200420:
 
-* 合并一个由[lanyi1998](https://github.com/lanyi1998)提交的pr，测试常用手机号码top300+，放在用户名字典里面，瓶颈测试时可以试试；添加一份团队Child师傅提供的某集团的弱口令字典。
+* Merged a PR submitted by [lanyi1998](https://github.com/lanyi1998): top 300+ commonly used mobile phone numbers, placed in the username dictionary — worth a try when you hit a bottleneck. Also added a weak-password dictionary for a certain enterprise group, provided by team member Child.
 
 20200410:
 
-* 新增centOS和AIX主机的/etc/目录的文件列表，放在ssrfDict目录，实战中遇到的，aix和其他系统区别还是蛮大的，作用自己琢磨。
+* Added file listings for the /etc/ directory of CentOS and AIX hosts, placed in the ssrfDict directory. Encountered in real-world engagements — AIX differs quite a lot from other systems; figure out the use yourself.
 
 20200406:
 
-* 合并一个由[lewiswu1209](https://github.com/lewiswu1209)提交的pr，密码top19576。
+* Merged a PR submitted by [lewiswu1209](https://github.com/lewiswu1209): password top 19576.
 
 
 20200221:
 
-* 更新由[makoto56](https://github.com/makoto56)师傅加强后的webshell密码字典,离职学习中，毕业前不会有太多的web测试任务（也不想再继续打web了），字典更新频率会降低很多，如果有小伙伴想一起维护可以联系我啊。
+* Updated the webshell password dictionary enhanced by [makoto56](https://github.com/makoto56). I'm leaving my job to study, and won't have many web testing tasks before graduation (and don't really want to keep doing web pentesting), so dictionary updates will slow down a lot. If anyone wants to help maintain it, feel free to contact me.
 
 20200211:
 
-* 新增一个lot字典，数据来源于tg群里别人发的50w互联网lot设备弱口令，由[sunu11](https://github.com/sunu11)师傅提取，在此基础上添加了国内的数据。遇到不知名的设备时一阵爆怼咯，擅用字典，事半功倍。
+* Added an IoT dictionary, sourced from 500k internet IoT device weak passwords that someone shared in a Telegram group, extracted by [sunu11](https://github.com/sunu11), with domestic data added on top. When you run into an unknown device, just hammer away. Good dictionaries make the job twice as easy.
 
 20200115:
 
-* xss字典增加burp官方的210条payload，放在easyXssPayload目录下的[burpXssPayload.txt](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/easyXssPayload/burpXssPayload.txt)文件中。
+* Added Burp's official 210 payloads to the XSS dictionary, placed in the [burpXssPayload.txt](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/easyXssPayload/burpXssPayload.txt) file under the easyXssPayload directory.
 
-* 用户名字典增加了2018-2020青年安全圈黑阔们的id，数据来源[Security-Data-Analysis-and-Visualization](https://github.com/404notf0und/Security-Data-Analysis-and-Visualization)，分离了id,博客域名,github ID三个字段。放在userNameDict目录下[sec_ID.txt](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/userNameDict/sec_id.txt),遇到shell先去撞一下,自建waf这些id都标记为黑名单关键字就对了。
+* Added the IDs of security-community hackers from 2018-2020 to the username dictionary, sourced from [Security-Data-Analysis-and-Visualization](https://github.com/404notf0und/Security-Data-Analysis-and-Visualization), with three fields separated: id, blog domain, github ID. Placed at [sec_ID.txt](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/userNameDict/sec_id.txt) under the userNameDict directory. When you get a shell, try these first; if you run your own WAF, just mark all these IDs as blacklist keywords.
 
-* 其他优化，更新。
+* Other optimizations and updates.
 
 
 20200106:
 
-* xss字典增加100+条新Payload，并合并到本项目。
+* Added 100+ new payloads to the XSS dictionary and merged them into this project.
 
 20200104:
 
-* 再次优化参数字典，感谢[key师傅](https://github.com/gh0stkey)的修正。
+* Optimized the parameter dictionary again. Thanks to [key](https://github.com/gh0stkey) for the fixes.
 
 20191219:
 
-* 使用正则`(\W)`过滤了很多无效的参数,如空格(){}等等,并允许-的存在，重新合并去重了一下参数字典，均放在AllParam.txt，感谢奶权师傅的反馈。
+* Used the regex `(\W)` to filter out a lot of invalid parameters such as spaces, (){} etc., and allowed `-`. Re-merged and deduplicated the parameter dictionary, all placed in AllParam.txt. Thanks to Naiquan for the feedback.
 
 20191214:
 
-* 最近在整理各CMS的漏洞，前前后后下载了50多个CMS,顺便重新采集了一下参数，parameter.txt的体积增加到5859条。（原2800+）
+* Recently I've been organizing vulnerabilities across various CMS. I downloaded more than 50 CMS over time and re-collected parameters along the way. The size of parameter.txt grew to 5859 entries. (was 2800+)
 
 20191106:
 
-* 在密码字典下新增加了华为安全产品默认用户名密码速查表.
+* Added a Huawei security product default username/password quick-reference table under the password dictionary.
 
 20191026:
 
-* 使用过程中发现参数字典冗杂了,所以将最近采集的到的以及一些优秀的工具中的字典合并去重复放进了AllParam.txt，共51219条，推荐使用.
+* During use I found the parameter dictionary cluttered, so I merged and deduplicated the recently collected parameters and dictionaries from some excellent tools into AllParam.txt — 51219 entries total, recommended.
 
 20191022:
 
-* 在参数字典下新增了[Arjun](https://github.com/s0md3v/Arjun)的一个工具,比原先的脚本要强大得多,字典在db目录下.
+* Added a dictionary from the [Arjun](https://github.com/s0md3v/Arjun) tool under the parameter dictionary. It's much more powerful than the previous script; the dictionary is in the db directory.
 
 20190928:
 
-* 在passwordDict下新增了从[猪猪侠师傅Github](https://github.com/ring04h)复制的wifi密码top2000字典。
+* Added a wifi password top 2000 dictionary copied from [zhuzhuxia's Github](https://github.com/ring04h) under passwordDict.
 
 20190819:
 
-* 在directoryDicts下新增了常见漏洞目录，推荐直接使用all.txt
+* Added common vulnerability directories under directoryDicts — recommended to just use all.txt.
 
-* 在passwodDict下新增了常见安全设备/路由器/中间件/服务弱口令清单。不过还是推荐使用RW_Password这个强弱口令字典，因为等保的强压之下很多单位不得不将密码设置的复杂，为了方便记忆这些密码又基本都是有规律的，从而诞生了强弱口令，真的很好用啊。
-* 其他更新，本次更新部分字典采集自[SaiDict](https://github.com/Stardustsky/SaiDict),合并的时候仔细去重了。
+* Added a list of weak passwords for common security appliances/routers/middleware/services under passwodDict. That said, I still recommend the RW_Password strong-weak password dictionary, because under the pressure of MLPS (Multi-Level Protection Scheme) compliance many organizations are forced to set complex passwords, and to make them easy to remember these passwords basically all follow patterns — hence "strong-weak passwords", which are really useful.
+* Other updates. Part of the dictionaries in this update were collected from [SaiDict](https://github.com/Stardustsky/SaiDict), carefully deduplicated when merging.
 
-20190811：
+20190811:
 
-* 上传了自己平常爆破子域名用的字典(从subDomainsBrute,layer等工具中提取出来合并去重，再和自己生成的部分字典合并)，推荐使用main.txt,另一个比较弟弟。
+* Uploaded the dictionary I usually use to brute-force subdomains (extracted and merged from tools like subDomainsBrute and layer, deduplicated, then merged with part of the dictionaries I generated myself). Recommended to use main.txt; the other one is weaker.
 
-20190801：
+20190801:
 
-* 合并了一个[r35tart](https://github.com/r35tart/RW_Password)师傅整理的很好的“强弱口令”字典（即看起来很复杂，单但实际上很多人在用的密码）
+* Merged a great "strong-weak password" dictionary organized by [r35tart](https://github.com/r35tart/RW_Password) (passwords that look very complex but are actually used by a lot of people).
 
-20190615：
+20190615:
 
-* 合并了一个[国外的字典](https://github.com/emadshanab/WordLists-20111129) 感觉分类有点乱 考完试再重新整理一下咯。
+* Merged a [foreign dictionary](https://github.com/emadshanab/WordLists-20111129). The categorization feels a bit messy — I'll reorganize it after my exams.
 
 ## content
 
-* [参数Fuzz字典](#参数fuzz字典)
-* [Xss Fuzz字典](#xss-fuzz字典)
-* [用户名字典](#用户名字典)
-* [密码字典](#密码字典)
-* [目录字典](#目录字典)
-* [sql-fuzz字典](#sql-fuzz字典)
-* [ssrf-fuzz字典](#ssrf-fuzz字典)
-* [XXE字典](#XXE字典)
-* [ctf字典](#ctf字典)
-* [Api字典](#Api字典)
-* [路由器后台字典](#路由器后台字典)
-* [文件后缀Fuzz](#文件后缀Fuzz)
-* [js文件字典](#js文件字典)
-* [子域名字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/subdomainDicts)
+* [Parameter Fuzz Dictionary](#parameter-fuzz-dictionary)
+* [Xss Fuzz Dictionary](#xss-fuzz-dictionary)
+* [Username Dictionary](#username-dictionary)
+* [Password Dictionary](#password-dictionary)
+* [Directory Dictionary](#directory-dictionary)
+* [sql-fuzz Dictionary](#sql-fuzz-dictionary)
+* [ssrf-fuzz Dictionary](#ssrf-fuzz-dictionary)
+* [XXE Dictionary](#xxe-dictionary)
+* [ctf Dictionary](#ctf-dictionary)
+* [Api Dictionary](#api-dictionary)
+* [Router Admin Dictionary](#router-admin-dictionary)
+* [File Extension Fuzz](#file-extension-fuzz)
+* [js File Dictionary](#js-file-dictionary)
+* [Subdomain Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/subdomainDicts)
 
 
 
-工具推荐：[burpsuite](https://portswigger.net/burp/),[sqlmap](https://github.com/sqlmapproject/sqlmap),[xssfork](https://github.com/bsmali4/xssfork),[Wfuzz](https://github.com/xmendez/wfuzz/),[webdirscan](https://github.com/TuuuNya/webdirscan)
+Recommended tools: [burpsuite](https://portswigger.net/burp/),[sqlmap](https://github.com/sqlmapproject/sqlmap),[xssfork](https://github.com/bsmali4/xssfork),[Wfuzz](https://github.com/xmendez/wfuzz/),[webdirscan](https://github.com/TuuuNya/webdirscan)
 
-如果有什么的好字典或是建议欢迎提交issue给我。
+If you have any good dictionaries or suggestions, feel free to submit an issue.
 
 
-## [参数Fuzz字典](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/paramDict)
+## [Parameter Fuzz Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/paramDict)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/blob/master/paramDict/parameter.txt
@@ -136,12 +136,12 @@ https://github.com/TheKingOfDuck/fuzzDicts/blob/master/paramDict/parameter.txt
 
 
 
-采集自`ThinkPHP`,`yii2`,`phphub`,`Zblog`,`DiscuzX`,`WordPress`等常见PHP框架/CMS。
+Collected from common PHP frameworks/CMS such as `ThinkPHP`, `yii2`, `phphub`, `Zblog`, `DiscuzX`, `WordPress`.
 
-使用技巧：如http://127.0.0.1/1.php ,视为可疑文件，进行fuzz param 选择GET,POST AND (POST JSON) AND (GET Route) AND cookie param
+Usage tip: e.g. http://127.0.0.1/1.php — treat it as a suspicious file and fuzz the params, selecting GET, POST AND (POST JSON) AND (GET Route) AND cookie param
 
 
-## [Xss Fuzz字典](https://github.com/TheKingOfDuck/easyXssPayload/blob/master/easyXssPayload.txt)
+## [Xss Fuzz Dictionary](https://github.com/TheKingOfDuck/easyXssPayload/blob/master/easyXssPayload.txt)
 
 ```
 https://github.com/TheKingOfDuck/easyXssPayload/blob/master/easyXssPayload.txt
@@ -149,9 +149,9 @@ https://github.com/TheKingOfDuck/easyXssPayload/blob/master/easyXssPayload.txt
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/xss.jpg)
 
-采集自`github`。
+Collected from `github`.
 
-## [用户名字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/userNameDict)
+## [Username Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/userNameDict)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/userNameDict
@@ -160,7 +160,7 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/userNameDict
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/username.jpg)
 
 
-## [密码字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/passwordDict)
+## [Password Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/passwordDict)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/passwordDict
@@ -168,7 +168,7 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/passwordDict
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/password.jpg)
 
-## [目录字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/directoryDicts)
+## [Directory Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/directoryDicts)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/directoryDicts
@@ -177,7 +177,7 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/directoryDicts
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/directory.jpg)
 
 
-## [SQL Fuzz字典](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/sqlDict/sql.txt)
+## [SQL Fuzz Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/sqlDict/sql.txt)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/blob/master/sqlDict/sql.txt
@@ -186,7 +186,7 @@ https://github.com/TheKingOfDuck/fuzzDicts/blob/master/sqlDict/sql.txt
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/sql.jpg)
 
 
-## [ssrf fuzz字典](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/ssrfDicts)
+## [ssrf fuzz Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/ssrfDicts)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/blob/master/ssrfDicts
@@ -194,9 +194,9 @@ https://github.com/TheKingOfDuck/fuzzDicts/blob/master/ssrfDicts
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/ssrf.jpg)
 
-由[\xeb\xfe](https://github.com/doge-dog)师傅提供。
+Provided by [\xeb\xfe](https://github.com/doge-dog).
 
-## [XXE字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/XXEDicts)
+## [XXE Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/XXEDicts)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/XXEDicts
@@ -204,9 +204,9 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/XXEDicts
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/xxe.jpg)
 
-收集自百度。
+Collected from Baidu.
 
-## [ctf字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/ctfDict)
+## [ctf Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/ctfDict)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/ctfDict
@@ -214,9 +214,9 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/ctfDict
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/ctfDict/ctf-wscan/1.gif)
 
-采集自[kingkaki](https://github.com/kingkaki/ctf-wscan)，原先收集时百度直接下载的压缩包，没看到github链接，所以没标记来源，抱歉抱歉
+Collected from [kingkaki](https://github.com/kingkaki/ctf-wscan). When I originally collected it I downloaded the archive directly from Baidu and didn't see the github link, so I didn't mark the source — my apologies.
 
-## [Api字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/apiDict)
+## [Api Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/apiDict)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/apiDict/api.txt
@@ -224,9 +224,9 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/apiDict/api.txt
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/api.jpg)
 
-钟馗采集的代码写得很cxk 我真弟弟。。。
+Zhongkui's collection code is pretty sloppy — I'm such a noob...
 
-## [路由器后台字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/routerDicts)
+## [Router Admin Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/routerDicts)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/routerDicts/pass.txt
@@ -234,7 +234,7 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/routerDicts/pass.txt
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/router.jpg)
 
-## [文件后缀Fuzz](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/uploadFileExtDicts)
+## [File Extension Fuzz](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/uploadFileExtDicts)
 
 ```
 https://github.com/TheKingOfDuck/fuzzDicts/tree/master/uploadFileExtDicts
@@ -242,12 +242,12 @@ https://github.com/TheKingOfDuck/fuzzDicts/tree/master/uploadFileExtDicts
 
 ![CoolCat](https://github.com/TheKingOfDuck/fuzzDicts/blob/master/images/fileExt.png)
 
-采集自https://github.com/c0ny1/upload-fuzz-dic-builder
+Collected from https://github.com/c0ny1/upload-fuzz-dic-builder
 
 
-## [js文件字典](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/js)
+## [js File Dictionary](https://github.com/TheKingOfDuck/fuzzDicts/tree/master/js)
 
-采集自:https://github.com/7dog7/bottleneckOsmosis
+Collected from: https://github.com/7dog7/bottleneckOsmosis
 
 
 

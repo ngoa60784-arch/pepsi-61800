@@ -5,8 +5,8 @@ import { AuthStorage, ModelRegistry, SettingsManager, DefaultResourceLoader, Ses
 import type { Skill, ToolDefinition, CreateAgentSessionOptions, ExtensionFactory } from "@mariozechner/pi-coding-agent"
 import { createMcpAdapter } from "pi-mcp-adapter"
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core"
-import { getProviders, getApiProviders, supportsXhigh } from "@mariozechner/pi-ai"
-import type { Model, Api, KnownProvider, ThinkingLevel as PiAiThinkingLevel } from "@mariozechner/pi-ai"
+import { getProviders, getApiProviders, supportsXhigh, completeSimple } from "@mariozechner/pi-ai"
+import type { Model, Api, KnownProvider, Context, ThinkingLevel as PiAiThinkingLevel } from "@mariozechner/pi-ai"
 import * as prompts from "./prompts/index"
 import type { PromptFile } from "./prompts/index"
 import { customProviders } from "./providers/custom"
@@ -18,12 +18,19 @@ import { engagementToolNames } from "./tools/engagement-tools"
 import { createSubagentTool } from "./tools/subagent"
 import type { ToolEntry } from "./tools/index"
 import * as skills from "./skills/index"
-import type { ServerEntry, McpSettings } from "pi-mcp-adapter/types.js"
+import type { ServerEntry, McpConfig, McpSettings } from "pi-mcp-adapter/types.js"
 import { formatToolName } from "pi-mcp-adapter/types.js"
 import * as mcp from "./mcp/index"
-import type { McpToolCache } from "./mcp/index"
-import type { AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
-export type { AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
+import type { McpServerItem, McpToolCache } from "./mcp/index"
+import type {
+    ActivateModelResult,
+    AddResult,
+    HostRuntimeSettings,
+    HostChallengeSettings,
+    HostPlannerSettings,
+    HostSettings,
+} from "./types"
+export type { ActivateModelResult, AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { isEngagementMode } from "../challenge/engagement"
 
@@ -142,16 +149,6 @@ function normalizeBaseUrl(baseUrl?: string): string | undefined {
     return text.replace(/\/+$/, "")
 }
 
-function resolveGatewayBaseUrl(
-    baseUrl: string | undefined,
-    mappings: Array<{ sourceBaseUrl: string; gatewayBaseUrl: string }> | undefined,
-): string | undefined {
-    const normalized = normalizeBaseUrl(baseUrl)
-    if (!normalized || !mappings || mappings.length === 0) return
-    const match = mappings.find((item) => normalizeBaseUrl(item.sourceBaseUrl) === normalized)
-    return normalizeBaseUrl(match?.gatewayBaseUrl)
-}
-
 function canonicalizeBaseUrlForApi(api: string | undefined, baseUrl: string | undefined): string | undefined {
     const normalized = normalizeBaseUrl(baseUrl)
     if (!normalized) return
@@ -187,39 +184,6 @@ function applyProviderTransport<T extends Record<string, unknown>>(model: T, pro
 
 function toPiAiThinkingLevel(value?: string): PiAiThinkingLevel | undefined {
     if (value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") return value
-}
-
-function collectProviderBaseUrls(providerPrefs: ProviderPrefEntry[]): string[] {
-    const values = new Set<string>()
-    for (const provider of providerPrefs) {
-        const normalized = normalizeBaseUrl(provider.baseUrl)
-        if (normalized) values.add(normalized)
-    }
-    return [...values].sort((a, b) => a.localeCompare(b))
-}
-
-function sanitizeBaseUrlMappings(
-    mappings: HostChallengeSettings["baseUrlMappings"] | undefined,
-    providerBaseUrls: string[],
-): HostChallengeSettings["baseUrlMappings"] | undefined {
-    if (providerBaseUrls.length === 0) return undefined
-
-    const mappingBySourceBaseUrl = new Map<string, string>()
-    for (const item of mappings ?? []) {
-        const sourceBaseUrl = normalizeBaseUrl(item.sourceBaseUrl)
-        const gatewayBaseUrl = normalizeBaseUrl(item.gatewayBaseUrl)
-        if (!sourceBaseUrl || !gatewayBaseUrl) continue
-        mappingBySourceBaseUrl.set(sourceBaseUrl, gatewayBaseUrl)
-    }
-
-    const next = providerBaseUrls
-        .map((sourceBaseUrl) => {
-            const gatewayBaseUrl = mappingBySourceBaseUrl.get(sourceBaseUrl)
-            return gatewayBaseUrl ? { sourceBaseUrl, gatewayBaseUrl } : undefined
-        })
-        .filter((item): item is { sourceBaseUrl: string; gatewayBaseUrl: string } => !!item)
-
-    return next.length > 0 ? next : undefined
 }
 
 export const TCH_AGENT_HOME_DIR = resolve(homedir(), ".tch-agent")
@@ -281,8 +245,9 @@ export class ConfigManager {
         const configDir = this.dir
         const dirs = [configDir, resolve(configDir, "prompts"), resolve(configDir, "skills")]
         for (const d of dirs) await mkdir(d, { recursive: true })
+        skills.applyBuiltinSkillsEnv(configDir)
 
-        //配置重试
+        // Configure retry
         this.settings.setRetryEnabled(true)
         this.settings.applyOverrides({
             retry: {
@@ -293,16 +258,16 @@ export class ConfigManager {
             },
         })
 
-        // 自定义 providers
+        // Custom providers
         for (const p of customProviders) {
             this.models.registerProvider(p.name, p.config)
         }
 
-        // SDK 内置工具
+        // SDK built-in tools
         for (const def of builtinToolDefinitions) {
             this.registeredTools.set(def.name, { def, source: "builtin" })
         }
-        // 自定义工具
+        // Custom tools
         for (const def of customTools) {
             this.registeredTools.set(def.name, { def, source: "custom" })
         }
@@ -336,7 +301,7 @@ export class ConfigManager {
         return this.auth.list()
     }
 
-    // ── Provider Prefs (独立存储，支持同名 provider 多条配置) ──
+    // ── Provider Prefs (separate storage; multiple configs per provider name) ──
 
     private providerPrefsPath() {
         return resolve(this.dir, "provider-prefs.json")
@@ -363,9 +328,9 @@ export class ConfigManager {
         entry.hash = computeHash(entry as unknown as Record<string, unknown>)
         const data = await this.readProviderPrefs()
 
-        // hash 相同则拒绝
+        // Reject duplicate hash
         const dup = data.providers.find((p) => p.id !== entry.id && p.hash === entry.hash)
-        if (dup) return { id: entry.id, rejected: `与已有配置 "${dup.name}" (${dup.id}) 完全相同` }
+        if (dup) return { id: entry.id, rejected: `Identical to existing config "${dup.name}" (${dup.id})` }
 
         const idx = data.providers.findIndex((p) => p.id === entry.id)
         if (idx >= 0) {
@@ -375,7 +340,7 @@ export class ConfigManager {
         }
         await this.writeProviderPrefs(data)
 
-        // 同步到 models.json（运行时 provider key 使用唯一 id）
+        // Sync to models.json (runtime provider key uses unique id)
         await this.syncProviderToModelsJson(entry)
         return { id: entry.id }
     }
@@ -396,20 +361,6 @@ export class ConfigManager {
             await this.writeModelPrefs(modelPrefs)
         }
 
-        const hostSettings = await this.getHostSettings()
-        const nextMappings = sanitizeBaseUrlMappings(
-            hostSettings.challenge.baseUrlMappings,
-            collectProviderBaseUrls(data.providers),
-        )
-        if (nextMappings !== hostSettings.challenge.baseUrlMappings) {
-            await this.setHostSettings({
-                challenge: {
-                    ...hostSettings.challenge,
-                    baseUrlMappings: nextMappings,
-                },
-            })
-        }
-
         await this.removeProvider(providerRuntimeName(entry.id))
         this.removeApiKey(providerRuntimeName(entry.id))
     }
@@ -422,29 +373,14 @@ export class ConfigManager {
         const updated = normalizeProviderPrefEntry({ ...previous, ...patch })
         updated.hash = computeHash(updated as unknown as Record<string, unknown>)
 
-        // hash 相同则拒绝
+        // Reject duplicate hash
         const dup = data.providers.find((p) => p.id !== id && p.hash === updated.hash)
-        if (dup) return { id, rejected: `与已有配置 "${dup.name}" (${dup.id}) 完全相同` }
+        if (dup) return { id, rejected: `Identical to existing config "${dup.name}" (${dup.id})` }
 
         data.providers[idx] = updated
         await this.writeProviderPrefs(data)
         await this.syncProviderToModelsJson(updated)
 
-        if (normalizeBaseUrl(previous.baseUrl) !== normalizeBaseUrl(updated.baseUrl)) {
-            const hostSettings = await this.getHostSettings()
-            const nextMappings = sanitizeBaseUrlMappings(
-                hostSettings.challenge.baseUrlMappings,
-                collectProviderBaseUrls(data.providers),
-            )
-            if (nextMappings !== hostSettings.challenge.baseUrlMappings) {
-                await this.setHostSettings({
-                    challenge: {
-                        ...hostSettings.challenge,
-                        baseUrlMappings: nextMappings,
-                    },
-                })
-            }
-        }
         return { id }
     }
 
@@ -468,7 +404,7 @@ export class ConfigManager {
         }
     }
 
-    // ── Providers CRUD (models.json SDK 格式) ──
+    // ── Providers CRUD (models.json SDK format) ──
 
     private modelsJsonPath() {
         return resolve(this.dir, "models.json")
@@ -548,7 +484,7 @@ export class ConfigManager {
         })
     }
 
-    // ── Built-in Reference (只读，UI 下拉框用) ──
+    // ── Built-in Reference (read-only, UI dropdowns) ──
 
     listBuiltInProviders(): BuiltInProvider[] {
         const all = (this.models.getAll() as Model<Api>[]).filter((model) => !model.provider.startsWith("provider:"))
@@ -581,7 +517,7 @@ export class ConfigManager {
     }
     // ── Provider Models (models.json providers.*.models) ──
 
-    /** 列出所有 provider 中显式配置的 models */
+    /** List models explicitly configured on all providers */
     async listConfiguredModels(): Promise<ConfiguredModel[]> {
         const data = await this.readModelsJson()
         const providerPrefs = await this.listProviderPrefs()
@@ -603,7 +539,7 @@ export class ConfigManager {
         return result
     }
 
-    /** 向 provider 的 models 数组中添加模型 */
+    /** Add a model to a provider's models array */
     async addModelToProvider(providerName: string, model: ModelDefinition) {
         const data = await this.readModelsJson()
         const provider = data.providers[providerName]
@@ -612,7 +548,7 @@ export class ConfigManager {
         const nextModel = sanitizeModelDefinition(model)
         const idx = models.findIndex((m: any) => m.id === nextModel.id)
         if (idx >= 0) {
-            models[idx] = nextModel // 更新已有
+            models[idx] = nextModel // update existing
         } else {
             models.push(nextModel)
         }
@@ -620,7 +556,7 @@ export class ConfigManager {
         await this.writeModelsJson(data)
     }
 
-    /** 从 provider 的 models 数组中移除模型 */
+    /** Remove a model from a provider's models array */
     async removeModelFromProvider(providerName: string, modelId: string) {
         const data = await this.readModelsJson()
         const provider = data.providers[providerName]
@@ -631,7 +567,7 @@ export class ConfigManager {
         await this.writeModelsJson(data)
     }
 
-    // ── Model Prefs (model-prefs.json — per-model 用户偏好) ──
+    // ── Model Prefs (model-prefs.json — per-model user preferences) ──
 
     private modelPrefsPath() {
         return resolve(this.dir, "model-prefs.json")
@@ -673,9 +609,9 @@ export class ConfigManager {
         )
         const data = await this.readModelPrefs()
 
-        // hash 相同则拒绝
+        // Reject duplicate hash
         const dup = data.models.find((m) => m.id !== nextEntry.id && m.hash === nextEntry.hash)
-        if (dup) return { id: nextEntry.id, rejected: `与已有配置 "${dup.provider}:${dup.modelId}" (${dup.id}) 完全相同` }
+        if (dup) return { id: nextEntry.id, rejected: `Identical to existing config "${dup.provider}:${dup.modelId}" (${dup.id})` }
 
         const idx = data.models.findIndex((m) => m.id === nextEntry.id)
         if (idx >= 0) {
@@ -685,7 +621,7 @@ export class ConfigManager {
         }
         await this.writeModelPrefs(data)
 
-        // 写入 models.json 让 SDK 识别
+        // Write models.json so SDK recognizes the model
         await this.ensureModelInProvider(nextEntry)
         return { id: nextEntry.id }
     }
@@ -697,7 +633,7 @@ export class ConfigManager {
         data.models = data.models.filter((m) => m.id !== id)
         await this.writeModelPrefs(data)
 
-        // 如果没有其他 pref 引用同一个 provider+modelId，从 models.json 移除
+        // Remove from models.json if no other pref references same provider+modelId
         const providerPrefs = await this.listProviderPrefs()
         const binding = resolveModelProviderBinding(entry, providerPrefs)
         const remaining = data.models.some((m) => {
@@ -713,7 +649,7 @@ export class ConfigManager {
         return getProviders().includes(name as KnownProvider)
     }
 
-    /** 确保 models.json 包含此模型定义（含 apiKey 同步） */
+    /** Ensure models.json contains this model definition (incl. apiKey sync) */
     private async ensureModelInProvider(entry: ModelConfigEntry) {
         const data = await this.readModelsJson()
         const providerPrefs = await this.listProviderPrefs()
@@ -723,7 +659,7 @@ export class ConfigManager {
         const displayProvider = binding.displayProvider
         const providerPref = binding.providerPref
 
-        // 如果 provider 不存在则创建
+        // Create provider if missing
         if (!data.providers[runtimeProvider]) {
             const builtInRef = this.isBuiltInProvider(displayProvider) ? this.listBuiltInModels(displayProvider)[0] : undefined
             data.providers[runtimeProvider] = {
@@ -737,7 +673,7 @@ export class ConfigManager {
 
         const provider = data.providers[runtimeProvider]
 
-        // SDK 要求自定义 models[] 必须有 apiKey
+        // SDK requires apiKey on custom models[]
         if (!provider.apiKey) {
             const auth = this.auth.get(runtimeProvider)
             if (auth?.type === "api_key") {
@@ -745,10 +681,10 @@ export class ConfigManager {
             }
         }
 
-        // 从内建目录获取基线字段
+        // Baseline fields from built-in catalog
         const builtInModel = this.isBuiltInProvider(displayProvider) ? this.listBuiltInModels(displayProvider).find((m) => m.id === entry.modelId) : undefined
 
-        // 构建 SDK model definition
+        // Build SDK model definition
         const def: ModelDefinition = { id: entry.modelId }
         def.name = entry.name ?? builtInModel?.name
         def.reasoning = entry.reasoning ?? builtInModel?.reasoning
@@ -769,7 +705,7 @@ export class ConfigManager {
         const models = (provider.models as any[]) ?? []
         const idx = models.findIndex((m: any) => m.id === entry.modelId)
         if (idx >= 0) {
-            models[idx] = sanitizeModelDefinition(def) // 更新
+            models[idx] = sanitizeModelDefinition(def) // update
         } else {
             models.push(sanitizeModelDefinition(def))
         }
@@ -777,7 +713,7 @@ export class ConfigManager {
         await this.writeModelsJson(data)
     }
 
-    /** 发送一条简单消息测试模型是否可用 */
+    /** Send a simple message to test model availability */
     async testModel(prefId: string): Promise<{
         ok: boolean
         error?: string
@@ -831,16 +767,9 @@ export class ConfigManager {
             return { ok: false, error: detail, details }
         }
 
-        // 合并用户配置的所有字段
+        // Merge all user-configured fields
         const { id: _id, provider: _p, providerId: _pid, modelId: _m, thinkingLevel: _t, ...overrides } = pref
-        let model = applyProviderTransport({ ...baseModel, ...overrides }, providerConfig)
-        const hostSettings = await this.getHostSettings()
-        if (hostSettings.challenge.answerModeEnabled === true) {
-            const mappedBaseUrl = resolveGatewayBaseUrl(model.baseUrl, hostSettings.challenge.baseUrlMappings)
-            if (mappedBaseUrl) {
-                model = { ...model, baseUrl: mappedBaseUrl }
-            }
-        }
+        const model = applyProviderTransport({ ...baseModel, ...overrides }, providerConfig)
         const modelRef = `${binding.displayProvider}:${pref.modelId}`
         const modelApi = typeof model.api === "string" && model.api.trim() ? model.api.trim() : "unknown"
         const modelBaseUrl = typeof model.baseUrl === "string" && model.baseUrl.trim() ? model.baseUrl.trim() : "default"
@@ -917,14 +846,14 @@ export class ConfigManager {
         }
     }
 
-    // ── Tools (SDK 内置 + 自定义 + MCP) ──
+    // ── Tools (SDK built-in + custom + MCP) ──
 
-    /** 注册自定义工具 */
+    /** Register a custom tool */
     registerTool(def: ToolDefinition) {
         this.registeredTools.set(def.name, { def, source: "custom" })
     }
 
-    /** 列出所有工具（UI 展示用），含 MCP 服务器工具 */
+    /** List all tools for UI, including MCP server tools */
     listTools(): ToolEntry[] {
         const entries: ToolEntry[] = [...this.registeredTools.values()].map(({ def, source }) => ({
             name: def.name,
@@ -934,7 +863,7 @@ export class ConfigManager {
             parameters: def.parameters ? JSON.parse(JSON.stringify(def.parameters)) : undefined,
         }))
 
-        // MCP 服务器工具（从缓存读取）
+        // MCP server tools (from cache)
         const cache = this.loadMcpToolCache()
         if (cache) {
             const mcpConfig = this.getMcpConfig()
@@ -965,12 +894,12 @@ export class ConfigManager {
         return entries
     }
 
-    /** 按名字获取单个工具定义 */
+    /** Get one tool definition by name */
     getTool(name: string): ToolDefinition | undefined {
         return this.registeredTools.get(name)?.def
     }
 
-    /** 按名字列表批量获取（用于组装给 agent） */
+    /** Resolve tools by name list (for agent assembly) */
     resolveTools(names: string[]): ToolDefinition[] {
         const result: ToolDefinition[] = []
         for (const n of names) {
@@ -980,7 +909,7 @@ export class ConfigManager {
         return result
     }
 
-    /** 获取所有工具定义 */
+    /** Get all tool definitions */
     allTools(): ToolDefinition[] {
         return [...this.registeredTools.values()].map(({ def }) => def)
     }
@@ -1046,13 +975,13 @@ export class ConfigManager {
     }
 
     /**
-     * 根据 PromptFile 解析出完整的会话配置。
-     * 根据 PromptFile 解析出 CreateAgentSessionOptions。
-     * - model: model-pref 短 ID → Model<Api>（合并用户覆盖）
-     * - thinkingLevel: 从 model-pref 提取
-     * - customTools: meta.tools 过滤出的 ToolDefinition[]
-     * - resourceLoader: 注入 prompt 内容为系统提示，过滤 skills
-     * 调用方可在返回值基础上 spread 覆盖其他字段（cwd、tools 等）。
+     * Resolve full session options from PromptFile.
+     * Resolves CreateAgentSessionOptions from PromptFile.
+     * - model: model-pref short id → Model<Api> (merged with user overrides)
+     * - thinkingLevel: from model-pref
+     * - customTools: ToolDefinition[] filtered from meta.tools
+     * - resourceLoader: inject prompt as system prompt, filter skills
+     * Caller may spread overrides (cwd, tools, etc.).
      */
     async resolvePromptSession(
         promptName: string,
@@ -1062,7 +991,7 @@ export class ConfigManager {
         if (!prompt) return undefined
         if (prompt.meta.disabled === true) return undefined
 
-        // 1) 解析模型与思考等级
+        // 1) Resolve model and thinking level
         const promptModelPrefId = typeof prompt.meta.model === "string" ? prompt.meta.model.trim() : ""
         let resolvedPromptModel: { model: Model<Api>; thinkingLevel?: ThinkingLevel } | undefined
         if (promptModelPrefId) {
@@ -1072,9 +1001,9 @@ export class ConfigManager {
                 throw new Error(`prompt "${promptName}" model "${promptModelPrefId}": ${error?.message ?? String(error)}`)
             }
         } else {
-            // 提示词未声明 model(如内置 planner)→ 回退到全局默认 Agent 模型(UI 里选的那个)，
-            // 没设全局默认再退到第一个可用 pref；都没有才交给 SDK 默认。
-            // 这样"UI 选一个模型 → 所有 agent 都用它"成立，且不会掉进 SDK 内置的 gemini(很多地区 400)。
+            // Prompt without model (e.g. built-in planner) → global default Agent model from UI,
+            // else first available pref; else SDK default.
+            // So "one UI model → all agents" holds and avoids SDK default gemini (400 in many regions).
             const fallbackPrefId = await this.resolveDefaultModelPrefId()
             if (fallbackPrefId) {
                 try {
@@ -1087,18 +1016,18 @@ export class ConfigManager {
         const model = resolvedPromptModel?.model
         const thinkingLevel = resolvedPromptModel?.thinkingLevel
 
-        // 2) 从 prompt 提取工具白名单（仅显式声明才启用）
+        // 2) Tool allowlist from prompt (only explicit names enabled)
         const requestedToolNames =
             (prompt.meta.skills?.length ?? 0) > 0
                 ? [...new Set(["read", ...(prompt.meta.tools ?? [])])]
                 : (prompt.meta.tools ?? [])
 
-        // 3) 渗透工具门控：实战(engagement)模式或设置了 challengeId 环境时启用
+        // 3) Pentest tool gate: enabled in engagement mode or when challengeId env is set
         const challengeId = process.env[CHALLENGE_ENV_CHALLENGE_ID]?.trim()
         const challengeToolsEnabled = isEngagementMode() || Boolean(challengeId)
         const enabledToolNames = requestedToolNames.filter((name) => challengeToolsEnabled || !engagementToolNames.has(name))
 
-        // 4) 分离内置工具与自定义工具
+        // 4) Split built-in vs custom tools
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const builtinTools: any[] = []
         const customToolNames: string[] = []
@@ -1108,10 +1037,10 @@ export class ConfigManager {
             } else if (this.registeredTools.has(n)) {
                 customToolNames.push(n)
             }
-            // 其余视为 MCP 工具
+            // Everything else treated as MCP tool
         }
 
-        // 5) 构建自定义工具定义（包含 subagent 工具）
+        // 5) Build custom tool defs (incl. subagent tool)
         const customToolDefs = customToolNames.length > 0 ? this.resolveTools(customToolNames) : []
         const subagents = prompt.meta.subagents
         if (prompt.meta.isSubagent !== true && subagents && subagents.length > 0) {
@@ -1122,10 +1051,10 @@ export class ConfigManager {
             }
         }
 
-        // 6) 构建 skills 过滤集
+        // 6) Build skills filter set
         const enabledSkillNames = new Set(prompt.meta.skills ?? [])
 
-        // 7) 构建 MCP 扩展
+        // 7) Build MCP extension
         const enabledMcpServers = (prompt.meta.mcps ?? []).filter((name) => name in this.getMcpConfig().mcpServers)
         const mcpExtension =
             enabledMcpServers.length > 0
@@ -1136,10 +1065,11 @@ export class ConfigManager {
                   })
                 : undefined
 
-        // 8) 组装 ResourceLoader
+        // 8) Assemble ResourceLoader
         const resolvedExtensions = (extensions ?? []).filter((item): item is ExtensionFactory | PromptSessionExtensionLike => !!item)
         const systemPromptSections = [prompt.content, ...resolvedExtensions.map(resolvePromptSessionExtensionPrompt).filter((item): item is string => !!item)]
 
+        const loadedSkills = skills.listSkills(this.dir)
         const resourceLoader = new DefaultResourceLoader({
             agentDir: this.dir,
             systemPromptOverride: () => systemPromptSections.join("\n\n"),
@@ -1148,12 +1078,13 @@ export class ConfigManager {
             ),
             skillsOverride: (base) => ({
                 ...base,
-                skills: base.skills.filter((s) => enabledSkillNames.has(s.name)),
+                skills:
+                    enabledSkillNames.size > 0 ? loadedSkills.filter((s) => enabledSkillNames.has(s.name)) : [],
             }),
         })
         await resourceLoader.reload()
 
-        // 9) 组装会话配置
+        // 9) Assemble session options
         const opts: CreateAgentSessionOptions = {
             tools: builtinTools,
             customTools: customToolDefs,
@@ -1173,9 +1104,9 @@ export class ConfigManager {
     }
 
     /**
-     * 全局默认 Agent 模型(model-pref id)：优先用 host settings 里 UI 选的 defaultModelPrefId，
-     * 其次回退到第一个可用 model pref。所有 agent 在自身未声明 model 时统一用它。
-     * 返回 undefined 表示一个模型都没配。
+     * Global default Agent model (model-pref id): host settings defaultModelPrefId first,
+     * else first model pref. All agents without explicit model use it.
+     * Returns undefined when no models are configured.
      */
     async resolveDefaultModelPrefId(): Promise<string | undefined> {
         const prefs = await this.listModelPrefs()
@@ -1212,19 +1143,63 @@ export class ConfigManager {
 
         const providerConfig = await this.getProvider(binding.runtimeProvider)
         const { id: _id, provider: _p, providerId: _pid, modelId: _m, hash: _h, thinkingLevel, ...overrides } = pref
-        let model: Model<Api> = applyProviderTransport({ ...baseModel, ...overrides }, providerConfig)
-        const hostSettings = await this.getHostSettings()
-        if (hostSettings.challenge.answerModeEnabled === true) {
-            const mappedBaseUrl = resolveGatewayBaseUrl(model.baseUrl, hostSettings.challenge.baseUrlMappings)
-            if (mappedBaseUrl) {
-                model = { ...model, baseUrl: mappedBaseUrl }
-            }
-        }
+        const model: Model<Api> = applyProviderTransport({ ...baseModel, ...overrides }, providerConfig)
 
         return {
             model,
             thinkingLevel: thinkingLevel as ThinkingLevel | undefined,
         }
+    }
+
+    /**
+     * Set global default model and align every agent/subagent prompt (plus planner & verifier) to this model-pref id.
+     */
+    async activateModelGlobally(modelPrefId: string): Promise<ActivateModelResult> {
+        const id = modelPrefId.trim()
+        if (!id) throw new Error("model config id is required")
+
+        const prefs = await this.listModelPrefs()
+        if (!prefs.some((pref) => pref.id === id)) {
+            throw new Error(`model config ${id} not found`)
+        }
+
+        await this.setHostSettings({ defaultModelPrefId: id })
+
+        let promptsUpdated = 0
+        const allPrompts = await this.listPrompts()
+        for (const prompt of allPrompts) {
+            if (prompt.deleted) continue
+            const nextMeta: prompts.PromptMeta = { ...prompt.meta, model: id }
+            if (prompt.meta.observerEnabled === true || typeof prompt.meta.observerModel === "string") {
+                nextMeta.observerModel = id
+            }
+            const changed =
+                prompt.meta.model !== id ||
+                (nextMeta.observerModel !== undefined && prompt.meta.observerModel !== id)
+            if (changed) promptsUpdated++
+            await this.setPrompt({ name: prompt.name, meta: nextMeta, content: prompt.content })
+        }
+
+        let plannerUpdated = false
+        let verifierUpdated = false
+
+        const planner = await this.getChallengePlannerPrompt()
+        if (planner && !planner.deleted) {
+            plannerUpdated = planner.meta.model !== id
+            await this.setChallengePlannerPrompt(planner.content, id)
+        }
+
+        const verifier = await prompts.loadPrompt(this.dir, prompts.OBJECTIVE_VERIFIER_PROMPT_NAME)
+        if (verifier && !verifier.deleted) {
+            verifierUpdated = verifier.meta.model !== id
+            await this.setPrompt({
+                name: prompts.OBJECTIVE_VERIFIER_PROMPT_NAME,
+                meta: { ...verifier.meta, model: id },
+                content: verifier.content,
+            })
+        }
+
+        return { defaultModelPrefId: id, promptsUpdated, plannerUpdated, verifierUpdated }
     }
 
     async getChallengePlannerPrompt() {
@@ -1309,7 +1284,7 @@ export class ConfigManager {
         const runtime = tch.runtime ?? {}
         const planner = tch.planner ?? {}
         return {
-            // Planner 强制开启；maxSolvers 默认 1（可在 UI 调高，不可关闭调度）。
+            // Planner always on; maxSolvers defaults to 1 (UI can raise; scheduling cannot be disabled).
             runtime: { ...runtime, maxSolvers: runtime.maxSolvers ?? 1 },
             challenge: tch.challenge ?? {},
             planner: { ...planner, enabled: true },
@@ -1319,20 +1294,9 @@ export class ConfigManager {
 
     async setHostSettings(patch: Partial<HostSettings>): Promise<HostSettings> {
         const current = await this.getHostSettings()
-        const providerPrefs = await this.readProviderPrefs()
-        const providerBaseUrls = collectProviderBaseUrls(providerPrefs.providers)
         const merged: HostSettings = {
             runtime: { ...current.runtime, ...(patch.runtime ?? {}) },
-            challenge: {
-                ...current.challenge,
-                ...(patch.challenge ?? {}),
-                baseUrlMappings: sanitizeBaseUrlMappings(
-                    patch.challenge && "baseUrlMappings" in patch.challenge
-                        ? patch.challenge.baseUrlMappings
-                        : current.challenge.baseUrlMappings,
-                    providerBaseUrls,
-                ),
-            },
+            challenge: { ...current.challenge, ...(patch.challenge ?? {}) },
             planner: { ...current.planner, ...(patch.planner ?? {}), enabled: true },
             defaultModelPrefId:
                 "defaultModelPrefId" in patch

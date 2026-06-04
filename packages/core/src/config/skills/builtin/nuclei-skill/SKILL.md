@@ -1,6 +1,6 @@
 ---
 name: nuclei-skill
-description: Help with safe, practical use of ProjectDiscovery Nuclei for authorized scanning. Use this skill whenever the user wants to run `nuclei`, choose templates, filter by tags or severity, scan one host or a target list, validate or run a custom template, tune output formats, use authenticated scans, or understand key CLI flags. Trigger on requests like "给我写 nuclei 命令", "怎么扫一批 URL", "怎么只跑高危模板", "帮我用 nuclei 跑自定义模板", "nuclei 结果怎么导出 JSONL", and similar Nuclei usage questions even if the user does not explicitly mention a skill.
+description: Help with safe, practical use of ProjectDiscovery Nuclei for authorized scanning. Use this skill whenever the user wants to run `nuclei`, choose templates, filter by tags or severity, scan one host or a target list, validate or run a custom template, tune output formats, use authenticated scans, or understand key CLI flags. Trigger on requests like "write me a nuclei command", "how do I scan a batch of URLs", "how do I run only high/critical templates", "help me run a custom nuclei template", "how do I export nuclei results to JSONL", and similar Nuclei usage questions even if the user does not explicitly mention a skill.
 ---
 
 # nuclei-skill
@@ -329,7 +329,7 @@ Do not:
 ## Short examples
 
 **Example 1**
-Input: 帮我写一个 nuclei 命令，扫 `targets.txt` 里所有站点，只看高危和严重，输出成 jsonl
+Input: Write me a nuclei command that scans every site in `targets.txt`, only high and critical, output as jsonl
 
 Output:
 
@@ -340,7 +340,7 @@ nuclei -l targets.txt -severity high,critical -jsonl-export findings.jsonl
 Reasoning to include briefly: batch input with `-l`, severity filter, JSONL export for later processing.
 
 **Example 2**
-Input: 我有一个本地模板 `./templates/test.yaml`，想先检查模板语法再跑 `https://demo.test`
+Input: I have a local template `./templates/test.yaml` and want to validate its syntax before running it against `https://demo.test`
 
 Output:
 
@@ -352,7 +352,7 @@ nuclei -u https://demo.test -t ./templates/test.yaml
 Reasoning to include briefly: validate first, then run on the single target.
 
 **Example 3**
-Input: `nuclei` 怎么只跑跟 exposure 相关的模板，并带上登录 Cookie？
+Input: How do I make `nuclei` run only exposure-related templates while carrying a login Cookie?
 
 Output:
 

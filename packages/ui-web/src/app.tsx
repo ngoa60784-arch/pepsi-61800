@@ -6,12 +6,14 @@ import {
     XIcon,
     SettingsIcon,
 } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import {
     Sidebar,
     SidebarContent,
     SidebarGroup,
     SidebarGroupLabel,
     SidebarGroupContent,
+    SidebarHeader,
     SidebarMenu,
     SidebarMenuItem,
     SidebarMenuButton,
@@ -32,6 +34,14 @@ import { Input } from "./components/ui/input"
 import { Button } from "./components/ui/button"
 import { auth } from "./lib/api"
 import { configTabs, mainNavItems } from "./data/app-nav"
+
+function IosNavIcon({ icon: Icon }: { icon: LucideIcon }) {
+    return (
+        <span className="ios-nav-icon">
+            <Icon className="size-4" strokeWidth={2.25} />
+        </span>
+    )
+}
 
 function useHash() {
     const [hash, setHash] = useState(location.hash || "#/")
@@ -180,11 +190,14 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     }
 
     return (
-        <div className="flex h-screen items-center justify-center p-6">
-            <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg border p-6 shadow-sm">
+        <div className="flex h-screen items-center justify-center bg-background p-6">
+            <form
+                onSubmit={handleSubmit}
+                className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 ring-1 ring-border/60"
+            >
                 <div className="space-y-1">
                     <div className="flex items-center gap-2 text-base font-semibold">
-                        <BotIcon className="size-5" />
+                        <BotIcon className="size-5 text-primary" />
                         tch-agent
                     </div>
                     <div className="text-sm text-muted-foreground">请输入访问令牌（TCH_AUTH_TOKEN）</div>
@@ -201,10 +214,24 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
 
 export function App() {
     const hash = useHash()
-    const isConfigOpen = hash.startsWith("#/config")
+    const isOnConfigRoute = hash.startsWith("#/config")
+    const [configMenuExpanded, setConfigMenuExpanded] = useState(isOnConfigRoute)
     const isAttackFlowRoute = /^#\/challenge\/[^/]+\/attack-flow$/.test(hash)
     const { error, clearError } = useGlobalUiError()
     const [authState, markAuthed] = useAuthGate()
+
+    useEffect(() => {
+        if (isOnConfigRoute) setConfigMenuExpanded(true)
+    }, [isOnConfigRoute])
+
+    function handleConfigMenuClick() {
+        if (configMenuExpanded) {
+            setConfigMenuExpanded(false)
+            return
+        }
+        setConfigMenuExpanded(true)
+        if (!isOnConfigRoute) location.hash = "#/config/providers"
+    }
 
     if (authState === "loading") {
         return <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">加载中…</div>
@@ -214,64 +241,102 @@ export function App() {
     }
 
     return (
-        <SidebarProvider>
+        <SidebarProvider className="bg-background">
             {error && (
-                <div className="fixed top-4 left-1/2 z-50 flex w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 items-start justify-between gap-3 rounded-lg border border-red-500/30 bg-background/95 px-4 py-3 text-sm text-red-500 shadow-lg backdrop-blur">
+                <div className="fixed top-4 left-1/2 z-50 flex w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 items-start justify-between gap-3 rounded-2xl bg-card/95 px-4 py-3 text-sm text-destructive ring-1 ring-border/80 backdrop-blur-xl backdrop-saturate-150">
                     <span className="min-w-0 flex-1 break-words">{error}</span>
                     <button type="button" onClick={clearError} className="shrink-0 text-muted-foreground transition-colors hover:text-foreground">
                         <XIcon className="size-4" />
                     </button>
                 </div>
             )}
-            <Sidebar>
-                <SidebarContent>
-                    <SidebarGroup>
-                        <SidebarGroupLabel className="gap-2">
-                            <BotIcon className="size-4" />
-                            tch-agent
+            <Sidebar className="ios-sidebar">
+                <SidebarHeader className="border-b border-border/50 px-4 py-4">
+                    <div className="flex items-center gap-3">
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-[0.7rem] bg-gradient-to-b from-primary to-primary/80 text-primary-foreground shadow-sm">
+                            <BotIcon className="size-5" strokeWidth={2.25} />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[0.8125rem] font-semibold leading-snug break-words" title="Fuck-the-White-House.">
+                                Fuck-the-White-House.
+                            </p>
+                            <p className="text-[0.8125rem] text-muted-foreground">渗透指挥台</p>
+                        </div>
+                    </div>
+                </SidebarHeader>
+                <SidebarContent className="gap-5 px-3 py-4">
+                    <SidebarGroup className="p-0">
+                        <SidebarGroupLabel className="mb-1.5 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                            功能
                         </SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu>
-                                {/* Main nav items */}
-                                {mainNavItems.map((item) => (
-                                    <SidebarMenuItem key={item.hash}>
-                                        <SidebarMenuButton render={<a href={item.hash} />} isActive={hash === item.hash}>
-                                            <item.icon className="size-4" />
-                                            <span>{item.title}</span>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                ))}
+                        <div className="ios-sidebar-inset">
+                            <SidebarGroupContent className="p-0">
+                                <SidebarMenu className="gap-0">
+                                    {mainNavItems.map((item) => (
+                                        <SidebarMenuItem key={item.hash}>
+                                            <SidebarMenuButton
+                                                className="ios-sidebar-row"
+                                                render={<a href={item.hash} />}
+                                                isActive={hash === item.hash}
+                                            >
+                                                <IosNavIcon icon={item.icon} />
+                                                <span className="font-medium">{item.title}</span>
+                                            </SidebarMenuButton>
+                                        </SidebarMenuItem>
+                                    ))}
+                                </SidebarMenu>
+                            </SidebarGroupContent>
+                        </div>
+                    </SidebarGroup>
 
-                                {/* Config section with sub-items */}
-                                <SidebarMenuItem>
-                                    <SidebarMenuButton render={<a href="#/config/providers" />} isActive={isConfigOpen}>
-                                        <SettingsIcon className="size-4" />
-                                        <span>配置</span>
-                                        <ChevronRightIcon className={`ml-auto size-4 transition-transform ${isConfigOpen ? "rotate-90" : ""}`} />
-                                    </SidebarMenuButton>
-                                    {isConfigOpen && (
-                                        <SidebarMenuSub>
-                                            {configTabs.map((tab) => (
-                                                <SidebarMenuSubItem key={tab.value}>
-                                                    <SidebarMenuSubButton render={<a href={`#/config/${tab.value}`} />} isActive={hash === `#/config/${tab.value}`}>
-                                                        <tab.icon className="size-3.5" />
-                                                        <span>{tab.label}</span>
-                                                    </SidebarMenuSubButton>
-                                                </SidebarMenuSubItem>
-                                            ))}
-                                        </SidebarMenuSub>
-                                    )}
-                                </SidebarMenuItem>
-                            </SidebarMenu>
-                        </SidebarGroupContent>
+                    <SidebarGroup className="p-0">
+                        <SidebarGroupLabel className="mb-1.5 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                            设置
+                        </SidebarGroupLabel>
+                        <div className="ios-sidebar-inset">
+                            <SidebarGroupContent className="p-0">
+                                <SidebarMenu className="gap-0">
+                                    <SidebarMenuItem>
+                                        <SidebarMenuButton
+                                            type="button"
+                                            className="ios-sidebar-row"
+                                            onClick={handleConfigMenuClick}
+                                            isActive={isOnConfigRoute && !configMenuExpanded}
+                                        >
+                                            <IosNavIcon icon={SettingsIcon} />
+                                            <span className="font-medium">配置</span>
+                                            <ChevronRightIcon
+                                                className={`ml-auto size-4 text-muted-foreground transition-transform duration-200 ${configMenuExpanded ? "rotate-90" : ""}`}
+                                            />
+                                        </SidebarMenuButton>
+                                        {configMenuExpanded && (
+                                            <SidebarMenuSub className="ios-sidebar-sub">
+                                                {configTabs.map((tab) => (
+                                                    <SidebarMenuSubItem key={tab.value}>
+                                                        <SidebarMenuSubButton
+                                                            className="ios-sidebar-sub-row"
+                                                            render={<a href={`#/config/${tab.value}`} />}
+                                                            isActive={hash === `#/config/${tab.value}`}
+                                                        >
+                                                            <tab.icon className="size-4 text-muted-foreground" strokeWidth={2} />
+                                                            <span>{tab.label}</span>
+                                                        </SidebarMenuSubButton>
+                                                    </SidebarMenuSubItem>
+                                                ))}
+                                            </SidebarMenuSub>
+                                        )}
+                                    </SidebarMenuItem>
+                                </SidebarMenu>
+                            </SidebarGroupContent>
+                        </div>
                     </SidebarGroup>
                 </SidebarContent>
             </Sidebar>
-            <SidebarInset className="h-screen min-h-0 min-w-0 overflow-hidden">
-                <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-                    <SidebarTrigger />
-                    <Separator orientation="vertical" className="h-4" />
-                    <span className="text-sm font-medium">{getPageTitle(hash)}</span>
+            <SidebarInset className="h-screen min-h-0 min-w-0 overflow-hidden bg-background">
+                <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/72">
+                    <SidebarTrigger className="rounded-lg" />
+                    <Separator orientation="vertical" className="h-4 opacity-60" />
+                    <span className="text-[1.0625rem] font-semibold tracking-tight">{getPageTitle(hash)}</span>
                 </header>
                 <div className={isAttackFlowRoute ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "min-h-0 min-w-0 flex-1 overflow-auto"}>
                     <AppErrorBoundary>

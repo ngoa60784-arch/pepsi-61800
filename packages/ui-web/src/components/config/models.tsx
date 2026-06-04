@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
-import { modelPrefs, builtIn, providers } from "../../lib/api"
+import { hostSettings, modelPrefs, builtIn, providers } from "../../lib/api"
+import type { ActivateModelResult } from "../../lib/api"
 import type { ModelConfigEntry, ProviderEntry, Model, Api } from "../../lib/api"
 import { useFetch } from "../../hooks/use-fetch"
 import { Button } from "../ui/button"
@@ -43,7 +44,9 @@ function formatProviderLabel(provider: { provider: string; providerId?: string }
 
 export function ModelsPage() {
     const { data: configs, loading, reload } = useFetch(modelPrefs.list)
+    const { data: host, reload: reloadHost } = useFetch(hostSettings.get)
     const { data: providerList } = useFetch(providers.list)
+    const activeModelPrefId = host?.defaultModelPrefId?.trim() || ""
 
     const [recommendedModel, setRecommendedModel] = useState<Model<Api> | null>(null)
     const [selectedProvider, setSelectedProvider] = useState("")
@@ -141,6 +144,8 @@ export function ModelsPage() {
     }, [effectiveModelId, selectedResolvedModel])
 
     const [dupAlert, setDupAlert] = useState<string | null>(null)
+    const [activatingId, setActivatingId] = useState<string | null>(null)
+    const [activateAlert, setActivateAlert] = useState<{ ok: boolean; message: string } | null>(null)
 
     async function handleAdd() {
         if (!selectedProviderName || !effectiveModelId) return
@@ -214,6 +219,26 @@ export function ModelsPage() {
             compat?: Record<string, unknown>
         }
     } | null>(null)
+
+    async function handleActivate(entry: ModelConfigEntry) {
+        setActivatingId(entry.id)
+        setActivateAlert(null)
+        try {
+            const result: ActivateModelResult = await modelPrefs.activate(entry.id)
+            await reloadHost()
+            const parts = [
+                `已设为系统默认模型`,
+                result.promptsUpdated > 0 ? `更新 ${result.promptsUpdated} 个 Prompt` : null,
+                result.plannerUpdated ? "调度器" : null,
+                result.verifierUpdated ? "验证器" : null,
+            ].filter(Boolean)
+            setActivateAlert({ ok: true, message: parts.join("，") })
+        } catch (error) {
+            setActivateAlert({ ok: false, message: error instanceof Error ? error.message : String(error) })
+        } finally {
+            setActivatingId(null)
+        }
+    }
 
     async function handleTest(id: string, label: string) {
         setTestingKey(id)
@@ -346,8 +371,19 @@ export function ModelsPage() {
                     </>
                 )}
 
+                {activateAlert && (
+                    <div
+                        className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm ${activateAlert.ok ? "alert-success" : "alert-error"}`}
+                    >
+                        <span>{activateAlert.message}</span>
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setActivateAlert(null)}>
+                            ×
+                        </Button>
+                    </div>
+                )}
+
                 {dupAlert && (
-                    <div className="flex items-center justify-between rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
+                    <div className="flex items-center justify-between rounded-md alert-warning rounded-md px-3 py-2 text-sm">
                         <span>⚠️ {dupAlert}</span>
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setDupAlert(null)}>
                             ×
@@ -357,7 +393,7 @@ export function ModelsPage() {
 
                 {testAlert && (
                     <div
-                        className={`flex items-center justify-between rounded-lg border px-4 py-2 text-sm ${testAlert.ok ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400" : "border-destructive/30 bg-destructive/10 text-destructive"}`}
+                        className={`flex items-center justify-between rounded-lg border px-4 py-2 text-sm ${testAlert.ok ? "alert-success" : "alert-error"}`}
                     >
                         <span>
                             <span className="font-medium">{testAlert.key}</span>: {testAlert.message}
@@ -401,7 +437,8 @@ export function ModelsPage() {
                                 <TableHead>最大 Token</TableHead>
                                 <TableHead>思考</TableHead>
                                 <TableHead>扩展</TableHead>
-                                <TableHead className="w-24 text-right">操作</TableHead>
+                                <TableHead className="w-28">启用</TableHead>
+                                <TableHead className="w-32 text-right">操作</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -455,6 +492,25 @@ export function ModelsPage() {
                                         <TableCell>
                                             <JsonEditorDialog label="headers" value={m.headers} onSave={(v) => handleUpdate(m, { headers: v as Record<string, string> | undefined })} />
                                             <JsonEditorDialog label="compat" value={m.compat} onSave={(v) => handleUpdate(m, { compat: v as Record<string, unknown> | undefined })} />
+                                        </TableCell>
+                                        <TableCell>
+                                            {activeModelPrefId === m.id ? (
+                                                <Badge variant="default" className="text-[10px]">
+                                                    系统默认
+                                                </Badge>
+                                            ) : (
+                                                <Button
+                                                    type="button"
+                                                    variant="secondary"
+                                                    size="sm"
+                                                    className="h-7 text-xs"
+                                                    disabled={activatingId === m.id}
+                                                    onClick={() => handleActivate(m)}
+                                                    title="设为全局默认，并更新所有 Agent / 子 Agent / 调度器 / 验证器的模型"
+                                                >
+                                                    {activatingId === m.id ? "启用中…" : "启用"}
+                                                </Button>
+                                            )}
                                         </TableCell>
                                         <TableCell className="text-right space-x-1">
                                             <Button variant="ghost" size="sm" disabled={testingKey === m.id} onClick={() => handleTest(m.id, `${formatProviderLabel(m)}:${m.modelId}`)}>

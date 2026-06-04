@@ -109,7 +109,7 @@ export function ProvidersPage() {
             </CardHeader>
             <CardContent className="space-y-4">
                 {dupAlert && (
-                    <div className="flex items-center justify-between rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
+                    <div className="flex items-center justify-between rounded-md alert-warning rounded-md px-3 py-2 text-sm">
                         <span>⚠️ {dupAlert}</span>
                         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setDupAlert(null)}>
                             ×

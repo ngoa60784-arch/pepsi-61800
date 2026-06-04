@@ -57,7 +57,7 @@ describe("challenge state-store", () => {
         })
         expect(second.created).toBe(false)
         expect(second.asset.id).toBe(first.asset.id)
-        // 合并:补上 privilege，累积 sourceRefs。
+        // Merge: fill in privilege, accumulate sourceRefs.
         expect(second.asset.privilege).toBe("admin")
         expect(second.asset.sourceRefs.sort()).toEqual(["rec-1", "rec-2"])
 
@@ -85,7 +85,7 @@ describe("challenge state-store", () => {
         const created = await upsertChallengeStateAsset(rootDir, "t5", { kind: "host", label: "10.0.0.5" })
         expect(await deleteChallengeStateAsset(rootDir, "t5", created.asset.id)).toBe(true)
         expect(await listChallengeStateAssets(rootDir, "t5")).toHaveLength(0)
-        // 重复删除返回 false。
+        // Deleting again returns false.
         expect(await deleteChallengeStateAsset(rootDir, "t5", created.asset.id)).toBe(false)
     })
 

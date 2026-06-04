@@ -30,7 +30,7 @@ export function renderHeader(state: "inprogress" | "complete" | "error", toolIco
         case "complete":
             return html`
                 <div class="flex items-center gap-2 text-sm text-muted-foreground">
-                    ${statusIcon(toolIcon, "text-green-600 dark:text-green-500")}
+                    ${statusIcon(toolIcon, "text-emerald-400")}
                     ${text}
                 </div>
             `

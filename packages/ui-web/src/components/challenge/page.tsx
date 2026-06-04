@@ -11,7 +11,6 @@ import { Input } from "../ui/input"
 import { Label } from "../ui/label"
 import { Skeleton } from "../ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
-import { Switch } from "../ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
 import { Textarea } from "../ui/textarea"
@@ -40,13 +39,18 @@ function formatTokenCount(value?: number) {
 }
 
 function challengeStatus(challenge: ChallengeInfoRecord) {
+    if (challenge.objective_achieved === true) return "completed"
+    if (challenge.testing_paused === true) return "paused"
     if (challenge.flag_count > 0 && challenge.flag_got_count >= challenge.flag_count) return "solved"
-    return challenge.instance_status || "unknown"
+    return challenge.instance_status || "stopped"
 }
 
 function challengeStatusBadgeClass(status: string) {
-    if (status === "solved") {
-        return "border-green-600/30 bg-green-500/15 text-green-700"
+    if (status === "completed" || status === "solved") {
+        return "badge-success"
+    }
+    if (status === "paused") {
+        return "border-amber-600/30 bg-amber-500/15 text-amber-800 dark:text-amber-300"
     }
     return ""
 }
@@ -70,12 +74,6 @@ function sortSolverStatsByNewestFirst(
 
 function filterLabel(value: string, fallback: string) {
     return value === "all" ? fallback : value
-}
-
-function hintPreview(value?: string | null) {
-    const text = value?.trim() ?? ""
-    if (!text) return "—"
-    return text.length > 80 ? `${text.slice(0, 80)}...` : text
 }
 
 function formatPercent(value?: number) {
@@ -106,7 +104,6 @@ const IDEA_STATUS_OPTIONS: IdeaRecord["status"][] = ["pending", "testing", "veri
 const MEMORY_KIND_LABELS: Record<MemoryEntry["kind"], string> = {
     fact: "发现",
     evidence: "证据",
-    credential: "凭据",
     failure: "失败边界",
     note: "笔记",
     hint: "提示",
@@ -118,12 +115,6 @@ const IDEA_STATUS_LABELS: Record<IdeaRecord["status"], string> = {
     verified: "已验证",
     failed: "已失败",
     skipped: "已跳过",
-}
-
-const DIFFICULTY_LABELS: Record<string, string> = {
-    easy: "简单",
-    medium: "中等",
-    hard: "困难",
 }
 
 interface MemoryFormState {
@@ -549,16 +540,11 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const [detailsLoading, setDetailsLoading] = useState(false)
     const [detailsError, setDetailsError] = useState("")
     const [search, setSearch] = useState("")
-    const [difficultyFilter, setDifficultyFilter] = useState("all")
-    const [levelFilter, setLevelFilter] = useState("all")
     const [statusFilter, setStatusFilter] = useState("all")
-    const [hintFilter, setHintFilter] = useState("all")
-    const [dialogOpen, setDialogOpen] = useState(false)
     const [statsDialogOpen, setStatsDialogOpen] = useState(false)
     const [startDialogOpen, setStartDialogOpen] = useState(false)
     const [detailTab, setDetailTab] = useState("solvers")
     const [plannerDialogOpen, setPlannerDialogOpen] = useState(false)
-    const [answerModeEnabled, setAnswerModeEnabled] = useState(false)
     const [plannerStrategy, setPlannerStrategy] = useState("")
     const [plannerSaving, setPlannerSaving] = useState(false)
     const [plannerMessage, setPlannerMessage] = useState("")
@@ -566,6 +552,10 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const [exportingSessions, setExportingSessions] = useState(false)
     const [completionBusy, setCompletionBusy] = useState(false)
     const [completionMessage, setCompletionMessage] = useState("")
+    const [pauseBusy, setPauseBusy] = useState(false)
+    const [pauseMessage, setPauseMessage] = useState("")
+    const [deletingChallengeId, setDeletingChallengeId] = useState("")
+    const [deleteError, setDeleteError] = useState("")
     const [startingChallengeId, setStartingChallengeId] = useState("")
     const [stoppingSolverId, setStoppingSolverId] = useState("")
     const [selectedStartChallengeId, setSelectedStartChallengeId] = useState("")
@@ -578,31 +568,16 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const [ideaDialogOpen, setIdeaDialogOpen] = useState(false)
     const [editingIdea, setEditingIdea] = useState<IdeaRecord | null>(null)
     const [ideaForm, setIdeaForm] = useState<IdeaFormState>(() => createIdeaFormState())
-    const [creating, setCreating] = useState(false)
-    const [createError, setCreateError] = useState("")
     const [startSolverError, setStartSolverError] = useState("")
     const [sessionExportError, setSessionExportError] = useState("")
-    const [draftId, setDraftId] = useState("")
-    const [draftTitle, setDraftTitle] = useState("")
-    const [draftDifficulty, setDraftDifficulty] = useState("easy")
-    const [draftDescription, setDraftDescription] = useState("")
-    const [draftLevel, setDraftLevel] = useState("1")
-    const [draftTotalScore, setDraftTotalScore] = useState("100")
-    const [draftEntrypoints, setDraftEntrypoints] = useState([""])
-    const [draftFlags, setDraftFlags] = useState([""])
-    const [draftHintContent, setDraftHintContent] = useState("")
 
-    const manualAddEnabled = hostConfig?.challenge.mockEnabled === true
     const challengeItems = challengeList ?? []
     const { data: agentPrompts, loading: promptsLoading } = useFetch(prompts.listAgents)
 
     useEffect(() => {
-        setAnswerModeEnabled(hostConfig?.challenge.answerModeEnabled === true)
         setPlannerStrategy(hostConfig?.planner.strategy ?? "")
-    }, [hostConfig?.challenge.answerModeEnabled, hostConfig?.planner.strategy])
+    }, [hostConfig?.planner.strategy])
 
-    const difficultyOptions = [...new Set(challengeItems.map((challenge) => challenge.difficulty).filter(Boolean))].sort()
-    const levelOptions = [...new Set(challengeItems.map((challenge) => `${challenge.level}`).filter(Boolean))].sort((a, b) => Number(a) - Number(b))
     const statusOptions = [...new Set(challengeItems.map((challenge) => challengeStatus(challenge)).filter(Boolean))].sort()
 
     const filteredChallenges = challengeItems.filter((challenge) => {
@@ -612,7 +587,6 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
             ![
                 challenge.id,
                 challenge.title,
-                challenge.difficulty,
                 challenge.description,
                 challenge.instance_status,
                 challenge.entrypoint?.join(" ") ?? "",
@@ -623,11 +597,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
         ) {
             return false
         }
-        if (difficultyFilter !== "all" && challenge.difficulty !== difficultyFilter) return false
-        if (levelFilter !== "all" && `${challenge.level}` !== levelFilter) return false
         if (statusFilter !== "all" && challengeStatus(challenge) !== statusFilter) return false
-        if (hintFilter === "viewed" && !challenge.hint_viewed) return false
-        if (hintFilter === "not-viewed" && challenge.hint_viewed) return false
         return true
     })
 
@@ -690,6 +660,73 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
         }
     }
 
+    async function handleDeleteChallenge(targetId: string, targetTitle?: string) {
+        if (deletingChallengeId) return
+        const label = targetTitle?.trim() || targetId
+        if (
+            !window.confirm(
+                `确定删除目标「${label}」（${targetId}）？\n将永久删除该目标的记忆、思路、提交与尝试记录、关系图、状态资产，并停止并移除关联 Solver。此操作不可恢复。`,
+            )
+        ) {
+            return
+        }
+        setDeletingChallengeId(targetId)
+        setDeleteError("")
+        try {
+            await challenges.delete(targetId)
+            if (challengeId === targetId) {
+                location.hash = "#/challenge"
+            }
+            await reload()
+        } catch (error) {
+            setDeleteError(error instanceof Error ? error.message : String(error))
+        } finally {
+            setDeletingChallengeId("")
+        }
+    }
+
+    async function handlePauseTesting(targetId: string) {
+        if (pauseBusy) return
+        if (!window.confirm("暂停该目标的测试？将停止当前运行的 Solver，调度器不再派单；记忆/思路/资产会保留。")) return
+        setPauseBusy(true)
+        setPauseMessage("")
+        try {
+            const result = await challenges.pauseTesting(targetId)
+            setPauseMessage(
+                result.stoppedSolvers.length > 0
+                    ? `已暂停，停止了 ${result.stoppedSolvers.length} 个 Solver。`
+                    : "已暂停（当前无运行中的 Solver）。",
+            )
+            if (challengeId === targetId) await reloadDetails()
+            else await reload()
+        } catch (error) {
+            setPauseMessage(error instanceof Error ? error.message : String(error))
+        } finally {
+            setPauseBusy(false)
+        }
+    }
+
+    async function handleResumeTesting(targetId: string) {
+        if (pauseBusy) return
+        if (!window.confirm("继续测试？将尝试用原 session 续跑暂停时停掉的 Solver；若无则可由调度器重新派单。")) return
+        setPauseBusy(true)
+        setPauseMessage("")
+        try {
+            const result = await challenges.resumeTesting(targetId)
+            setPauseMessage(
+                result.resumed.length > 0
+                    ? `已继续，续跑了 ${result.resumed.length} 个 Solver。`
+                    : "已继续（无可续跑的 Solver；可用指挥官派单或等待调度器）。",
+            )
+            if (challengeId === targetId) await reloadDetails()
+            else await reload()
+        } catch (error) {
+            setPauseMessage(error instanceof Error ? error.message : String(error))
+        } finally {
+            setPauseBusy(false)
+        }
+    }
+
     async function handleRevokeComplete() {
         if (!challengeId || completionBusy) return
         if (!window.confirm("撤销完成判定？将把之前停掉的 solver 用原 session 续跑（带上下文接着推进），planner 重新接管。")) return
@@ -724,32 +761,6 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
             setSessionExportError(error instanceof Error ? error.message : String(error))
         } finally {
             setExportingSessions(false)
-        }
-    }
-
-    async function handleToggleAnswerMode() {
-        const nextEnabled = !answerModeEnabled
-        setPlannerSaving(true)
-        setPlannerMessage("")
-        try {
-            await hostSettings.set({
-                challenge: {
-                    answerModeEnabled: nextEnabled,
-                },
-                ...(nextEnabled
-                    ? {
-                          planner: {
-                              enabled: true,
-                          },
-                      }
-                    : {}),
-            })
-            setAnswerModeEnabled(nextEnabled)
-            setPlannerMessage(nextEnabled ? "答题模式已启用" : "答题模式已禁用")
-        } catch (error) {
-            setPlannerMessage(error instanceof Error ? error.message : String(error))
-        } finally {
-            setPlannerSaving(false)
         }
     }
 
@@ -937,44 +948,6 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     }
 
     if (!challengeId) {
-        async function handleCreateChallenge() {
-            setCreating(true)
-            setCreateError("")
-            try {
-                await challenges.create({
-                    id: draftId.trim(),
-                    title: draftTitle.trim(),
-                    difficulty: draftDifficulty.trim(),
-                    description: draftDescription.trim(),
-                    level: parseInt(draftLevel, 10) || 0,
-                    total_score: parseInt(draftTotalScore, 10) || 0,
-                    total_got_score: 0,
-                    flag_count: draftFlags.filter((item) => item.trim().length > 0).length,
-                    flag_got_count: 0,
-                    hint_viewed: false,
-                    hint_content: draftHintContent.trim() || null,
-                    instance_status: "stopped",
-                    entrypoint: draftEntrypoints.map((item) => item.trim()).filter((item) => item.length > 0),
-                    flags: draftFlags.map((item) => item.trim()).filter((item) => item.length > 0),
-                })
-                setDialogOpen(false)
-                setDraftId("")
-                setDraftTitle("")
-                setDraftDifficulty("easy")
-                setDraftDescription("")
-                setDraftLevel("1")
-                setDraftTotalScore("100")
-                setDraftEntrypoints([""])
-                setDraftFlags([""])
-                setDraftHintContent("")
-                reload()
-            } catch (error) {
-                setCreateError(error instanceof Error ? error.message : String(error))
-            } finally {
-                setCreating(false)
-            }
-        }
-
         return (
             <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
                 <Card>
@@ -987,19 +960,15 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                 </Button>
                                 <div className="flex h-7 items-center gap-2 rounded-[min(var(--radius-md),12px)] border px-2.5 text-[0.8rem]">
                                     <span className="text-muted-foreground">调度器</span>
-                                    <span className="font-medium text-green-600 dark:text-green-400">始终开启</span>
-                                </div>
-                                <div className="flex h-7 items-center gap-2 rounded-[min(var(--radius-md),12px)] border px-2.5 text-[0.8rem]">
-                                    <span className="text-muted-foreground">答题模式</span>
-                                    <Switch checked={answerModeEnabled} onCheckedChange={() => void handleToggleAnswerMode()} disabled={plannerSaving} />
+                                    <span className="font-medium text-emerald-400">始终开启</span>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <Button variant="outline" size="sm" onClick={() => setStatsDialogOpen(true)}>
                                     <BarChart3Icon className="size-4" />
                                 </Button>
-                                <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)} disabled={!manualAddEnabled}>
-                                    添加目标
+                                <Button variant="default" size="sm" onClick={() => (location.hash = "#/commander")}>
+                                    前往指挥官创建
                                 </Button>
                                 <Button variant="outline" size="sm" onClick={() => reload()}>
                                     刷新
@@ -1010,32 +979,6 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                     <CardContent>
                         <div className="mb-4 flex flex-wrap items-center gap-3">
                             <Input className="w-64" placeholder="搜索目标" value={search} onChange={(event) => setSearch(event.target.value)} />
-                            <Select value={difficultyFilter} onValueChange={(value) => setDifficultyFilter(value ?? "all")}>
-                                <SelectTrigger className="w-40">
-                                    <SelectValue>{filterLabel(difficultyFilter, "全部难度")}</SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">全部难度</SelectItem>
-                                    {difficultyOptions.map((option) => (
-                                        <SelectItem key={option} value={option}>
-                                            {option}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <Select value={levelFilter} onValueChange={(value) => setLevelFilter(value ?? "all")}>
-                                <SelectTrigger className="w-32">
-                                    <SelectValue>{filterLabel(levelFilter, "全部等级")}</SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">全部等级</SelectItem>
-                                    {levelOptions.map((option) => (
-                                        <SelectItem key={option} value={option}>
-                                            等级 {option}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
                             <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? "all")}>
                                 <SelectTrigger className="w-40">
                                     <SelectValue>{filterLabel(statusFilter, "全部状态")}</SelectValue>
@@ -1049,46 +992,24 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <Select value={hintFilter} onValueChange={(value) => setHintFilter(value ?? "all")}>
-                                <SelectTrigger className="w-40">
-                                    <SelectValue>{filterLabel(hintFilter, "全部提示")}</SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">全部提示</SelectItem>
-                                    <SelectItem value="viewed">已查看</SelectItem>
-                                    <SelectItem value="not-viewed">未查看</SelectItem>
-                                </SelectContent>
-                            </Select>
                             <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
                                     setSearch("")
-                                    setDifficultyFilter("all")
-                                    setLevelFilter("all")
                                     setStatusFilter("all")
-                                    setHintFilter("all")
                                 }}
                             >
                                 重置
                             </Button>
                         </div>
-                        {!manualAddEnabled && (
-                            <div className="mb-4 text-sm text-muted-foreground">手动添加仅在启用 Mock 模式时可用。</div>
-                        )}
                         {(loading || filteredChallenges.length > 0) && (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>ID</TableHead>
                                         <TableHead>标题</TableHead>
-                                        <TableHead>难度</TableHead>
-                                        <TableHead>等级</TableHead>
-                                        <TableHead>提示</TableHead>
-                                        <TableHead>提示内容</TableHead>
                                         <TableHead>入口</TableHead>
-                                        <TableHead>分数</TableHead>
-                                        <TableHead>Flag</TableHead>
                                         <TableHead>状态</TableHead>
                                         <TableHead>操作</TableHead>
                                     </TableRow>
@@ -1099,14 +1020,8 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                             <TableRow key={`skeleton-${index}`}>
                                                 <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                                                 <TableCell><Skeleton className="h-4 w-full max-w-[22rem]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-10" /></TableCell>
-                                                <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-10" /></TableCell>
                                                 <TableCell><Skeleton className="h-4 w-full max-w-[18rem]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-full max-w-[14rem]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-12" /></TableCell>
+                                                <TableCell><Skeleton className="h-5 w-20 rounded-full" /></TableCell>
                                                 <TableCell><Skeleton className="h-8 w-24" /></TableCell>
                                             </TableRow>
                                         ))}
@@ -1124,22 +1039,10 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                     <div className="truncate font-medium">{challenge.title}</div>
                                                     <div className="truncate text-xs text-muted-foreground">{challenge.description || "无描述。"}</div>
                                                 </TableCell>
-                                                <TableCell>{challenge.difficulty}</TableCell>
-                                                <TableCell>{challenge.level}</TableCell>
-                                                <TableCell>{challenge.hint_viewed ? "是" : "否"}</TableCell>
-                                                <TableCell className="max-w-[20rem]">
-                                                    <div className="truncate text-xs text-muted-foreground">{hintPreview(challenge.hint_content)}</div>
-                                                </TableCell>
-                                                <TableCell className="max-w-[20rem]">
+                                                <TableCell className="max-w-[24rem]">
                                                     <div className="truncate text-xs text-muted-foreground">
                                                         {challenge.entrypoint?.join(", ") || "—"}
                                                     </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    {challenge.total_got_score}/{challenge.total_score}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {challenge.flag_got_count}/{challenge.flag_count}
                                                 </TableCell>
                                                 <TableCell>
                                                     <Badge variant="outline" className={challengeStatusBadgeClass(challengeStatus(challenge))}>
@@ -1147,17 +1050,53 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        disabled={startingChallengeId === challenge.id || challengeStatus(challenge) === "solved"}
-                                                        onClick={(event) => {
-                                                            event.stopPropagation()
-                                                            openStartSolverDialog(challenge.id)
-                                                        }}
-                                                    >
-                                                        {startingChallengeId === challenge.id ? "启动中…" : "启动 Solver"}
-                                                    </Button>
+                                                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                                                        {challenge.testing_paused ? (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                disabled={pauseBusy || challengeStatus(challenge) === "completed"}
+                                                                onClick={() => void handleResumeTesting(challenge.id)}
+                                                            >
+                                                                {pauseBusy ? "处理中…" : "继续测试"}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                disabled={
+                                                                    pauseBusy ||
+                                                                    challengeStatus(challenge) === "completed" ||
+                                                                    challengeStatus(challenge) === "solved"
+                                                                }
+                                                                onClick={() => void handlePauseTesting(challenge.id)}
+                                                            >
+                                                                {pauseBusy ? "处理中…" : "暂停测试"}
+                                                            </Button>
+                                                        )}
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            disabled={
+                                                                startingChallengeId === challenge.id ||
+                                                                challenge.testing_paused === true ||
+                                                                challengeStatus(challenge) === "solved" ||
+                                                                challengeStatus(challenge) === "completed"
+                                                            }
+                                                            onClick={() => openStartSolverDialog(challenge.id)}
+                                                        >
+                                                            {startingChallengeId === challenge.id ? "启动中…" : "启动 Solver"}
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="text-destructive hover:text-destructive"
+                                                            disabled={deletingChallengeId === challenge.id}
+                                                            onClick={() => void handleDeleteChallenge(challenge.id, challenge.title)}
+                                                        >
+                                                            {deletingChallengeId === challenge.id ? "删除中…" : "删除"}
+                                                        </Button>
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -1165,143 +1104,20 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                             </Table>
                         )}
                         {startSolverError && <div className="mt-4 text-sm text-red-500">{startSolverError}</div>}
+                        {deleteError && <div className="mt-4 text-sm text-red-500">{deleteError}</div>}
+                        {pauseMessage && <div className="mt-4 text-sm text-muted-foreground">{pauseMessage}</div>}
                         {plannerMessage && <div className="mt-4 text-sm text-muted-foreground">{plannerMessage}</div>}
-                        {!loading && challengeItems.length === 0 && <div className="text-sm text-muted-foreground">暂无目标。</div>}
+                        {!loading && challengeItems.length === 0 && (
+                            <div className="space-y-2 text-sm text-muted-foreground">
+                                <p>暂无目标。请在指挥官中用自然语言创建，例如：「测一下 example.com，重点看上传和 SSRF」。</p>
+                                <Button variant="outline" size="sm" onClick={() => (location.hash = "#/commander")}>
+                                    前往指挥官
+                                </Button>
+                            </div>
+                        )}
                         {!loading && challengeItems.length > 0 && filteredChallenges.length === 0 && <div className="text-sm text-muted-foreground">无匹配目标。</div>}
                     </CardContent>
                 </Card>
-
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                    <DialogContent className="max-w-2xl">
-                        <DialogHeader>
-                            <DialogTitle>添加目标</DialogTitle>
-                            <DialogDescription>每个目标会创建一个目录，包含 `challenge.json`、记忆、思路、尝试记录和提交记录。</DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-3 md:grid-cols-2">
-                            <div className="space-y-2">
-                                <Label htmlFor="challenge-id">目标 ID</Label>
-                                <Input id="challenge-id" placeholder="web-001" value={draftId} onChange={(event) => setDraftId(event.target.value)} />
-                                <div className="text-xs text-muted-foreground">存储 ID 将始终带 `mock-` 前缀。</div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="challenge-title">标题</Label>
-                                <Input id="challenge-title" placeholder="登录面板" value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="challenge-difficulty">难度</Label>
-                                <Select value={draftDifficulty} onValueChange={(value) => setDraftDifficulty(value ?? "easy")}>
-                                    <SelectTrigger id="challenge-difficulty">
-                                        <SelectValue>{DIFFICULTY_LABELS[draftDifficulty] ?? draftDifficulty}</SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="easy">简单</SelectItem>
-                                        <SelectItem value="medium">中等</SelectItem>
-                                        <SelectItem value="hard">困难</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="challenge-level">等级</Label>
-                                <Input id="challenge-level" placeholder="1" value={draftLevel} onChange={(event) => setDraftLevel(event.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="challenge-total-score">总分</Label>
-                                <Input id="challenge-total-score" placeholder="100" value={draftTotalScore} onChange={(event) => setDraftTotalScore(event.target.value)} />
-                            </div>
-                            <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-entrypoint">入口</Label>
-                                <div className="space-y-2">
-                                    {draftEntrypoints.map((entrypoint, index) => (
-                                        <div key={`entrypoint-${index}`} className="flex items-center gap-2">
-                                            <Input
-                                                id={index === 0 ? "challenge-entrypoint" : undefined}
-                                                placeholder="127.0.0.1:8080"
-                                                value={entrypoint}
-                                                onChange={(event) => {
-                                                    const next = [...draftEntrypoints]
-                                                    next[index] = event.target.value
-                                                    setDraftEntrypoints(next)
-                                                }}
-                                            />
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                type="button"
-                                                onClick={() => {
-                                                    setDraftEntrypoints(draftEntrypoints.filter((_, itemIndex) => itemIndex !== index))
-                                                }}
-                                                disabled={draftEntrypoints.length === 1}
-                                            >
-                                                删除
-                                            </Button>
-                                        </div>
-                                    ))}
-                                    <Button variant="outline" size="sm" type="button" onClick={() => setDraftEntrypoints([...draftEntrypoints, ""])}>
-                                        添加入口
-                                    </Button>
-                                </div>
-                            </div>
-                            <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-flags">Flag</Label>
-                                <div className="space-y-2">
-                                    {draftFlags.map((flag, index) => (
-                                        <div key={`flag-${index}`} className="flex items-center gap-2">
-                                            <Input
-                                                id={index === 0 ? "challenge-flags" : undefined}
-                                                placeholder="flag{example}"
-                                                value={flag}
-                                                onChange={(event) => {
-                                                    const next = [...draftFlags]
-                                                    next[index] = event.target.value
-                                                    setDraftFlags(next)
-                                                }}
-                                            />
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                type="button"
-                                                onClick={() => {
-                                                    setDraftFlags(draftFlags.filter((_, itemIndex) => itemIndex !== index))
-                                                }}
-                                                disabled={draftFlags.length === 1}
-                                            >
-                                                删除
-                                            </Button>
-                                        </div>
-                                    ))}
-                                    <Button variant="outline" size="sm" type="button" onClick={() => setDraftFlags([...draftFlags, ""])}>
-                                        添加 Flag
-                                    </Button>
-                                </div>
-                            </div>
-                            <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-hint-content">提示内容</Label>
-                                <Textarea
-                                    id="challenge-hint-content"
-                                    placeholder="mock 目标 API 返回的可选提示"
-                                    value={draftHintContent}
-                                    onChange={(event) => setDraftHintContent(event.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2 md:col-span-2">
-                                <Label htmlFor="challenge-description">描述</Label>
-                                <Textarea id="challenge-description" placeholder="目标描述" value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} />
-                            </div>
-                        </div>
-                        {createError && <div className="text-sm text-red-500">{createError}</div>}
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                                取消
-                            </Button>
-                            <Button
-                                onClick={() => void handleCreateChallenge()}
-                                disabled={creating || !manualAddEnabled || !draftId.trim() || !draftTitle.trim() || draftFlags.every((item) => item.trim().length === 0)}
-                            >
-                                {creating ? "创建中…" : "创建"}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
 
                 <StatsOverviewDialog
                     open={statsDialogOpen}
@@ -1400,17 +1216,23 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                 <div className="break-words text-2xl font-semibold">{details.challenge.title}</div>
                                 <div className="flex flex-wrap gap-2">
                                     <Badge variant="outline">{details.challenge.id}</Badge>
-                                    <Badge variant="outline">{details.challenge.difficulty}</Badge>
-                                    <Badge variant="outline">level {details.challenge.level}</Badge>
                                     <Badge variant="outline" className={challengeStatusBadgeClass(challengeStatus(details.challenge))}>
                                         {challengeStatus(details.challenge)}
                                     </Badge>
+                                    {details.challenge.objective_achieved === true && (
+                                        <Badge variant="outline" className="badge-success">
+                                            主目标已达成
+                                        </Badge>
+                                    )}
                                 </div>
+                                {details.challenge.entrypoint && details.challenge.entrypoint.length > 0 && (
+                                    <div className="text-sm text-muted-foreground">
+                                        入口：{details.challenge.entrypoint.join(", ")}
+                                    </div>
+                                )}
                             </div>
                             <div className="shrink-0 space-y-3 text-right text-sm text-muted-foreground">
                                 <div>
-                                    <div>得分 {details.challenge.total_got_score}/{details.challenge.total_score}</div>
-                                    <div>Flag {details.challenge.flag_got_count}/{details.challenge.flag_count}</div>
                                     <div>尝试 {details.attempts.length}</div>
                                     <div>提交 {details.submissions.length}</div>
                                 </div>
@@ -1427,10 +1249,38 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                     >
                                         攻击流
                                     </Button>
+                                    {details.challenge.testing_paused ? (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => void handleResumeTesting(details.challenge.id)}
+                                            disabled={pauseBusy || details.challenge.objective_achieved === true}
+                                        >
+                                            {pauseBusy ? "处理中…" : "继续测试"}
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => void handlePauseTesting(details.challenge.id)}
+                                            disabled={
+                                                pauseBusy ||
+                                                details.challenge.objective_achieved === true ||
+                                                challengeStatus(details.challenge) === "solved"
+                                            }
+                                        >
+                                            {pauseBusy ? "处理中…" : "暂停测试"}
+                                        </Button>
+                                    )}
                                     <Button
                                         size="sm"
                                         onClick={() => openStartSolverDialog(details.challenge.id)}
-                                        disabled={startingSolver || challengeStatus(details.challenge) === "solved"}
+                                        disabled={
+                                            startingSolver ||
+                                            details.challenge.testing_paused === true ||
+                                            challengeStatus(details.challenge) === "solved" ||
+                                            details.challenge.objective_achieved === true
+                                        }
                                     >
                                         {startingChallengeId === details.challenge.id ? "启动中…" : "启动 Solver"}
                                     </Button>
@@ -1443,11 +1293,22 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                             {completionBusy ? "处理中..." : "确认完成"}
                                         </Button>
                                     )}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-destructive hover:text-destructive"
+                                        disabled={deletingChallengeId === details.challenge.id}
+                                        onClick={() => void handleDeleteChallenge(details.challenge.id, details.challenge.title)}
+                                    >
+                                        {deletingChallengeId === details.challenge.id ? "删除中…" : "删除目标"}
+                                    </Button>
                                 </div>
                             </div>
                         </div>
                         {startSolverError && <div className="text-sm text-red-500">{startSolverError}</div>}
+                        {deleteError && <div className="text-sm text-red-500">{deleteError}</div>}
                         {sessionExportError && <div className="text-sm text-red-500">{sessionExportError}</div>}
+                        {pauseMessage && <div className="text-sm text-muted-foreground">{pauseMessage}</div>}
                         {completionMessage && <div className="text-sm text-muted-foreground">{completionMessage}</div>}
                         {plannerMessage && <div className="text-sm text-muted-foreground">{plannerMessage}</div>}
                         <div className="grid gap-6 md:grid-cols-2">
@@ -1674,7 +1535,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                             <div className="min-w-0 flex items-center gap-2">
                                                 <Badge
                                                     variant={submission.correct ? "outline" : "outline"}
-                                                    className={submission.correct ? "border-green-600/30 bg-green-500/15 text-green-700" : ""}
+                                                    className={submission.correct ? "badge-success" : ""}
                                                 >
                                                     {submission.correct ? "正确" : "错误"}
                                                 </Badge>

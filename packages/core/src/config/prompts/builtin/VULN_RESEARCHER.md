@@ -3,6 +3,11 @@ isSubagent: true
 mcps:
     - "vuln-intel"
     - "kali-arsenal"
+skills:
+    - "known-product-exploit"
+    - "nuclei-skill"
+    - "payload-research"
+    - "payloads-all-the-things"
 tools:
     - "security_kimi_search"
     - "record_relation"

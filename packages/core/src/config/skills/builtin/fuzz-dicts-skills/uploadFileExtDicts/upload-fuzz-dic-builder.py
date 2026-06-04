@@ -3,21 +3,21 @@
 author: c0ny1<root@gv7.me>
 github: https://github.com/c0ny1/upload-fuzz-dic-builder
 date: 2018-11-04 23:16
-description: 生成符合漏洞实际场景fuzz字典的脚本
+description: script that generates fuzz dictionaries matching real-world vulnerability scenarios
 '''
 
 import argparse
 import copy
 import urllib
 
-## 各类语言可解析的后缀
+## suffixes parsable by various languages
 html_parse_suffix = ['html','htm','phtml','pht','Html','Htm','pHtml']
 asp_parse_suffix = ['asp','aspx','asa','asax','ascx','ashx','asmx','cer','aSp','aSpx','aSa','aSax','aScx','aShx','aSmx','cEr']
 php_parse_suffix = ['php','php5','php4','php3','php2','pHp','pHp5','pHp4','pHp3','pHp2']
 jsp_parse_suffix = ['jsp','jspa','jspx','jsw','jsv','jspf','jtml','jSp','jSpx','jSpa','jSw','jSv','jSpf','jHtml']
 
 
-## web中间件解析漏洞
+## web middleware parsing vulnerabilities
 def iis_suffix_creater(suffix):
 	res = []
 	for l in suffix:
@@ -43,7 +43,7 @@ def tomcat_suffix_creater(suffix):
 			res.append(str)
 	return res
 
-## 系统特性
+## OS characteristics
 def str_81_to_ff():
 	res = []
 	for i in range(129,256):
@@ -63,7 +63,7 @@ def windows_suffix_creater(suffix):
 			res.append(str)
 	return res
 
-## 脚本语言漏洞（00截断）
+## scripting-language vulnerabilities (null-byte truncation)
 def str_00_truncation(suffix,allow_suffix):
 	res = []
 	for i in suffix:
@@ -73,7 +73,7 @@ def str_00_truncation(suffix,allow_suffix):
 		res.append(str)
 	return res
 	
-## 返回字符串所有大写可能
+## return all uppercase possibilities of a string
 def str_case_mixing(word):
 	str_list = []
 	word = word.lower()
@@ -98,14 +98,14 @@ def str_case_mixing(word):
 
 	return str_list
 	
-## list大小写混合
+## list case mixing
 def list_case_mixing(li):
 	res = []
 	for l in li:
 		res += str_case_mixing(l)
 	return res
 	
-## 双后缀生成
+## double-suffix generation
 def str_double_suffix_creater(suffix):
 	res = []
 	for i in range(1,len(suffix)):
@@ -120,11 +120,11 @@ def list_double_suffix_creater(list_suffix):
 		res += str_double_suffix_creater(l)
 	return duplicate_removal(res)
 		
-#list 去重
+#list deduplication
 def duplicate_removal(li):
 	return list(set(li))
 
-#list 去空行
+#list remove blank lines
 def clear_list(li):
 	rmstr = ['',' ',None]
 	for l in li:
@@ -186,7 +186,7 @@ if __name__ == '__main__':
 	double_parse_suffix = []
 	
 	
-	# 可解析后缀
+	# parsable suffixes
 	if language ==  'asp':
 		html_parse_suffix = []
 		php_parse_suffix = []
@@ -203,24 +203,24 @@ if __name__ == '__main__':
 		parse_suffix = jsp_parse_suffix
 	else: # language == 'all'
 		parse_suffix = html_parse_suffix + asp_parse_suffix + php_parse_suffix + jsp_parse_suffix
-	print u'[+] 收集%d条可解析后缀完毕！' % len(parse_suffix)
-	
-	# 可解析后缀 + 大小写混合
+	print u'[+] Collected %d parsable suffixes!' % len(parse_suffix)
+
+	# parsable suffixes + case mixing
 	if os == 'win' or os == 'all':
 		case_html_parse_suffix = list_case_mixing(html_parse_suffix)
 		case_asp_parse_suffix = list_case_mixing(asp_parse_suffix)
 		case_php_parse_suffix = list_case_mixing(php_parse_suffix)
 		case_jsp_parse_suffix = list_case_mixing(jsp_parse_suffix)
 		case_parse_suffix = list_case_mixing(parse_suffix)
-		print u'[+] 加入%d条可解析后缀大小写混合完毕！' % len(case_parse_suffix)
+		print u'[+] Added %d case-mixed parsable suffixes!' % len(case_parse_suffix)
 	else: # os == 'linux'
 		case_html_parse_suffix = html_parse_suffix
 		case_asp_parse_suffix = asp_parse_suffix
 		case_php_parse_suffix = php_parse_suffix
 		case_jsp_parse_suffix = jsp_parse_suffix
 		case_parse_suffix = parse_suffix
-		
-	# 中间件漏洞
+
+	# middleware vulnerabilities
 	if middleware == 'iis':
 		case_asp_php_jsp_parse_suffix = case_asp_parse_suffix + case_php_parse_suffix + case_jsp_parse_suffix
 		middleware_parse_suffix = iis_suffix_creater(case_asp_php_jsp_parse_suffix)
@@ -242,19 +242,19 @@ if __name__ == '__main__':
 		middleware_parse_suffix = iis_parse_suffix + apache_parse_suffix + tomcat_parse_suffix
 	
 	middleware_parse_suffix = duplicate_removal(middleware_parse_suffix)
-	print u'[+] 加入%d条中间件漏洞完毕！' % len(middleware_parse_suffix)
+	print u'[+] Added %d middleware vulnerabilities!' % len(middleware_parse_suffix)
 	
 	# .htaccess
 	if (middleware == 'apache' or middleware == 'all') and (os == 'win' or os == 'all'):
 		htaccess_suffix = str_case_mixing(".htaccess")
-		print u'[+] 加入%d条.htaccess完毕！' % len(htaccess_suffix)
+		print u'[+] Added %d .htaccess entries!' % len(htaccess_suffix)
 	elif (middleware == 'apache' or middleware == 'all') and os == 'linux':
 		htaccess_suffix = ['.htaccess']
-		print u'[+] 加入1条.htaccess'
+		print u'[+] Added 1 .htaccess entry'
 	else:
 		htaccess_suffix = []
-	
-	# 系统特性
+
+	# OS characteristics
 	if os == 'win':
 		os_parse_suffix = windows_suffix_creater(case_parse_suffix)
 	elif os == 'linux':
@@ -265,23 +265,23 @@ if __name__ == '__main__':
 		os_parse_suffix = win_suffix + linux_suffix
 	
 	os_parse_suffix = duplicate_removal(os_parse_suffix)
-	print u'[+] 加入%d条系统特性完毕！' % len(os_parse_suffix)
-	
-	# 语言漏洞
-	
+	print u'[+] Added %d OS-characteristic entries!' % len(os_parse_suffix)
+
+	# language vulnerabilities
+
 	language_parse_suffux = str_00_truncation(case_parse_suffix,allow_suffix)
-	
-	# 双后缀 + 大小写混合
+
+	# double suffix + case mixing
 	if double_suffix:
 		double_parse_suffix = list_double_suffix_creater(case_parse_suffix)
-		print u'[+] 加入%d条双后缀完毕！' % len(double_parse_suffix)
+		print u'[+] Added %d double-suffix entries!' % len(double_parse_suffix)
 	else:
 		double_parse_suffix = []
 		
 	all_parse_suffix = case_parse_suffix + middleware_parse_suffix + os_parse_suffix + language_parse_suffux + double_parse_suffix
 	all_parse_suffix = duplicate_removal(all_parse_suffix)
 	all_parse_suffix = clear_list(all_parse_suffix)
-	# 写文件
+	# write file
 	num = len(all_parse_suffix)
 	for i in all_parse_suffix:
 		str = '%s.%s' % (upload_file_name,i)
@@ -293,4 +293,4 @@ if __name__ == '__main__':
 		f.write(i)
 		f.write('\n')
 	f.close()
-	print u'[+] 去重后共%s条数据写入%s文件' % (num,output_filename)
+	print u'[+] After deduplication, %s entries written to file %s' % (num,output_filename)

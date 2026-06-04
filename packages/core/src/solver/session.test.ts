@@ -130,9 +130,9 @@ describe("challenge collaboration append prompt", () => {
     test("observer extension append prompt covers sidecar contract", () => {
         const text = buildObserverExtensionAppendPrompt()
 
-        expect(text).toContain("observer sidecar")
-        expect(text).toContain("不直接替你解题")
-        expect(text).toContain("只读策略板")
-        expect(text).toContain("不要把 idea 当结论")
+        expect(text).toContain("Observer sidecar")
+        expect(text).toContain("does not solve or verify for you")
+        expect(text).toContain("read-only")
+        expect(text).toContain("Do not treat ideas as conclusions")
     })
 })

@@ -2,7 +2,6 @@ import type { ChallengeManager } from "./manager"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "./env"
 import { loadEngagementScope } from "./engagement"
 import { validateObjectiveEvidence } from "./finding-validation"
-import { lookupComponentVulns, formatVulnBroadcast, splitServiceVersion } from "./vuln-intel"
 import type { HostBridgeHandleContext, HostBridgeHandleResult, HostBridgeHandler, SolverInstance } from "../runtime/types"
 
 function getObjectValue(value: unknown): Record<string, unknown> {
@@ -143,20 +142,20 @@ async function handleEngagementAction(
     const scope = await loadEngagementScope(getSolverEnvValue)
         .then((loaded) => loaded.scope)
         .catch(() => undefined)
-    // 存储/查询/广播一律用 challenge(target) id 作为 key —— solver 任务文案、seed board、
-    // broadcastToChallengeSolvers 的 solver.challengeId 过滤都以它为准。scope.engagement 只是
-    // 演练的人类可读名称，仅用于 challenge_get_state 的展示字段，绝不能当存储 key（否则写读 key 不一致，
-    // findings 永远不回灌、降重广播失效）。
+    // Storage/query/broadcast always use challenge (target) id as key — solver task, seed board,
+    // broadcastToChallengeSolvers filters on solver.challengeId. scope.engagement is only
+    // human-readable engagement name for challenge_get_state display, never the storage key (write/read mismatch,
+    // findings never replay, dedupe broadcast breaks).
     const storeKey = getSolverEnvValue(CHALLENGE_ENV_CHALLENGE_ID) || scope?.engagement || "engagement"
     const engagementName = scope?.engagement ?? storeKey
 
     switch (action) {
         case "challenge_get_state": {
-            // 带上目标记录与真实完成状态：observer review 用 challenge 字段填充上下文(标题/入口/状态)，
-            // 用 is_completed 决定目标收尾后是否还需要继续 review。两者都要反映真实状态——
-            // 之前硬编码 challenge 缺失 + is_completed=false，导致 observer 上下文全是占位符、
-            // 且目标完成后仍会无意义地继续跑 review。真实完成判定与 challenge_is_completed 一致
-            // （objective_achieved 经验证后为 true），最终收尾仍由操作员在范围外确认。
+            // Include target record and real completion: observer review fills context from challenge (title/entry/status),
+            // is_completed decides whether review continues after wind-down. Both must reflect reality —
+            // previously hardcoded missing challenge + is_completed=false filled observer with placeholders,
+            // and review kept running after completion. Matches challenge_is_completed
+            // (objective_achieved true after verification); final sign-off remains with operator.
             const [challenge, completed] = await Promise.all([
                 challengeManager.getChallenge(storeKey).catch(() => undefined),
                 challengeManager.isChallengeCompleted(storeKey).catch(() => false),
@@ -175,7 +174,7 @@ async function handleEngagementAction(
             }
         }
         case "challenge_get_hint": {
-            // 实战没有 hint 裁判；明确告知，避免模型空等。
+            // Engagement has no hint judge; say so explicitly so the model does not wait.
             return {
                 handled: true,
                 data: { code: storeKey, hint_content: null },
@@ -185,11 +184,11 @@ async function handleEngagementAction(
             const proof = getRequiredString(data, "flag")
             const writeup = typeof data.writeup === "string" && data.writeup.trim() ? data.writeup.trim() : undefined
             const objectiveClaimed = data.objective_achieved === true
-            // 断言式证据门禁(确定性首过)：solver 自报主目标达成会触发停整条战线，
-            // 但模型有时无凭据"宣布胜利"。证据不足时降级为普通 finding（仍记录，不进验证流程），
-            // 让其它 solver 继续推进，并回报让该 solver 补上具体产物。
+            // Assertive evidence gate (deterministic first pass): solver reporting primary objective can stop the line,
+            // but models sometimes claim victory without proof. Insufficient evidence downgrades to plain finding (still logged, no verification),
+            // other solvers continue; tell this solver to supply concrete proof.
             const evidence = objectiveClaimed ? validateObjectiveEvidence(proof, writeup) : { sufficient: false, reason: "" }
-            // 过了证据门禁 → 进入"待复核"状态(pending)，由独立 verifier 主动复现确认后才收尾。
+            // Passed gate → pending verification; independent verifier reproduces before wind-down.
             const enterVerification = objectiveClaimed && evidence.sufficient
             const record = await challengeManager.recordEngagementObjective(storeKey, proof, {
                 solverId,
@@ -198,7 +197,7 @@ async function handleEngagementAction(
                 writeup,
                 verificationStatus: enterVerification ? "pending" : undefined,
             })
-            // 广播给同题其它 solver：已记录一个 finding，避免重复挖同一路线。
+            // Broadcast to other solvers on same target: finding recorded, avoid duplicate routes.
             const [memory, ideas] = await Promise.all([
                 challengeManager.listMemory(storeKey).catch(() => []),
                 challengeManager.listIdeas(storeKey).catch(() => []),
@@ -209,10 +208,10 @@ async function handleEngagementAction(
                 formatEngagementObjectiveBroadcastMessage({ writeup, ideas, memory }),
                 { excludeSolverId: solverId, delivery: "steer" },
             )
-            // 双重验证:solver 自报达成 + 过证据门禁 → 起独立 verifier 复跑确认。
-            // 只有 verifier 判 verified 才会 markEngagementComplete(在 verifyObjective 内部)；
-            // rejected → steer 该 solver"复核未通过，继续推进";inconclusive → 交操作员复核，不收尾。
-            // 异步触发，不阻塞本次工具返回(verifier 会起一个 LLM 会话复跑，耗时)。
+            // Dual verification: self-report + evidence gate → start independent verifier re-run.
+            // Only verifier verified triggers markEngagementComplete (inside verifyObjective);
+            // rejected → steer "verification failed, continue"; inconclusive → operator review, no wind-down.
+            // Async; does not block tool return (verifier starts LLM session re-run).
             if (enterVerification) {
                 void challengeManager
                     .verifyObjective({
@@ -237,7 +236,7 @@ async function handleEngagementAction(
                         },
                     })
                     .catch((error) => {
-                        // verifier 启动/复跑失败不应静默：solver 仍在等收尾信号，操作员需要知道验证没跑成。
+                        // Verifier start/re-run failure must not be silent: solver awaits wind-down; operator must know.
                         console.error(
                             `[engagement] verifyObjective failed for ${storeKey}/${record.id}: ${error instanceof Error ? error.message : String(error)}`,
                         )
@@ -250,11 +249,11 @@ async function handleEngagementAction(
                     challenge_id: storeKey,
                     recorded: true,
                     record_id: record.id,
-                    // 进入验证流程时尚未收尾(等 verifier);故 is_completed=false。
+                    // In verification, not wound down yet (awaiting verifier); is_completed=false.
                     is_completed: false,
-                    // 已进入独立复核流程,让 solver 知道"已自报达成、正在被复跑验证"。
+                    // Under independent review; solver knows self-report is being re-verified.
                     under_verification: enterVerification,
-                    // 证据被门禁降级时显式告知，让 solver 补证据后再报，而不是误以为已收尾。
+                    // When downgraded by gate, tell solver to add evidence before re-reporting.
                     objective_downgraded: downgraded,
                     message: enterVerification
                         ? "objective recorded and submitted to an independent verifier for re-run confirmation; the target will only be wound down if verification passes. Keep your session alive."
@@ -265,12 +264,12 @@ async function handleEngagementAction(
             }
         }
         case "challenge_is_completed": {
-            // 反映真实完成状态:objective_achieved 标记后为 true,让 solver 的续跑循环(ralph-loop)自行收手。
+            // Reflect real completion: true after objective_achieved so solver ralph-loop can stop.
             const completed = await challengeManager.isChallengeCompleted(storeKey).catch(() => false)
             return { handled: true, data: { challenge_id: storeKey, is_completed: completed } }
         }
         case "state_upsert": {
-            // 结构化作战资产写入共享状态库(跨 solver 复用)。引擎去重合并 + 广播 + 喂给 planner。
+            // Structured asset to shared state (cross-solver). Engine dedupes, broadcasts, feeds planner.
             const kindRaw = typeof data.kind === "string" ? data.kind.trim() : ""
             const validKinds = new Set(["host", "service", "credential", "session"])
             if (!validKinds.has(kindRaw)) {
@@ -289,21 +288,6 @@ async function handleEngagementAction(
                 note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
                 sourceRefs: Array.isArray(data.source_refs) ? data.source_refs.filter((item): item is string => typeof item === "string") : undefined,
             })
-            // 进度驱动的漏洞发现：记录了带版本的 service 资产 → 异步查 NVD+KEV，命中的可利用 CVE
-            // 广播回该 solver（不阻塞本次工具返回；查询失败/无命中静默）。这是"测出新组件即自动找最新漏洞"的闭环。
-            const svc = typeof data.service === "string" ? data.service.trim() : ""
-            if (kindRaw === "service" && svc) {
-                void (async () => {
-                    try {
-                        const { component, version } = splitServiceVersion(svc)
-                        const lookup = await lookupComponentVulns(component, version)
-                        const message = formatVulnBroadcast(lookup)
-                        if (message) sendFollowUpToSolver(context, solverId, message)
-                    } catch (error) {
-                        console.error(`[engagement] auto vuln lookup failed for "${svc}": ${error instanceof Error ? error.message : String(error)}`)
-                    }
-                })()
-            }
             return {
                 handled: true,
                 data: {
@@ -315,64 +299,6 @@ async function handleEngagementAction(
                 },
             }
         }
-        case "relation_upsert": {
-            // 攻击图谱写边：source --relation--> target。底层 SQLite 按 (source,relation,target) 大小写无关去重，
-            // 重复三元组直接复用既有记录(同 record_asset 的合并语义)。写后广播给同目标其它 solver。
-            const relation = await challengeManager.appendRelation({
-                challengeId: storeKey,
-                source: getRequiredString(data, "source"),
-                relation: getRequiredString(data, "relation"),
-                target: getRequiredString(data, "target"),
-                note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
-                source_ref: typeof data.source_ref === "string" && data.source_ref.trim() ? data.source_ref.trim() : undefined,
-            })
-            return {
-                handled: true,
-                data: {
-                    challenge_id: storeKey,
-                    recorded: true,
-                    relation_id: relation.id,
-                    message: "attack-graph edge recorded to shared graph",
-                },
-            }
-        }
-        case "relation_query": {
-            // 按 source/relation/target 子串过滤(大小写无关)查询攻击图谱边。空过滤 = 返回全图。
-            const relations = await challengeManager.queryRelations(storeKey, {
-                source: typeof data.source === "string" && data.source.trim() ? data.source.trim() : undefined,
-                relation: typeof data.relation === "string" && data.relation.trim() ? data.relation.trim() : undefined,
-                target: typeof data.target === "string" && data.target.trim() ? data.target.trim() : undefined,
-            })
-            return {
-                handled: true,
-                data: {
-                    challenge_id: storeKey,
-                    count: relations.length,
-                    relations: relations.map((rel) => ({
-                        id: rel.id,
-                        source: rel.source,
-                        relation: rel.relation,
-                        target: rel.target,
-                        note: rel.note,
-                    })),
-                },
-            }
-        }
-        case "relation_path": {
-            // 在攻击图谱里求 start→end 的最短路径(BFS, 有向边)。返回每一跳的 source/relation/target。
-            const start = getRequiredString(data, "start")
-            const end = getRequiredString(data, "end")
-            const result = await challengeManager.findRelationShortestPath(storeKey, start, end)
-            return {
-                handled: true,
-                data: {
-                    challenge_id: storeKey,
-                    found: result.found,
-                    hops: result.path.length,
-                    path: result.path,
-                },
-            }
-        }
         default:
             return { handled: false }
     }
@@ -381,7 +307,7 @@ async function handleEngagementAction(
 export function createChallengeHostBridgeHandler(challengeManager: ChallengeManager): HostBridgeHandler {
     return {
         async handle(context) {
-            // CTF 远程评分链路已移除：所有 host-bridge 动作统一走实战(engagement)处理。
+            // Remote CTF scoring removed: all host-bridge actions use engagement handling.
             return handleEngagementAction(challengeManager, context)
         },
     }

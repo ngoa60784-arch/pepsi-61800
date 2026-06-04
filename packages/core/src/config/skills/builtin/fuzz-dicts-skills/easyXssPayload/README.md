@@ -2,21 +2,21 @@
 # easyXssPayload
 
 
-# 食用指南 How To Use It
+# How To Use It
 
 -------
 
-* 如非本地测试不建议拿burp一条一条的写到目标系统，因为删除麻烦。
-* 相比fork更建议star，因为这个Payload打算每隔一段时间就更新一下，确保其时效性。
-* 如无字节数限制建议手工一次插入500条进行测试，推荐火狐浏览器，有些浏览器(Safari)扛不住一次性渲染那么多标签，贼卡。
+* Unless you are testing locally, it is not recommended to write payloads one by one into the target system via Burp, because cleaning them up afterward is a pain.
+* Starring is preferred over forking, because this payload set is meant to be updated periodically to keep it current.
+* If there is no byte-length limit, it is recommended to manually insert 500 entries at once for testing. Firefox is recommended — some browsers (Safari) cannot handle rendering that many tags at once and get extremely laggy.
 
-核心文件：[easyXssPayload.txt](https://github.com/TheKingOfDuck/easyXssPayload/blob/master/easyXssPayload.txt)
+Core file: [easyXssPayload.txt](https://github.com/TheKingOfDuck/easyXssPayload/blob/master/easyXssPayload.txt)
 
-基本用法：[浅析一种简单暴力的Xss Fuzz手法](https://xz.aliyun.com/t/4985)
+Basic usage: [A brief analysis of a simple brute-force XSS Fuzz technique](https://xz.aliyun.com/t/4985)
 
 -------
 
-## 杠精我日你全家 Hater Mother Fuck
+## Hater Mother Fuck
 
 
 

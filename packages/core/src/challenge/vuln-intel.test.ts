@@ -6,7 +6,7 @@ test("splitServiceVersion separates component and version", () => {
     expect(splitServiceVersion("nginx 1.25.3")).toEqual({ component: "nginx", version: "1.25.3" })
     expect(splitServiceVersion("Apache/2.4.49")).toEqual({ component: "Apache", version: "2.4.49" })
     expect(splitServiceVersion("OpenSSH 9.2p1")).toEqual({ component: "OpenSSH", version: "9.2p1" })
-    // 无版本 → 整串当组件名
+    // no version → treat the whole string as the component name
     expect(splitServiceVersion("WordPress")).toEqual({ component: "WordPress" })
 })
 
@@ -28,7 +28,7 @@ test("formatVulnBroadcast surfaces KEV tag and CVE list for the solver", () => {
     const text = formatVulnBroadcast(result)
     expect(text).toContain("Apache 2.4.49")
     expect(text).toContain("CVE-2021-41773")
-    expect(text).toContain("🔥KEV-在野")
+    expect(text).toContain("🔥KEV-in-the-wild")
     expect(text).toContain("CVSS 7.5")
     expect(text).toContain("vuln_exploit_check")
 })

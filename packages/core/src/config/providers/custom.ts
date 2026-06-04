@@ -1,7 +1,8 @@
 import type { CustomProvider } from "./types"
 
-// 从 providers/ 目录下的各文件导入自定义 provider
+// Import custom providers from the individual files under providers/
+import deepseek from "./deepseek"
 import zhipuai from "./zhipuai"
 
-/** 所有自定义 provider 定义 */
-export const customProviders: CustomProvider[] = [zhipuai]
+/** All custom provider definitions */
+export const customProviders: CustomProvider[] = [deepseek, zhipuai]

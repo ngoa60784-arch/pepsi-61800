@@ -49,7 +49,7 @@ describe("validateObjectiveEvidence", () => {
     })
 
     test("combines proof and writeup when judging", () => {
-        // proof 本身是口号，但 writeup 带了真凭据 → 合并后通过。
+        // proof itself is a slogan, but the writeup carries real evidence → passes once combined.
         const result = validateObjectiveEvidence("objective achieved", "shell as root: root@target:/# id\nuid=0(root)")
         expect(result.sufficient).toBe(true)
     })

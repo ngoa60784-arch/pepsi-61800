@@ -1,10 +1,10 @@
-# XXE漏洞的学习：
+# Learning XXE vulnerabilities:
 
-1. [XXE漏洞的学习与利用总结](https://www.cnblogs.com/r00tuser/p/7255939.html)
-2. [XXE漏洞利用技巧：从XML到远程代码执行](https://www.freebuf.com/articles/web/177979.html)
+1. [Summary of learning and exploiting XXE vulnerabilities](https://www.cnblogs.com/r00tuser/p/7255939.html)
+2. [XXE exploitation techniques: from XML to remote code execution](https://www.freebuf.com/articles/web/177979.html)
 3. [XXE: XML eXternal Entity Injection vulnerabilities](https://www.gracefulsecurity.com/xml-external-entity-injection-xxe-vulnerabilities/)
 
-基础Payload：
+Basic payloads:
 
 ```
 <?xml version="1.0" encoding="UTF-8"?>

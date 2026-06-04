@@ -17,41 +17,10 @@ export interface ContainerConfig {
     binds?: string[]
     /** Docker network mode */
     networkMode?: "bridge" | "host"
-    /** 单 solver 容器内存上限（docker `--memory` 语法，如 "2g"）；不设则不限制 */
+    /** Per-solver container memory cap (docker `--memory`, e.g. "2g"); omit = unlimited */
     memory?: string
-    /** 单 solver 容器 CPU 上限（docker `--cpus` 语法，如 1.5）；不设则不限制 */
+    /** Per-solver container CPU cap (docker `--cpus`, e.g. 1.5); omit = unlimited */
     cpus?: number
-    /**
-     * 执行后端：
-     * - "docker"（默认）：每个 solver 起一个本地 docker 容器。
-     * - "ssh"：solver 直接在远程主机（如云 kali）上跑，去掉 docker。
-     * - "local"：solver 进程跑在控制面本地（不进容器、不 ssh），攻击面通过 MCP 工具
-     *   （如 kali-arsenal 的 ssh_execute）够到远程 Kali。session/workspace 天然本地，
-     *   无需 sshfs 同视图、无需注入 158MB 二进制。这是「solver=大脑在本地，MCP=双手在远端」模型。
-     */
-    backend?: "docker" | "ssh" | "local"
-    /** backend="ssh" 时的远程执行配置 */
-    ssh?: SshBackendConfig
-}
-
-export interface SshBackendConfig {
-    host?: string
-    port?: number
-    username?: string
-    /** 明文密码（用 sshpass）。优先用密钥/别名，密码仅作兜底。 */
-    password?: string
-    /**
-     * 本地 ssh 别名（~/.ssh/config 中的 Host）。设置后走 `ssh <alias>`，
-     * 支持密钥 / ProxyCommand / 隧道，且不在配置里存明文密码（推荐）。
-     */
-    alias?: string
-    /** 远程主机上 tch-agent solver 二进制的绝对路径 */
-    remoteBinary?: string
-    /**
-     * 远程主机上 solver 状态根目录（startup/session/workspace 落这里）。
-     * 需与本机 SOLVERS_DIR 通过 sshfs 挂载为同一视图，host 才能读到 solver 状态。
-     */
-    remoteSolversDir?: string
 }
 
 export interface SolverInstance {

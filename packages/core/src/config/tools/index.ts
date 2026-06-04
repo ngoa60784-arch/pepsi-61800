@@ -18,14 +18,14 @@ import {
 import { allEngagementTools } from "./engagement-tools"
 import { securityKimiSearchTool } from "./security-kimi-search"
 
-// ── 自定义工具 ──
+// ── Custom tools ──
 
-/** 所有自定义工具定义 */
+/** All custom tool definitions */
 export const customTools: ToolDefinition[] = [securityKimiSearchTool, ...allEngagementTools]
 
-// ── SDK 内置工具 ──
+// ── SDK built-in tools ──
 
-/** 所有内置工具定义（用于注册到 registeredTools） */
+/** All built-in tool definitions (used to register into registeredTools) */
 export const builtinToolDefinitions: Array<ToolDefinition<any, any, any>> = [
     bashToolDefinition,
     readToolDefinition,
@@ -36,7 +36,7 @@ export const builtinToolDefinitions: Array<ToolDefinition<any, any, any>> = [
     lsToolDefinition,
 ]
 
-/** 内置工具运行时实例（用于 CreateAgentSessionOptions.tools） */
+/** Built-in tool runtime instances (used for CreateAgentSessionOptions.tools) */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const builtinToolMap: Record<string, any> = {
     read: readTool,
@@ -48,15 +48,15 @@ export const builtinToolMap: Record<string, any> = {
     ls: lsTool,
 }
 
-/** UI 展示用的工具摘要 */
+/** Tool summary for UI display */
 export interface ToolEntry {
     name: string
     label: string
     description: string
     source: string
     parameters?: Record<string, unknown>
-    /** MCP 工具所属的服务器名 */
+    /** Name of the server this MCP tool belongs to */
     server?: string
-    /** MCP 工具是否以 direct 模式注册（false = proxy） */
+    /** Whether the MCP tool is registered in direct mode (false = proxy) */
     direct?: boolean
 }

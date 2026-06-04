@@ -65,9 +65,11 @@ export function loadMetadataCache(configPathOverride?: string): MetadataCache | 
 
 export function saveMetadataCache(cache: MetadataCache, configPathOverride?: string): void {
   const cachePath = resolveMetadataCachePath(configPathOverride);
-  // 缓存纯属性能优化（避免重复探测 MCP server）。写入失败绝不能让 MCP 初始化崩溃——
-  // 典型场景：solver 跑在容器里，config 目录只读挂载(:ro)，写 mcp-cache.json 会抛 EROFS。
-  // 这里整体兜底：写不进去就跳过持久化，MCP 照常工作（只是每次重新探测）。
+  // The cache is purely a performance optimization (avoiding repeated MCP server probing). A write
+  // failure must never crash MCP initialization — a typical scenario: the solver runs in a container
+  // with the config directory mounted read-only (:ro), so writing mcp-cache.json throws EROFS.
+  // This is a blanket fallback: if the write doesn't go through, skip persistence and MCP keeps
+  // working as usual (it just re-probes every time).
   try {
     const dir = dirname(cachePath);
     mkdirSync(dir, { recursive: true });
@@ -91,7 +93,7 @@ export function saveMetadataCache(cache: MetadataCache, configPathOverride?: str
     writeFileSync(tmpPath, JSON.stringify(merged, null, 2), "utf-8");
     renameSync(tmpPath, cachePath);
   } catch {
-    // 只读文件系统 / 权限不足等：放弃缓存持久化，不影响 MCP 运行。
+    // Read-only filesystem / insufficient permissions etc.: give up on cache persistence, does not affect MCP operation.
   }
 }
 

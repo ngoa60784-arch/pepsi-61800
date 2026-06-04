@@ -132,8 +132,9 @@ describe("challenge-memory", () => {
         expect(updated.content).toBe("found /admin/login")
         expect(updated.refs).toEqual(["evidence/http-2.txt"])
         expect(updated.source).toBe("observer:solver-1")
-        // created_at 在更新后保持不变；updated_at 不早于 created_at（ISO 串按字典序即时间序，
-        // 同毫秒内更新会相等，故用 >= 而非严格不等，避免时序竞态偶发失败）。
+        // created_at stays unchanged after the update; updated_at is no earlier than created_at (an ISO
+        // string sorts lexicographically the same as chronologically, and updates within the same
+        // millisecond will be equal, so use >= rather than strict inequality to avoid flaky timing races).
         expect(updated.created_at).toBe(first.created_at)
         expect(updated.updated_at >= updated.created_at).toBe(true)
 

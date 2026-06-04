@@ -1,8 +1,8 @@
 import { createAgentSession, DefaultResourceLoader, defineTool, SessionManager } from "@mariozechner/pi-coding-agent"
 import type { AgentSession, CreateAgentSessionOptions, ToolDefinition } from "@mariozechner/pi-coding-agent"
 import { Type } from "@sinclair/typebox"
-import { resolve } from "node:path"
-import { mkdir } from "node:fs/promises"
+import { relative, resolve, sep } from "node:path"
+import { mkdir, rm } from "node:fs/promises"
 import type { ConfigManager } from "../config/index"
 import { DEFAULT_CONFIG_DIR } from "../config/index"
 import type { ChallengeManager } from "./manager"
@@ -10,14 +10,14 @@ import type { RuntimeSolverDetails } from "../runtime/types"
 import { isEngagementMode } from "./engagement"
 
 /**
- * Commander —— 对话式渗透指挥官。
+ * Commander —— conversational penetration-test commander.
  *
- * 操作员用自然语言下达目标（"测一下 example.com，重点看上传/SSRF"），
- * Commander 这个常驻 LLM agent 负责：补全 entrypoint、建 target、派 solver（把要求作为 handoff 注入）、
- * 汇报进展、按指令停 solver / 调方向。它是 planner 之外、面向人的对话入口。
+ * The operator gives objectives in natural language ("test example.com, focus on upload/SSRF"),
+ * and this resident LLM agent handles: filling in the entrypoint, creating the target, dispatching solvers (injecting the requirements as a handoff),
+ * reporting progress, and stopping solvers / steering direction on command. It is the human-facing conversational entry point, alongside the planner.
  *
- * 与 planner 的区别：planner 是周期性、无人值守的自动调度（一次性 inMemory session）；
- * Commander 是常驻、多轮、人来驱动（落盘 session），二者复用同一套 ChallengeManager 能力。
+ * Difference from the planner: the planner is a periodic, unattended automatic scheduler (a one-off inMemory session);
+ * the Commander is resident, multi-turn, and human-driven (a persisted session). Both reuse the same ChallengeManager capabilities.
  */
 
 const COMMANDER_SYSTEM_PROMPT = `You are the penetration-test commander for BreachWeave.
@@ -29,12 +29,12 @@ The operator gives you engagement targets in natural language. Your job is to tu
 - Use create_target to register the target, then launch_solver to dispatch a solver. Carry the operator's emphasis (e.g. "focus on upload and SSRF", "leave the login endpoint alone") into the solver handoff brief.
 - Default to acting immediately — do not repeatedly ask for confirmation. Only ask a short clarifying question if you genuinely cannot extract any usable target from the operator's message.
 - When the operator asks for progress, check real state with list_solvers / get_solver_progress before answering — never fabricate.
-- When the operator asks how a target is doing overall ("打到哪了 / 进展如何 / 该不该继续"), call get_target_overview — it gives the derived phase (untouched/recon/foothold/breakthrough), success rate, prune recommendation, obtained assets, attack-graph edges, and what each running solver is focused on. This is the fastest way to answer "整体进度". get_solver_progress only has the raw memory/ideas/findings summary.
+- When the operator asks how a target is doing overall ("how far have we gotten / what's the progress / should we keep going"), call get_target_overview — it gives the derived phase (untouched/recon/foothold/breakthrough), success rate, prune recommendation, obtained assets, attack-graph edges, and what each running solver is focused on. This is the fastest way to answer "overall progress". get_solver_progress only has the raw memory/ideas/findings summary.
 - When the operator asks about the DETAILED process — what commands a solver ran, a tool's raw output, why it's stuck, or which step it's on — use get_solver_trace (NOT get_solver_progress, which only has the memory/findings summary). get_solver_progress = "what's concluded"; get_solver_trace = "what it actually did, step by step".
 - When the operator tells you to stop a solver, change direction, or add more force, use the matching tool.
 
-## Resuming a half-finished target (operator hands you a prior pentest document) — STRICT ORDER
-When the operator gives you prior progress for a target (creds obtained, confirmed injection points, routes that failed, leads to try next), you MUST execute these tool calls in this EXACT order, and you must NOT call launch_solver until import_findings has returned:
+## Resuming a half-finished target (operator uploads a prior pentest document) — STRICT ORDER
+When the operator uploads a pentest record, the full document body is appended in the same user message after the marker <<<TCH_OPERATOR_UPLOAD>>> (the UI hides this block). Parse that section as the source of truth. You may also call read_operator_upload if you need to re-read it. Execute these tool calls in this EXACT order, and you must NOT call launch_solver until import_findings has returned:
 
 1. **create_target** — register the target (use the address from the document; if none, ask the operator).
 2. **import_findings** — parse the WHOLE document into the four buckets and load it into shared state:
@@ -47,6 +47,7 @@ When the operator gives you prior progress for a target (creds obtained, confirm
 NEVER launch a solver before the import completes. If you launched one too early by mistake, stop it and relaunch after importing.
 
 ## Tools
+- read_operator_upload(): re-read the operator's uploaded document for this turn (optional; the upload block is usually already in the user message).
 - create_target(id, entrypoint, description): register an engagement target. Use a short readable id (e.g. "example-com"); entrypoint is an array of entry addresses.
 - import_findings(targetId, assets, facts, deadends, ideas): load an operator-supplied "half-done" pentest progress into the target's shared state so all solvers and the scheduler build on it instead of restarting. Use this whenever the operator provides prior findings/creds/notes. MUST be called BEFORE launch_solver.
 - launch_solver(targetId, handoff): dispatch one solver against a target. handoff is the solver's startup brief (emphasis, known info, constraints).
@@ -54,7 +55,7 @@ NEVER launch a solver before the import completes. If you launched one too early
 - list_solvers(): list all current solvers and their status.
 - stop_solver(solverId): stop a solver.
 - get_solver_progress(targetId): view the memory / findings summary for a target's solvers.
-- get_target_overview(targetId): view the full progress overview of a target — derived phase (untouched/recon/foothold/breakthrough), success rate, prune recommendation, obtained assets (host/service/credential/session), attack-graph edges, confirmed facts, dead-ends, live hypotheses, findings, and each running solver's current focus. Use for "整体进度/进展/该不该继续投入". Richer than get_solver_progress.
+- get_target_overview(targetId): view the full progress overview of a target — derived phase (untouched/recon/foothold/breakthrough), success rate, prune recommendation, obtained assets (host/service/credential/session), attack-graph edges, confirmed facts, dead-ends, live hypotheses, findings, and each running solver's current focus. Use for "overall progress / how it's going / whether to keep investing". Richer than get_solver_progress.
 - get_solver_trace(solverId, limit?, thread?): view a solver's DETAILED execution trace — the actual commands/tool calls it ran and their raw output, step by step. Use for "what is it doing / what did that command output / why is it stuck". Get the solverId from list_solvers first.
 
 ## Operational discipline
@@ -77,7 +78,74 @@ interface CommanderEvent {
 
 type CommanderSubscriber = (event: CommanderEvent) => void
 
-/** 从 SDK message.content 提取纯文本：content 可能是字符串或 {type,text} 片段数组，只取 text 片段。 */
+export interface CommanderSessionSummary {
+    id: string
+    path: string
+    created: string
+    modified: string
+    messageCount: number
+    preview: string
+    active: boolean
+}
+
+function commanderSessionDir(): string {
+    return resolve(DEFAULT_CONFIG_DIR, "commander-session")
+}
+
+/** Only allow deleting/opening session files under the commander session directory. */
+export function resolveCommanderSessionPath(path: string): string {
+    const sessionDir = commanderSessionDir()
+    const resolved = resolve(path.trim())
+    const rel = relative(sessionDir, resolved)
+    if (rel.startsWith("..") || rel.split(sep).includes("..")) {
+        throw new Error("invalid commander session path")
+    }
+    if (!resolved.endsWith(".jsonl")) {
+        throw new Error("invalid commander session path")
+    }
+    return resolved
+}
+
+function clipSessionPreview(text: string | undefined): string {
+    if (!text?.trim()) return "(空对话)"
+    const oneLine = text.trim().replace(/\s+/g, " ")
+    return oneLine.length > 100 ? `${oneLine.slice(0, 100)}…` : oneLine
+}
+
+/** Extract plain text from an SDK message.content: content may be a string or an array of {type,text} parts; keep only text parts. */
+/** LLM sees the block; UI / rollback strip everything from this marker onward. */
+export const OPERATOR_UPLOAD_BLOCK_BEGIN = "\n\n<<<TCH_OPERATOR_UPLOAD>>>"
+export const OPERATOR_UPLOAD_BLOCK_END = "\n<<<END_TCH_OPERATOR_UPLOAD>>>"
+
+/** Legacy prompts that only pointed at read_operator_upload. */
+const OPERATOR_UPLOAD_HINT_RE = /\n\n（已上传文档「[^」]+」，请先调用 read_operator_upload 读取全文。）$/
+
+export interface CommanderSendOptions {
+    attachment?: { name: string; content: string }
+}
+
+/** Build the user turn persisted for the agent session (includes upload body when present). */
+export function buildCommanderSessionPrompt(message: string, attachment?: { name: string; content: string }): string {
+    const note = message.trim() || (attachment ? "请处理我上传的渗透记录文档。" : "")
+    if (!note) throw new Error("message is required")
+    if (!attachment) return note
+    const name = attachment.name.trim() || "upload.txt"
+    const body = attachment.content.trim()
+    if (!body) throw new Error("attachment content is empty")
+    return `${note}${OPERATOR_UPLOAD_BLOCK_BEGIN}\n--- 渗透记录文档（${name}）---\n${body}${OPERATOR_UPLOAD_BLOCK_END}`
+}
+
+/** Short text for Web UI bubbles and rollback input restoration. */
+export function displayCommanderUserMessage(stored: string): string {
+    const blockStart = stored.indexOf(OPERATOR_UPLOAD_BLOCK_BEGIN)
+    if (blockStart >= 0) {
+        const note = stored.slice(0, blockStart).trim()
+        return note || "（渗透记录文档）"
+    }
+    const stripped = stored.replace(OPERATOR_UPLOAD_HINT_RE, "").trim()
+    return stripped || stored
+}
+
 function extractEntryText(content: unknown): string {
     if (typeof content === "string") return content.trim()
     if (!Array.isArray(content)) return ""
@@ -89,7 +157,7 @@ function extractEntryText(content: unknown): string {
         .trim()
 }
 
-// ── Solver 执行轨迹提取（让 Commander 看到详细渗透过程，而非只看 memory/ideas/findings 摘要） ──
+// ── Solver execution-trace extraction (lets the Commander see the detailed pentest process, not just the memory/ideas/findings summary) ──
 
 interface TraceToolCall {
     name: string
@@ -104,7 +172,7 @@ function clipTrace(value: string, maxChars: number): string {
     return `${text.slice(0, maxChars)}\n… [truncated, ${text.length - maxChars} more chars — view the full transcript in the Runtime detail page]`
 }
 
-/** 把一次工具调用的参数压成一行人类可读摘要：bash 显示命令本身，文件类显示路径，其余降级为 JSON。 */
+/** Collapse a single tool call's arguments into a one-line human-readable summary: bash shows the command itself, file tools show the path, everything else degrades to JSON. */
 function summarizeToolArgs(name: string, args: unknown): string {
     if (!args || typeof args !== "object" || Array.isArray(args)) return ""
     const record = args as Record<string, unknown>
@@ -126,7 +194,7 @@ function summarizeToolArgs(name: string, args: unknown): string {
     }
 }
 
-/** 走一条线程的消息，把 assistant 的 toolCall 与其对应 toolResult 配对成有序的执行动作。 */
+/** Walk a thread's messages, pairing each assistant toolCall with its corresponding toolResult into an ordered list of execution actions. */
 function extractThreadActions(messages: unknown[]): { actions: TraceToolCall[]; lastReasoning: string } {
     const results = new Map<string, { text: string; isError: boolean }>()
     for (const raw of messages) {
@@ -160,7 +228,7 @@ function extractThreadActions(messages: unknown[]): { actions: TraceToolCall[]; 
     return { actions, lastReasoning }
 }
 
-/** 把 solver 详情格式化成 Commander 可读的执行轨迹：最近 N 步「命令 + 输出」+ 最新推理。 */
+/** Format solver details into an execution trace the Commander can read: the last N steps of "command + output" + the latest reasoning. */
 function formatSolverTrace(
     details: RuntimeSolverDetails,
     options: { limit: number; threadKind: "main" | "subagent" | "observer" | "all" },
@@ -205,6 +273,10 @@ export class CommanderManager {
     private starting: Promise<AgentSession> | undefined
     private subscribers = new Set<CommanderSubscriber>()
     private running = false
+    /** Persisted session file for the in-memory agent; drives list highlight and restart resume. */
+    private activeSessionPath: string | undefined
+    /** One-shot upload for the current operator turn; consumed by read_operator_upload. */
+    private pendingOperatorUpload: { name: string; content: string } | undefined
 
     constructor(config: ConfigManager, challenge: ChallengeManager) {
         this.config = config
@@ -226,11 +298,11 @@ export class CommanderManager {
         }
     }
 
-    /** 解析 Commander 会话配置：模型用全局默认 Agent 模型(UI 选的那个)；系统提示固定为指挥官提示。 */
+    /** Resolve the Commander session config: the model uses the global default Agent model (the one selected in the UI); the system prompt is fixed to the commander prompt. */
     private async resolveSessionOptions(): Promise<CreateAgentSessionOptions> {
         const modelPrefs = await this.config.listModelPrefs()
         if (modelPrefs.length === 0) {
-            throw new Error("尚未配置任何模型：请先在 UI 的 Config → Providers / Models 里添加 provider、API key 与模型，再使用 Commander。")
+            throw new Error("No model configured yet: please first add a provider, API key, and model under Config → Providers / Models in the UI, then use the Commander.")
         }
         const defaultPrefId = (await this.config.resolveDefaultModelPrefId()) ?? modelPrefs[0].id
         const resolved = await this.config.resolveModelPref(defaultPrefId)
@@ -238,7 +310,7 @@ export class CommanderManager {
         const resourceLoader = new DefaultResourceLoader({
             agentDir: DEFAULT_CONFIG_DIR,
             systemPromptOverride: () => COMMANDER_SYSTEM_PROMPT,
-            // Commander 不加载任何内置技能/扩展，只用自己的指挥工具。
+            // The Commander loads no built-in skills/extensions; it uses only its own command tools.
             skillsOverride: (base) => ({ ...base, skills: [] }),
         })
         await resourceLoader.reload()
@@ -255,22 +327,35 @@ export class CommanderManager {
         }
     }
 
+    private getActiveSessionPath(): string | undefined {
+        const manager = (this.session as unknown as { sessionManager?: { getSessionFile?: () => string | undefined } } | undefined)
+            ?.sessionManager
+        return manager?.getSessionFile?.() ?? this.activeSessionPath
+    }
+
     private async ensureSession(): Promise<AgentSession> {
         if (this.session) return this.session
         if (this.starting) return this.starting
         this.starting = (async () => {
             const opts = await this.resolveSessionOptions()
-            const sessionDir = resolve(DEFAULT_CONFIG_DIR, "commander-session")
+            const sessionDir = commanderSessionDir()
             await mkdir(sessionDir, { recursive: true })
+            let sessionManager: SessionManager
+            if (this.activeSessionPath && (await Bun.file(this.activeSessionPath).exists())) {
+                sessionManager = SessionManager.open(this.activeSessionPath, sessionDir)
+            } else {
+                this.activeSessionPath = undefined
+                sessionManager = SessionManager.continueRecent(sessionDir, sessionDir)
+                this.activeSessionPath = sessionManager.getSessionFile()
+            }
             const { session } = await createAgentSession({
                 ...opts,
                 cwd: sessionDir,
-                // continueRecent：有上次落盘的 session 就续上（重启后对话/上下文保留），没有才新建。
-                // 配合 startNewSession() 提供"开新一轮干净对话"的逃生口。
-                sessionManager: SessionManager.continueRecent(sessionDir, sessionDir),
+                sessionManager,
             })
             session.subscribe((event) => this.forwardSessionEvent(event))
             this.session = session
+            this.activeSessionPath = sessionManager.getSessionFile() ?? this.activeSessionPath
             return session
         })()
         try {
@@ -278,6 +363,29 @@ export class CommanderManager {
         } finally {
             this.starting = undefined
         }
+    }
+
+    private async replaceSession(buildManager: (sessionDir: string) => SessionManager): Promise<void> {
+        if (this.running) throw new Error("Commander is processing a message and cannot switch conversations")
+        const opts = await this.resolveSessionOptions()
+        const sessionDir = commanderSessionDir()
+        await mkdir(sessionDir, { recursive: true })
+        const sessionManager = buildManager(sessionDir)
+        const previous = this.session
+        const { session } = await createAgentSession({
+            ...opts,
+            cwd: sessionDir,
+            sessionManager,
+        })
+        session.subscribe((event) => this.forwardSessionEvent(event))
+        this.session = session
+        this.activeSessionPath = sessionManager.getSessionFile()
+        try {
+            previous?.dispose()
+        } catch {
+            // ignore dispose errors
+        }
+        this.emit({ type: "rolled_back" })
     }
 
     private forwardSessionEvent(event: { type: string; [key: string]: unknown }): void {
@@ -302,17 +410,38 @@ export class CommanderManager {
         }
     }
 
+    private clearPendingOperatorUpload(): void {
+        this.pendingOperatorUpload = undefined
+    }
+
     private createCommanderTools(): ToolDefinition[] {
         const challenge = this.challenge
+        const commander = this
         return [
+            defineTool({
+                name: "read_operator_upload",
+                label: "Read Operator Upload",
+                description:
+                    "Re-read the operator's uploaded pentest document for this turn (same content as the <<<TCH_OPERATOR_UPLOAD>>> block in the user message). Use when you need the full text again.",
+                parameters: Type.Object({}),
+                execute: async () => {
+                    const doc = commander.pendingOperatorUpload
+                    if (!doc) throw new Error("当前轮次没有待读取的上传文档。")
+                    commander.clearPendingOperatorUpload()
+                    return {
+                        content: [{ type: "text", text: `--- 渗透记录文档（${doc.name}）---\n${doc.content}` }],
+                        details: { name: doc.name, chars: doc.content.length } as Record<string, unknown>,
+                    }
+                },
+            }),
             defineTool({
                 name: "create_target",
                 label: "Create Target",
-                description: "建立一个渗透目标（target）。id 用简短可读标识；entrypoint 是入口地址数组（如 [\"http://x\",\"https://x\"]）。",
+                description: "Create a penetration target. Use a short readable id; entrypoint is an array of entry addresses (e.g. [\"http://x\",\"https://x\"]).",
                 parameters: Type.Object({
-                    id: Type.String({ minLength: 1, description: "短标识，如 example-com" }),
-                    entrypoint: Type.Array(Type.String(), { description: "入口地址数组，至少一个" }),
-                    description: Type.Optional(Type.String({ description: "目标背景/已知信息" })),
+                    id: Type.String({ minLength: 1, description: "short id, e.g. example-com" }),
+                    entrypoint: Type.Array(Type.String(), { description: "array of entry addresses, at least one" }),
+                    description: Type.Optional(Type.String({ description: "target background / known info" })),
                 }),
                 execute: async (_id, params) => {
                     const targetId = params.id.trim()
@@ -347,10 +476,10 @@ export class CommanderManager {
             defineTool({
                 name: "launch_solver",
                 label: "Launch Solver",
-                description: "对一个目标派出 solver 开打。handoff 是给 solver 的启动简报（侧重点、已知信息、约束）。",
+                description: "Dispatch a solver against a target to start attacking. handoff is the solver's startup brief (emphasis, known info, constraints).",
                 parameters: Type.Object({
                     targetId: Type.String({ minLength: 1 }),
-                    handoff: Type.Optional(Type.String({ description: "给 solver 的启动简报" })),
+                    handoff: Type.Optional(Type.String({ description: "startup brief for the solver" })),
                 }),
                 execute: async (_id, params) => {
                     const solver = await challenge.launchSolver(params.targetId.trim(), COMMANDER_SOLVER_PROMPT_NAME, {
@@ -365,13 +494,13 @@ export class CommanderManager {
             defineTool({
                 name: "list_targets",
                 label: "List Targets",
-                description: "列出当前所有目标及其状态。",
+                description: "List all current targets and their status.",
                 parameters: Type.Object({}),
                 execute: async () => {
                     const targets = await challenge.listStoredChallenges()
                     const rows = targets.map((t) => ({ id: t.id, entrypoint: t.entrypoint, status: t.instance_status }))
                     return {
-                        content: [{ type: "text", text: rows.length > 0 ? JSON.stringify(rows, null, 2) : "（暂无目标）" }],
+                        content: [{ type: "text", text: rows.length > 0 ? JSON.stringify(rows, null, 2) : "(no targets yet)" }],
                         details: rows,
                     }
                 },
@@ -379,14 +508,14 @@ export class CommanderManager {
             defineTool({
                 name: "list_solvers",
                 label: "List Solvers",
-                description: "列出当前所有 solver 及其状态。",
+                description: "List all current solvers and their status.",
                 parameters: Type.Object({}),
                 execute: async () => {
                     const runtime = challenge.getRuntime()
                     const solvers = runtime ? await runtime.listAll() : []
                     const rows = solvers.map((s) => ({ id: s.id, target: s.challengeId, status: s.status, prompt: s.promptName }))
                     return {
-                        content: [{ type: "text", text: rows.length > 0 ? JSON.stringify(rows, null, 2) : "（暂无 solver）" }],
+                        content: [{ type: "text", text: rows.length > 0 ? JSON.stringify(rows, null, 2) : "(no solvers yet)" }],
                         details: rows,
                     }
                 },
@@ -394,7 +523,7 @@ export class CommanderManager {
             defineTool({
                 name: "stop_solver",
                 label: "Stop Solver",
-                description: "停止一个正在运行的 solver。",
+                description: "Stop a running solver.",
                 parameters: Type.Object({ solverId: Type.String({ minLength: 1 }) }),
                 execute: async (_id, params) => {
                     const runtime = challenge.getRuntime()
@@ -407,29 +536,29 @@ export class CommanderManager {
                 name: "import_findings",
                 label: "Import Findings",
                 description:
-                    "把操作员提供的『渗透到一半』文档导入到目标的共享作战态，让所有现在/将来的 solver 与调度层都能接着上次进度继续测——而不是从零重测。把文档拆成四类结构化条目一次性提交：assets(可复用资产:已得凭据/会话/主机/服务)、facts(已确认事实/证据)、deadends(已撞死/被防御挡掉的路线)、ideas(待测的攻击假设)。凭据等密文用引用名(secret_ref)指代，不要贴明文。导入后通常再 launch_solver 让它接力。",
+                    "Import an operator-supplied 'half-done' pentest document into the target's shared operational state, so all current/future solvers and the scheduler can pick up from prior progress instead of re-testing from scratch. Break the document into four kinds of structured entries and submit them at once: assets (reusable assets: obtained credentials/sessions/hosts/services), facts (confirmed facts/evidence), deadends (routes already blocked or stopped by defenses), ideas (attack hypotheses to test). Reference secrets like credentials by name (secret_ref); do not paste plaintext. After importing, usually call launch_solver to carry the relay forward.",
                 parameters: Type.Object({
-                    targetId: Type.String({ minLength: 1, description: "目标 id（需已 create_target）" }),
+                    targetId: Type.String({ minLength: 1, description: "target id (must already be create_target'd)" }),
                     assets: Type.Optional(
                         Type.Array(
                             Type.Object({
                                 kind: Type.Union([Type.Literal("host"), Type.Literal("service"), Type.Literal("credential"), Type.Literal("session")]),
-                                label: Type.String({ minLength: 1, description: "可读标签，如 admin@webapp / http://x:8080 / 10.0.0.5" }),
+                                label: Type.String({ minLength: 1, description: "readable label, e.g. admin@webapp / http://x:8080 / 10.0.0.5" }),
                                 host: Type.Optional(Type.String()),
                                 port: Type.Optional(Type.Integer()),
-                                service: Type.Optional(Type.String({ description: "服务/产品/版本" })),
-                                account: Type.Optional(Type.String({ description: "账号/角色（凭据/会话用）" })),
-                                privilege: Type.Optional(Type.String({ description: "权限级别 user/root/admin/www-data" })),
-                                secret_ref: Type.Optional(Type.String({ description: "密文的引用名，不是明文" })),
-                                session_type: Type.Optional(Type.String({ description: "ssh/reverse-shell/web-cookie 等" })),
-                                note: Type.Optional(Type.String({ description: "如何获得/复用注意事项" })),
+                                service: Type.Optional(Type.String({ description: "service/product/version" })),
+                                account: Type.Optional(Type.String({ description: "account/role (for credential/session)" })),
+                                privilege: Type.Optional(Type.String({ description: "privilege level user/root/admin/www-data" })),
+                                secret_ref: Type.Optional(Type.String({ description: "reference name of the secret, not the plaintext" })),
+                                session_type: Type.Optional(Type.String({ description: "ssh/reverse-shell/web-cookie etc." })),
+                                note: Type.Optional(Type.String({ description: "how it was obtained / reuse caveats" })),
                             }),
-                            { description: "可复用的结构化资产（已得凭据/会话/主机/服务）" },
+                            { description: "reusable structured assets (obtained credentials/sessions/hosts/services)" },
                         ),
                     ),
-                    facts: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: "已确认的事实/证据（每条一句话）" })),
-                    deadends: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: "已撞死/被防御挡掉的路线（每条说明边界，如 'WAF 拦截所有 system() 类命令注入'）" })),
-                    ideas: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: "待测的攻击假设/下一步方向（每条一句话）" })),
+                    facts: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: "confirmed facts/evidence (one sentence each)" })),
+                    deadends: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: "routes already blocked or stopped by defenses (state the boundary in each, e.g. 'WAF blocks all system()-style command injection')" })),
+                    ideas: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: "attack hypotheses / next directions to test (one sentence each)" })),
                 }),
                 execute: async (_id, params) => {
                     const targetId = params.targetId.trim()
@@ -481,7 +610,7 @@ export class CommanderManager {
             defineTool({
                 name: "get_solver_progress",
                 label: "Get Solver Progress",
-                description: "查看某目标当前的 memory / findings 摘要，用于汇报进展。",
+                description: "View the current memory / findings summary for a target, used for reporting progress.",
                 parameters: Type.Object({ targetId: Type.String({ minLength: 1 }) }),
                 execute: async (_id, params) => {
                     const targetId = params.targetId.trim()
@@ -502,13 +631,13 @@ export class CommanderManager {
                 name: "get_solver_trace",
                 label: "Get Solver Trace",
                 description:
-                    "查看某个 solver 的详细渗透执行过程——它实际跑了哪些命令/工具调用及其输出（nmap/ffuf/sqlmap/bash 等的真实输出、一步步的 kill chain），而不只是 memory/findings 摘要。当操作员问『它具体在做什么 / 跑到哪一步了 / 为什么卡住 / 那条命令输出是什么』时用这个。需要 solverId（先用 list_solvers 拿到目标的 solver id）。",
+                    "View a solver's detailed pentest execution process — the actual commands/tool calls it ran and their output (real output from nmap/ffuf/sqlmap/bash etc., the step-by-step kill chain), not just the memory/findings summary. Use this when the operator asks 'what exactly is it doing / which step is it on / why is it stuck / what did that command output'. Needs the solverId (get the target's solver id from list_solvers first).",
                 parameters: Type.Object({
-                    solverId: Type.String({ minLength: 1, description: "solver id（来自 list_solvers）" }),
-                    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 60, description: "返回最近多少步工具调用，默认 20" })),
+                    solverId: Type.String({ minLength: 1, description: "solver id (from list_solvers)" }),
+                    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 60, description: "how many of the most recent tool-call steps to return, default 20" })),
                     thread: Type.Optional(
                         Type.Union([Type.Literal("main"), Type.Literal("subagent"), Type.Literal("observer"), Type.Literal("all")], {
-                            description: "看哪条线程：main=solver 主执行(默认)、subagent=子代理、observer=旁路监督、all=全部",
+                            description: "which thread to view: main=solver's main execution (default), subagent=sub-agent, observer=side-channel supervision, all=everything",
                         }),
                     ),
                 }),
@@ -537,30 +666,32 @@ export class CommanderManager {
                 name: "get_target_overview",
                 label: "Get Target Overview",
                 description:
-                    "查看某个目标的进度全景：派生阶段（untouched/recon/foothold/breakthrough）、成功率、是否建议剪枝、已得资产（主机/服务/凭据/会话）、攻击图谱边、确认事实、失败边界、活跃假设、战果，以及每个在跑的 solver 此刻在干嘛。当操作员问『这个目标整体打到哪了 / 进展如何 / 该不该继续投入』时用这个——它比 get_solver_progress 更全（progress 只有 memory/ideas/findings 三类原始摘要，没有 phase/资产/图谱/各 solver 焦点）。",
+                    "View the full progress panorama of a target: derived phase (untouched/recon/foothold/breakthrough), success rate, whether pruning is recommended, obtained assets (host/service/credential/session), attack-graph edges, confirmed facts, failure boundaries, live hypotheses, findings, and what each running solver is doing right now. Use this when the operator asks 'how far has this target gotten overall / what's the progress / should we keep investing' — it's more complete than get_solver_progress (progress only has the three raw summaries memory/ideas/findings, with no phase/assets/graph/per-solver focus).",
                 parameters: Type.Object({ targetId: Type.String({ minLength: 1 }) }),
                 execute: async (_id, params) => {
                     const targetId = params.targetId.trim()
                     if (!targetId) throw new Error("targetId is required")
                     const ov = await challenge.buildTargetOverview(targetId)
                     const lines: string[] = [
-                        `目标 ${ov.title} (${ov.challengeId}) — 实例状态: ${ov.instanceStatus}`,
-                        `阶段: ${ov.progressPhase} | 成功率: ${ov.successRate.toFixed(2)} | 死路线: ${ov.failedRouteCount} | 战果: ${ov.findingCount} | 活跃 solver: ${ov.activeSolverCount}${ov.pruneRecommended ? " | ⚠ 建议剪枝（对当前打法过难）" : ""}`,
+                        `Target ${ov.title} (${ov.challengeId}) — instance status: ${ov.instanceStatus}`,
+                        `Phase: ${ov.progressPhase} | success rate: ${ov.successRate.toFixed(2)} | dead routes: ${ov.failedRouteCount} | findings: ${ov.findingCount} | active solvers: ${ov.activeSolverCount}${ov.pruneRecommended ? " | ⚠ pruning recommended (too hard for the current approach)" : ""}`,
                         "",
-                        `已得资产 (host/service/credential/session):`,
-                        ...(ov.stateAssets.length > 0 ? ov.stateAssets.map((l) => `  - ${l}`) : ["  - (无)"]),
-                        `攻击图谱边:`,
-                        ...(ov.relations.length > 0 ? ov.relations.map((l) => `  - ${l}`) : ["  - (无)"]),
-                        `确认事实 / 凭据:`,
-                        ...(ov.memoryFacts.length > 0 ? ov.memoryFacts.map((l) => `  - ${l}`) : ["  - (无)"]),
-                        `失败 / 死路边界:`,
-                        ...(ov.failureBoundaries.length > 0 ? ov.failureBoundaries.map((l) => `  - ${l}`) : ["  - (无)"]),
-                        `活跃假设 (verified/testing/pending):`,
-                        ...(ov.liveIdeas.length > 0 ? ov.liveIdeas.map((l) => `  - ${l}`) : ["  - (无)"]),
-                        `战果:`,
-                        ...(ov.findings.length > 0 ? ov.findings.map((l) => `  - ${l}`) : ["  - (无)"]),
-                        `在跑的 solver 此刻焦点:`,
-                        ...(ov.activeSolvers.length > 0 ? ov.activeSolvers.map((s) => `  - ${s.id} [${s.status}]: ${s.currentFocus}`) : ["  - (无在跑 solver)"]),
+                        `Obtained assets (host/service/credential/session):`,
+                        ...(ov.stateAssets.length > 0 ? ov.stateAssets.map((line: string) => `  - ${line}`) : ["  - (none)"]),
+                        `Attack-graph edges:`,
+                        ...(ov.relations.length > 0 ? ov.relations.map((line: string) => `  - ${line}`) : ["  - (none)"]),
+                        `Confirmed facts / credentials:`,
+                        ...(ov.memoryFacts.length > 0 ? ov.memoryFacts.map((line: string) => `  - ${line}`) : ["  - (none)"]),
+                        `Failure / dead-route boundaries:`,
+                        ...(ov.failureBoundaries.length > 0 ? ov.failureBoundaries.map((line: string) => `  - ${line}`) : ["  - (none)"]),
+                        `Live hypotheses (verified/testing/pending):`,
+                        ...(ov.liveIdeas.length > 0 ? ov.liveIdeas.map((line: string) => `  - ${line}`) : ["  - (none)"]),
+                        `Findings:`,
+                        ...(ov.findings.length > 0 ? ov.findings.map((line: string) => `  - ${line}`) : ["  - (none)"]),
+                        `Running solvers' current focus:`,
+                        ...(ov.activeSolvers.length > 0
+                            ? ov.activeSolvers.map((solver) => `  - ${solver.id} [${solver.status}]: ${solver.currentFocus}`)
+                            : ["  - (no running solvers)"]),
                     ]
                     return { content: [{ type: "text", text: lines.join("\n") }], details: ov as unknown as Record<string, unknown> }
                 },
@@ -568,15 +699,25 @@ export class CommanderManager {
         ]
     }
 
-    /** 发送一条操作员消息给 Commander，agent 自主调度工具。串行：一次只处理一轮。 */
-    async send(message: string): Promise<void> {
-        const text = message.trim()
-        if (!text) throw new Error("message is required")
+    /** Send one operator message to the Commander; the agent autonomously schedules tools. Serial: only one round is processed at a time. */
+    async send(message: string, options?: CommanderSendOptions): Promise<void> {
         if (!isEngagementMode()) {
-            throw new Error("Commander 仅在 engagement 模式可用")
+            throw new Error("Commander is only available in engagement mode")
         }
+        const attachment = options?.attachment
+        if (attachment) {
+            const content = attachment.content.trim()
+            if (!content) throw new Error("attachment content is empty")
+            this.pendingOperatorUpload = {
+                name: attachment.name.trim() || "upload.txt",
+                content,
+            }
+        } else {
+            this.clearPendingOperatorUpload()
+        }
+        const text = buildCommanderSessionPrompt(message, attachment)
         if (this.running) {
-            throw new Error("Commander 正在处理上一条消息，请稍候")
+            throw new Error("Commander is still processing the previous message, please wait")
         }
         const session = await this.ensureSession()
         this.running = true
@@ -590,7 +731,7 @@ export class CommanderManager {
         }
     }
 
-    /** 读取已落盘的对话历史（用于前端首次加载）。 */
+    /** Read the persisted conversation history (for the frontend's first load). */
     async history(): Promise<unknown[]> {
         try {
             const session = await this.ensureSession()
@@ -602,10 +743,10 @@ export class CommanderManager {
     }
 
     /**
-     * 读取“当前分支”的条目（从当前 leaf 走到 root）。
-     * 关键区别于 getEntries()：session 是 append-only 树，回退(navigateTree)只是移动 leaf 指针，
-     * 旧分支仍留在文件里。getEntries() 返回整棵树(含被回退掉的旧分支)，getBranch() 只返回当前路径。
-     * 对话恢复/回退后展示必须用这个，否则被回退掉的消息会"复活"。
+     * Read the entries of the "current branch" (walking from the current leaf to the root).
+     * Key difference from getEntries(): the session is an append-only tree, and a rollback (navigateTree) only moves the leaf pointer,
+     * while old branches remain in the file. getEntries() returns the whole tree (including rolled-back old branches); getBranch() returns only the current path.
+     * Display after conversation restore/rollback must use this, otherwise rolled-back messages would "come back to life".
      */
     private async branchEntries(): Promise<unknown[]> {
         try {
@@ -619,9 +760,9 @@ export class CommanderManager {
     }
 
     /**
-     * 把当前分支的条目转成前端可直接渲染的对话气泡 {role, text}。
-     * 只取 type==="message" 且 role 为 user/assistant 的条目，提取其中的 text 片段
-     * （忽略 thinking、session/model_change 等非对话条目）。用于切换版块后恢复对话 / 回退后刷新。
+     * Convert the current branch's entries into conversation bubbles {role, text} that the frontend can render directly.
+     * Takes only entries where type==="message" and role is user/assistant, extracting their text parts
+     * (ignoring thinking, session/model_change, and other non-conversation entries). Used to restore the conversation after switching panels / refresh after rollback.
      */
     async historyMessages(): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
         const entries = await this.branchEntries()
@@ -633,17 +774,18 @@ export class CommanderManager {
             const message = entry.message as { role?: unknown; content?: unknown }
             const role = message.role
             if (role !== "user" && role !== "assistant") continue
-            const text = extractEntryText(message.content)
+            let text = extractEntryText(message.content)
             if (!text) continue
+            if (role === "user") text = displayCommanderUserMessage(text)
             messages.push({ role, text })
         }
         return messages
     }
 
     /**
-     * 列出可回退到的历史点（当前分支上每条操作员消息一个）。返回 {entryId, text}，按时间顺序。
-     * 注意：不用 SDK 的 getUserMessagesForForking()——它基于 getEntries()（整棵树），回退后会把
-     * 被丢弃旧分支上的用户消息也列出来，导致回退点错乱。这里改用当前分支条目自己提取。
+     * List the history points we can roll back to (one per operator message on the current branch). Returns {entryId, text}, in chronological order.
+     * Note: does not use the SDK's getUserMessagesForForking() — it is based on getEntries() (the whole tree), and after a rollback it would also list
+     * user messages on discarded old branches, causing rollback points to get jumbled. Here we extract from the current branch entries ourselves instead.
      */
     async rollbackPoints(): Promise<Array<{ entryId: string; text: string }>> {
         const entries = await this.branchEntries()
@@ -654,53 +796,88 @@ export class CommanderManager {
             if (entry.type !== "message" || typeof entry.id !== "string" || !entry.message || typeof entry.message !== "object") continue
             const message = entry.message as { role?: unknown; content?: unknown }
             if (message.role !== "user") continue
-            const text = extractEntryText(message.content)
+            const text = displayCommanderUserMessage(extractEntryText(message.content))
             if (text) points.push({ entryId: entry.id, text })
         }
         return points
     }
 
     /**
-     * 把对话回退到指定历史点：该点之后的所有消息与指挥官回复被丢弃，回到那一刻的状态。
-     * 只动指挥官的对话上下文——不碰任何已派出/在跑的 solver。
+     * Roll the conversation back to a given history point: all messages and commander replies after that point are discarded, returning to the state at that moment.
+     * Only touches the commander's conversation context — does not touch any dispatched/running solver.
      */
     async rollbackTo(entryId: string): Promise<void> {
         const target = entryId.trim()
         if (!target) throw new Error("entryId is required")
-        if (this.running) throw new Error("Commander 正在处理消息，无法回退")
+        if (this.running) throw new Error("Commander is processing a message and cannot roll back")
         const session = await this.ensureSession()
         const navigate = (session as unknown as {
             navigateTree?: (id: string, opts?: { summarize?: boolean }) => Promise<{ cancelled: boolean }>
         }).navigateTree
-        if (!navigate) throw new Error("当前 SDK 版本不支持对话回退")
-        // summarize=false：直接丢弃被回退掉的分支，不做总结注入。
+        if (!navigate) throw new Error("the current SDK version does not support conversation rollback")
+        // summarize=false: directly discard the rolled-back branch, no summary injection.
         await navigate.call(session, target, { summarize: false })
-        // 通知前端刷新对话（回退后历史已变）。
+        // Notify the frontend to refresh the conversation (history has changed after rollback).
         this.emit({ type: "rolled_back" })
     }
 
     /**
-     * 开一轮全新的干净对话：丢弃当前 session（落盘的旧 session 仍保留在磁盘上，只是不再续用），
-     * 下次 send / ensureSession 会用 continueRecent 续上——所以这里要新建一个空 session 并切过去。
-     * 不影响任何已派出的 solver。
+     * Start a brand-new clean conversation: creates a new session file and switches to it.
+     * Older session files remain on disk and appear in the session list until deleted.
+     * Does not affect any dispatched solver.
      */
     async startNewSession(): Promise<void> {
-        if (this.running) throw new Error("Commander 正在处理消息，无法开新对话")
-        const opts = await this.resolveSessionOptions()
-        const sessionDir = resolve(DEFAULT_CONFIG_DIR, "commander-session")
+        this.clearPendingOperatorUpload()
+        await this.replaceSession((sessionDir) => SessionManager.create(sessionDir, sessionDir))
+    }
+
+    /** List persisted commander conversations (newest activity first). */
+    async listSessions(): Promise<CommanderSessionSummary[]> {
+        const sessionDir = commanderSessionDir()
         await mkdir(sessionDir, { recursive: true })
-        const previous = this.session
-        const { session } = await createAgentSession({
-            ...opts,
-            cwd: sessionDir,
-            sessionManager: SessionManager.create(sessionDir, sessionDir),
-        })
-        session.subscribe((event) => this.forwardSessionEvent(event))
-        this.session = session
-        try {
-            previous?.dispose()
-        } catch {
-            // ignore dispose errors
+        const listed = await SessionManager.list(sessionDir, sessionDir)
+        const activePath = this.getActiveSessionPath()
+        const sessions = listed.map((item) => ({
+            id: item.id,
+            path: item.path,
+            created: typeof item.created === "string" ? item.created : new Date(item.created).toISOString(),
+            modified: typeof item.modified === "string" ? item.modified : new Date(item.modified).toISOString(),
+            messageCount: item.messageCount ?? 0,
+            preview: clipSessionPreview(item.firstMessage),
+            active: item.path === activePath,
+        }))
+        sessions.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime())
+        return sessions
+    }
+
+    /** Switch to a persisted session file. */
+    async switchSession(path: string): Promise<void> {
+        const resolved = resolveCommanderSessionPath(path)
+        if (!(await Bun.file(resolved).exists())) {
+            throw new Error("session not found")
+        }
+        if (this.getActiveSessionPath() === resolved && this.session) return
+        this.clearPendingOperatorUpload()
+        await this.replaceSession((sessionDir) => SessionManager.open(resolved, sessionDir))
+    }
+
+    /** Delete a persisted session file. If it is the active conversation, clears the in-memory session. */
+    async deleteSession(path: string): Promise<void> {
+        if (this.running) throw new Error("Commander is processing a message and cannot delete a conversation")
+        const resolved = resolveCommanderSessionPath(path)
+        const wasActive = this.getActiveSessionPath() === resolved
+        if (wasActive) {
+            this.clearPendingOperatorUpload()
+            try {
+                this.session?.dispose()
+            } catch {
+                // ignore dispose errors
+            }
+            this.session = undefined
+            this.activeSessionPath = undefined
+        }
+        if (await Bun.file(resolved).exists()) {
+            await rm(resolved)
         }
         this.emit({ type: "rolled_back" })
     }
