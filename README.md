@@ -18,6 +18,15 @@ bun run install && bun run web
 
 浏览器打开 **http://127.0.0.1:3000**，在 **配置** 中填写 LLM API 与 **MCP → kali-arsenal** SSH，然后在 **指挥官** 下达目标或到 **目标** 页手动启动 Solver。
 
+### 一键启动（桌面图标）
+
+```bash
+./scripts/install-desktop-shortcut.sh   # 安装桌面/菜单快捷方式（仅需一次）
+./scripts/start-breachweave.sh        # 或双击「BreachWeave」图标
+./scripts/stop-breachweave.sh           # 停止 Web 服务
+./scripts/pack-release.sh               # 打包为 dist/breachweave-YYYYMMDD.tar.gz
+```
+
 公网部署前请设置 `TCH_AUTH_TOKEN`，见 [项目文档 §10](docs/项目文档.md#10-部署与运维)。
 
 ## Roles at a Glance

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=BreachWeave
+Name[zh_CN]=BreachWeave 渗透协作平台
+Comment=Multi-agent penetration testing platform (authorized use only)
+Comment[zh_CN]=多智能体渗透协作平台（仅用于已授权目标）
+Exec=@@INSTALL_ROOT@@/scripts/start-breachweave.sh
+Icon=@@INSTALL_ROOT@@/deploy/icons/breachweave.png
+Path=@@INSTALL_ROOT@@
+Terminal=false
+Categories=Development;Security;
+StartupNotify=true
+Keywords=penetration;security;agent;tch;
