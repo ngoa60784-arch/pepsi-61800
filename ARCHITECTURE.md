@@ -4,8 +4,8 @@
 >
 > Related documents:
 > - [README.md](README.md) — Project overview and architectural philosophy
-> - [docs/deployment.md](docs/deployment.md) — Full cloud deployment guide
-> - [docs/engagement-mode.md](docs/engagement-mode.md) — Engagement mode, scope, and operator workflow
+> - [docs/项目文档.md](docs/项目文档.md) — Full Chinese project guide (deployment, engagement, API index)
+> - [docs/配置手册.md](docs/配置手册.md) — Configuration reference (`~/.tch-agent/config/`)
 > - [AGENTS.md](AGENTS.md) — Code style and Bun conventions
 
 ---
@@ -446,7 +446,7 @@ REST route categories:
 - Set `TCH_AUTH_TOKEN` (non-empty) to enable. Credentials: `Authorization: Bearer <token>` or HttpOnly cookie `tch_auth` (constant-time compare).
 - `withAuth()` wraps all routes, **exempts** `/` and `/api/auth/*`; `guard()` returns 401 when unauthenticated.
 - On login success `Set-Cookie: tch_auth=...; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`.
-- No token = zero auth; **must set for public deployment** (see deployment.md §5).
+- No token = zero auth; **must set for public deployment** (see docs/项目文档.md §5).
 
 ### 10.3 SSE Endpoints
 
@@ -457,7 +457,7 @@ REST route categories:
 | `/api/challenges/:id/attack-timeline/stream` | `snapshot` | Attack timeline snapshot |
 | `/api/commander/stream` | `commander` | Commander conversation events |
 
-All include 5s `: keepalive`. Reverse proxy needs `proxy_buffering off` (see deployment.md §7).
+All include 5s `: keepalive`. Reverse proxy needs `proxy_buffering off` (see docs/项目文档.md §7).
 
 ### 10.4 Frontend (`src/`)
 
@@ -496,7 +496,7 @@ All state under the running user's `~/.tch-agent/`:
 ```
 
 - Backup priorities: `config/` and `challenge/`; `solvers/` and `runtime/` can be rebuilt.
-- On deployment ensure home is on persistent volume (see deployment.md §6).
+- On deployment ensure home is on persistent volume (see docs/项目文档.md §6).
 
 ---
 
@@ -507,7 +507,7 @@ All state under the running user's `~/.tch-agent/`:
 - **Scope** (`EngagementScope` in `engagement.ts`): `engagement` (name), `allowed_targets` (whitelist, ≥1), `out_of_scope?`, `no_scan?`, `forbidden_commands?`, `rules_of_engagement?`.
 - Loading: `TCH_ENGAGEMENT_SCOPE` points to JSON file → `loadEngagementScope` → `parseEngagementScope` (validation failure throws; running without scope not allowed).
 - Injection points: `launchSolver` writes env, `buildEngagementSolverTask` writes task text, `challenge_get_state` returns scope.
-- Example: `docs/engagement-scope.example.json`; details in [docs/engagement-mode.md](docs/engagement-mode.md).
+- Example: `docs/engagement-scope.example.json`; details in [docs/项目文档.md](docs/项目文档.md).
 
 ---
 
@@ -533,7 +533,7 @@ Code style: see [AGENTS.md](AGENTS.md) — kebab-case filenames, `import type` s
 
 ## 15. Deployment
 
-Full steps: [docs/deployment.md](docs/deployment.md). Highlights:
+Full steps: [docs/项目文档.md](docs/项目文档.md) §10. Highlights:
 
 - Two layers: lightweight control plane (this repo, process ~200–400MB) + solver execution (Kali containers, bulk of resources).
 - **Must be amd64**; solver image ~10.4GB, multiple solvers share one copy.
@@ -558,6 +558,6 @@ packages/ui-web/         Web UI + REST/SSE (server.ts + React frontend)
 packages/ui-tui/         Terminal UI (Ink)
 packages/libs/pi-mcp-adapter/   MCP config loading
 deploy/                  tch-agent.service + build-and-push-image.sh
-docs/                    deployment.md / engagement-mode.md / engagement-scope.example.json
+docs/                    项目文档.md / 配置手册.md / engagement-scope.example.json
 scripts/                 install.ts / build.ts etc.
 ```

@@ -7,7 +7,7 @@ import type { McpServerItem, ProbeResult } from "../../../core/src/config/mcp/in
 import type { PromptFile } from "../../../core/src/config/prompts/index"
 import type { BuiltInProvider, ConfiguredModel, ModelConfigEntry, ModelDefinition, ProviderPrefEntry } from "../../../core/src/config/providers/types"
 import type { ToolEntry } from "../../../core/src/config/tools/index"
-import type { KaliSshTestResult } from "../../../core/src/runtime/kali-ssh"
+import type { KaliSshTestResult, PentestKeysSyncResult } from "../../../core/src/runtime/kali-ssh"
 import type { KaliSystemStats } from "../../../core/src/runtime/kali-stats"
 import type { RuntimeMessageThread, RuntimeSolverDetails, SolverInstance } from "../../../core/src/runtime/types"
 import type { Skill } from "@mariozechner/pi-coding-agent"
@@ -281,6 +281,8 @@ export interface KaliToolCheckResult {
     entries: KaliToolCheckEntry[]
 }
 
+export type { PentestKeysSyncResult }
+
 export type KaliProvisionEvent =
     | { type: "log"; line: string; stream: "stdout" | "stderr" }
     | { type: "done"; exitCode: number; ok: boolean }
@@ -318,6 +320,13 @@ export const mcpServers = {
         const body = (await res.json()) as KaliSshTestResult
         return body
     },
+    /** 走 kali-ssh-test + mode=sync-keys，兼容未注册 kali-sync-keys 的旧 Web 进程 */
+    syncKaliPentestKeys: (env: Record<string, string>) =>
+        json<PentestKeysSyncResult>("/api/config/mcp/kali-ssh-test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ env, mode: "sync-keys" }),
+        }),
     async provisionKali(
         env: Record<string, string>,
         onEvent: (event: KaliProvisionEvent) => void,

@@ -82,7 +82,17 @@ function builtinMcpServers(): Record<string, ServerEntry> {
         "kali-arsenal": {
             command: "python3",
             args: [containerMcpScriptPath("ssh_mcp.py")],
-            env: { SSH_HOST: "", SSH_PORT: "22", SSH_USER: "root", SSH_PASS: "", SSH_ALIAS: "" },
+            env: {
+                SSH_HOST: "",
+                SSH_PORT: "22",
+                SSH_USER: "root",
+                SSH_PASS: "",
+                SSH_ALIAS: "",
+                FOFA_EMAIL: "",
+                FOFA_KEY: "",
+                FOFA_EMAIL_2: "",
+                FOFA_KEY_2: "",
+            },
             lifecycle: "keep-alive",
         },
         "vuln-intel": {
@@ -124,6 +134,26 @@ export async function initBuiltinMcpServers(dir: string) {
     }
     if (changed) await writeMcpConfig(dir, config)
     await migrateMcpPathsToContainerMount(dir)
+    await mergeBuiltinKaliEnvKeys(dir)
+}
+
+/** Add FOFA_* placeholders to existing kali-arsenal without overwriting user values. */
+export async function mergeBuiltinKaliEnvKeys(dir: string) {
+    const config = getMcpConfig(dir)
+    const server = config.mcpServers["kali-arsenal"]
+    if (!server) return
+    const env = { ...(server.env ?? {}) }
+    const defaults = builtinMcpServers()["kali-arsenal"]?.env ?? {}
+    let changed = false
+    for (const [key, value] of Object.entries(defaults)) {
+        if (!(key in env)) {
+            env[key] = value
+            changed = true
+        }
+    }
+    if (!changed) return
+    server.env = env
+    await writeMcpConfig(dir, config)
 }
 
 async function writeMcpConfig(dir: string, config: McpConfig) {

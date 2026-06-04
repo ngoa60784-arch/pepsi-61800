@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CheckCircle2, Loader2, Server, Wrench, XCircle } from "lucide-react"
-import { KALI_OPTIONAL_TOOLS, parseProvisionLogSummary } from "../../../../core/src/runtime/kali-ssh"
+import {
+    formatKaliEnvFields,
+    hasFofaCredentials,
+    KALI_OPTIONAL_TOOLS,
+    parseProvisionLogSummary,
+} from "../../../../core/src/runtime/kali-ssh"
 import { mcpServers } from "../../lib/api"
 import type { KaliProvisionEvent, KaliToolCheckResult } from "../../lib/api"
 
@@ -42,21 +47,6 @@ function appendProvisionLogLine(prev: string[], line: string): string[] {
     return [...prev, trimmed]
 }
 
-function formatEnvLines(fields: Record<string, string>): string {
-    const order = ["SSH_ALIAS", "SSH_HOST", "SSH_PORT", "SSH_USER", "SSH_PASS", "TCH_GOPROXY", "TCH_GH_MIRROR"]
-    const lines: string[] = []
-    const seen = new Set<string>()
-    for (const key of order) {
-        if (key in fields) {
-            lines.push(`${key}=${fields[key] ?? ""}`)
-            seen.add(key)
-        }
-    }
-    for (const [key, value] of Object.entries(fields)) {
-        if (!seen.has(key)) lines.push(`${key}=${value}`)
-    }
-    return lines.join("\n")
-}
 
 function ToolSummaryBlock({
     title,
@@ -137,6 +127,9 @@ export function KaliArsenalPanel({ envText, onEnvChange, disabled }: KaliArsenal
     const [provisionDone, setProvisionDone] = useState<{ ok: boolean; exitCode: number } | null>(null)
     const [toolSummary, setToolSummary] = useState<KaliToolCheckResult | null>(null)
     const [toolChecking, setToolChecking] = useState(false)
+    const [keysSyncing, setKeysSyncing] = useState(false)
+    const [keysSyncOk, setKeysSyncOk] = useState<boolean | null>(null)
+    const [keysSyncMessage, setKeysSyncMessage] = useState("")
     const [showFullLog, setShowFullLog] = useState(false)
     const abortRef = useRef<AbortController | null>(null)
     const logEndRef = useRef<HTMLDivElement | null>(null)
@@ -154,7 +147,7 @@ export function KaliArsenalPanel({ envText, onEnvChange, disabled }: KaliArsenal
     function setField(key: string, value: string) {
         setSshTestOk(null)
         setSshTestMessage("")
-        onEnvChange(formatEnvLines({ ...fields, [key]: value }))
+        onEnvChange(formatKaliEnvFields({ ...fields, [key]: value }))
     }
 
     async function handleTestSsh() {
@@ -196,6 +189,7 @@ export function KaliArsenalPanel({ envText, onEnvChange, disabled }: KaliArsenal
         setProvisionDone(null)
         setToolSummary(null)
         setShowFullLog(false)
+        let provisionSucceeded = false
 
         const appendLog = (event: KaliProvisionEvent) => {
             if (event.type === "log") {
@@ -207,6 +201,7 @@ export function KaliArsenalPanel({ envText, onEnvChange, disabled }: KaliArsenal
                     return next
                 })
             } else if (event.type === "done") {
+                provisionSucceeded = event.ok
                 setProvisionDone({ ok: event.ok, exitCode: event.exitCode })
                 setShowFullLog(false)
             } else if (event.type === "error") {
@@ -232,6 +227,15 @@ export function KaliArsenalPanel({ envText, onEnvChange, disabled }: KaliArsenal
             } catch {
                 // 保留安装日志中解析出的清单
             }
+            if (hasFofaCredentials(fields) && sshTestOk && provisionSucceeded) {
+                try {
+                    const sync = await mcpServers.syncKaliPentestKeys(fields)
+                    setKeysSyncOk(sync.ok)
+                    setKeysSyncMessage(sync.message)
+                } catch {
+                    // 用户可手动点「同步 FOFA 到 Kali」
+                }
+            }
         }
     }
 
@@ -240,7 +244,24 @@ export function KaliArsenalPanel({ envText, onEnvChange, disabled }: KaliArsenal
         setProvisioning(false)
     }
 
+    async function handleSyncPentestKeys() {
+        setKeysSyncing(true)
+        setKeysSyncOk(null)
+        setKeysSyncMessage("")
+        try {
+            const result = await mcpServers.syncKaliPentestKeys(fields)
+            setKeysSyncOk(result.ok)
+            setKeysSyncMessage(result.message)
+        } catch (error) {
+            setKeysSyncOk(false)
+            setKeysSyncMessage(error instanceof Error ? error.message : String(error))
+        } finally {
+            setKeysSyncing(false)
+        }
+    }
+
     const useAlias = Boolean(fields.SSH_ALIAS?.trim())
+    const fofaReady = hasFofaCredentials(fields)
 
     return (
         <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
@@ -310,6 +331,81 @@ export function KaliArsenalPanel({ envText, onEnvChange, disabled }: KaliArsenal
                             />
                         </div>
                     </>
+                )}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 rounded-md border border-dashed p-3">
+                <div className="space-y-1 sm:col-span-2 text-xs font-medium text-muted-foreground">
+                    FOFA（可选，写入远程 <code className="text-[10px]">/root/.pentest-keys/keys.env</code>）
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="kali-fofa-email">FOFA_EMAIL</Label>
+                    <Input
+                        id="kali-fofa-email"
+                        type="email"
+                        autoComplete="off"
+                        placeholder="注册邮箱"
+                        value={fields.FOFA_EMAIL ?? ""}
+                        disabled={disabled}
+                        onChange={(e) => setField("FOFA_EMAIL", e.target.value)}
+                    />
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="kali-fofa-key">FOFA_KEY</Label>
+                    <Input
+                        id="kali-fofa-key"
+                        type="password"
+                        autoComplete="off"
+                        placeholder="API Key"
+                        value={fields.FOFA_KEY ?? ""}
+                        disabled={disabled}
+                        onChange={(e) => setField("FOFA_KEY", e.target.value)}
+                    />
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="kali-fofa-email-2">FOFA_EMAIL_2（备用）</Label>
+                    <Input
+                        id="kali-fofa-email-2"
+                        type="email"
+                        autoComplete="off"
+                        value={fields.FOFA_EMAIL_2 ?? ""}
+                        disabled={disabled}
+                        onChange={(e) => setField("FOFA_EMAIL_2", e.target.value)}
+                    />
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="kali-fofa-key-2">FOFA_KEY_2（备用）</Label>
+                    <Input
+                        id="kali-fofa-key-2"
+                        type="password"
+                        autoComplete="off"
+                        value={fields.FOFA_KEY_2 ?? ""}
+                        disabled={disabled}
+                        onChange={(e) => setField("FOFA_KEY_2", e.target.value)}
+                    />
+                </div>
+                <div className="sm:col-span-2 flex flex-wrap items-center gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled || keysSyncing || !fofaReady || !sshTestOk}
+                        onClick={handleSyncPentestKeys}
+                        title={!fofaReady ? "请填写 FOFA_EMAIL 与 FOFA_KEY" : !sshTestOk ? "请先测试 SSH 连接" : undefined}
+                    >
+                        {keysSyncing ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : null}
+                        同步 FOFA 到 Kali
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                        保存 MCP 配置后密钥在本地 <code className="text-[10px]">mcp.json</code>；同步后远程 shell 可 source keys.env 供 pentest skill 使用。
+                    </p>
+                </div>
+                {keysSyncMessage && (
+                    <div
+                        className={`sm:col-span-2 rounded-md border px-3 py-2 text-xs ${keysSyncOk ? "alert-success" : "alert-error"}`}
+                    >
+                        {keysSyncMessage}
+                    </div>
                 )}
             </div>
 

@@ -1,5 +1,9 @@
 import type { Subprocess } from "bun"
+import { KALI_MCP_ENV_FIELD_ORDER } from "./pentest-keys"
 import { buildSshArgv, type ProvisionSshTarget } from "./provision"
+
+export { FOFA_ENV_KEYS, KALI_MCP_ENV_FIELD_ORDER, syncPentestKeysToRemote, buildPentestKeysFileContent, hasFofaCredentials } from "./pentest-keys"
+export type { PentestKeysSyncResult } from "./pentest-keys"
 
 export interface KaliSshTestResult {
     ok: boolean
@@ -103,7 +107,7 @@ export function parseKaliEnvFields(envText: string): Record<string, string> {
 }
 
 export function formatKaliEnvFields(fields: Record<string, string>): string {
-    const order = ["SSH_ALIAS", "SSH_HOST", "SSH_PORT", "SSH_USER", "SSH_PASS"]
+    const order = [...KALI_MCP_ENV_FIELD_ORDER]
     const lines: string[] = []
     const seen = new Set<string>()
     for (const key of order) {

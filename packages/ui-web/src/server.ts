@@ -6,7 +6,12 @@ import { CHALLENGE_ENV_CHALLENGE_ID } from "../../core/src/challenge/env"
 import { isEngagementMode } from "../../core/src/challenge/engagement"
 import { buildChallengeAttackTimeline } from "../../core/src/challenge/attack-timeline"
 import { buildChallengeStatsOverview } from "../../core/src/challenge/stats"
-import { checkKaliToolsOnRemote, kaliEnvToProvisionTarget, testKaliSshConnection } from "../../core/src/runtime/kali-ssh"
+import {
+    checkKaliToolsOnRemote,
+    kaliEnvToProvisionTarget,
+    syncPentestKeysToRemote,
+    testKaliSshConnection,
+} from "../../core/src/runtime/kali-ssh"
 import { fetchKaliSystemStats, formatKaliSshLabel, type KaliSystemStats } from "../../core/src/runtime/kali-stats"
 import { provisionKaliWithAgent } from "../../core/src/runtime/kali-provisioner"
 import { cp, mkdir, mkdtemp, rm, stat } from "fs/promises"
@@ -1087,7 +1092,55 @@ export async function startWeb(options: WebServerOptions) {
                 },
             },
 
-            // ── MCP Servers ──
+            // ── MCP Servers（kali-* 子路径须在 /api/config/mcp 之前注册，避免部分 Bun 版本误匹配）──
+            "/api/config/mcp/kali-ssh-test": {
+                async POST(req) {
+                    try {
+                        const body = (await req.json()) as { env?: Record<string, string>; mode?: string }
+                        const env = body.env ?? {}
+                        const target = kaliEnvToProvisionTarget(env)
+                        if (body.mode === "sync-keys") {
+                            const result = await syncPentestKeysToRemote(target, env, req.signal)
+                            return Response.json(result, { status: result.ok ? 200 : 400 })
+                        }
+                        const result = await testKaliSshConnection(target, req.signal)
+                        return Response.json(result, { status: result.ok ? 200 : 400 })
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return Response.json({ ok: false, message: msg }, { status: 400 })
+                    }
+                },
+            },
+
+            "/api/config/mcp/kali-tool-check": {
+                async POST(req) {
+                    try {
+                        const body = (await req.json()) as { env?: Record<string, string> }
+                        const target = kaliEnvToProvisionTarget(body.env ?? {})
+                        const result = await checkKaliToolsOnRemote(target, req.signal)
+                        return Response.json(result)
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return errorResponse(msg, 400)
+                    }
+                },
+            },
+
+            "/api/config/mcp/kali-sync-keys": {
+                async POST(req) {
+                    try {
+                        const body = (await req.json()) as { env?: Record<string, string> }
+                        const env = body.env ?? {}
+                        const target = kaliEnvToProvisionTarget(env)
+                        const result = await syncPentestKeysToRemote(target, env, req.signal)
+                        return Response.json(result, { status: result.ok ? 200 : 400 })
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return Response.json({ ok: false, message: msg, path: "/root/.pentest-keys/keys.env" }, { status: 400 })
+                    }
+                },
+            },
+
             "/api/config/mcp": {
                 GET() {
                     return Response.json(config.listMcpServers())
@@ -1126,35 +1179,6 @@ export async function startWeb(options: WebServerOptions) {
                         return Response.json(result)
                     } catch (e: any) {
                         return Response.json({ error: e.message }, { status: 500 })
-                    }
-                },
-            },
-
-            "/api/config/mcp/kali-ssh-test": {
-                async POST(req) {
-                    try {
-                        const body = (await req.json()) as { env?: Record<string, string> }
-                        const env = body.env ?? {}
-                        const target = kaliEnvToProvisionTarget(env)
-                        const result = await testKaliSshConnection(target, req.signal)
-                        return Response.json(result, { status: result.ok ? 200 : 400 })
-                    } catch (e: unknown) {
-                        const msg = e instanceof Error ? e.message : String(e)
-                        return Response.json({ ok: false, message: msg }, { status: 400 })
-                    }
-                },
-            },
-
-            "/api/config/mcp/kali-tool-check": {
-                async POST(req) {
-                    try {
-                        const body = (await req.json()) as { env?: Record<string, string> }
-                        const target = kaliEnvToProvisionTarget(body.env ?? {})
-                        const result = await checkKaliToolsOnRemote(target, req.signal)
-                        return Response.json(result)
-                    } catch (e: unknown) {
-                        const msg = e instanceof Error ? e.message : String(e)
-                        return errorResponse(msg, 400)
                     }
                 },
             },

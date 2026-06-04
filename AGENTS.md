@@ -25,7 +25,9 @@ apps/
 
 | Document | Location | Content |
 | -------- | ---------------------------------- | ------------------------ |
-| Architecture overview | [ARCHITECTURE.md](ARCHITECTURE.md) | Layered architecture, multi-agent collaboration, data flow, deployment references |
+| Project guide (ZH) | [docs/项目文档.md](docs/项目文档.md) | Roles, workflows, deployment, API index |
+| Configuration (ZH) | [docs/配置手册.md](docs/配置手册.md) | All config files and UI mapping |
+| Architecture overview | [ARCHITECTURE.md](ARCHITECTURE.md) | Layered architecture, multi-agent collaboration, data flow |
 
 ## Architecture Layers
 
