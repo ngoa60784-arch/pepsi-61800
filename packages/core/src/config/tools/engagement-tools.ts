@@ -65,7 +65,7 @@ export const reportFindingTool = defineTool({
 export const getTargetIntelTool = defineTool({
     name: "get_target_intel",
     label: "Get Target Intel",
-    description: "Fetch any locally cached intelligence for the current target. In engagement mode there is no hint oracle; rely on active recon.",
+    description: "Fetch operator-provided initial intel for the current target (pre-brief: scope, creds, constraints). Returns empty if none was set; then rely on active recon.",
     promptSnippet: "get_target_intel: retrieve cached intel for the current target",
     parameters: EmptyParams,
     async execute() {
@@ -114,7 +114,12 @@ export const recordAssetTool = defineTool({
     promptSnippet: "record_asset: register a reusable host/service/credential/session in shared state so teammates don't re-discover it",
     parameters: RecordAssetParams,
     async execute(_toolCallId, params: RecordAssetInput) {
-        const details = await requestHostBridge<{ asset_id?: string; created?: boolean; message?: string }>("state_upsert", {
+        const details = await requestHostBridge<{
+            asset_id?: string
+            created?: boolean
+            message?: string
+            vuln_lookup?: { status: string; component: string; version?: string }
+        }>("state_upsert", {
             kind: params.kind,
             label: params.label,
             ...(params.host?.trim() ? { host: params.host.trim() } : {}),
@@ -129,7 +134,9 @@ export const recordAssetTool = defineTool({
         })
         const ref = details.asset_id ? ` (id: ${details.asset_id})` : ""
         const note = details.message?.trim() || (details.created ? "asset recorded to shared state" : "asset merged into shared state")
-        return { content: [{ type: "text", text: `${note}${ref}` }], details }
+        const vuln = details.vuln_lookup
+        const vulnNote = vuln ? ` [vuln-intel: ${vuln.status}${vuln.version ? ` ${vuln.component} ${vuln.version}` : ` ${vuln.component}`}]` : ""
+        return { content: [{ type: "text", text: `${note}${vulnNote}${ref}` }], details }
     },
 })
 

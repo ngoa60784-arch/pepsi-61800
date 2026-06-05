@@ -1,5 +1,5 @@
-export { ChallengeManager } from "./manager"
-export type { IdeaStatus, MemoryKind, TargetOverview, PlannerProgressPhase } from "./manager"
+export { ChallengeManager, MaxActiveChallengesError } from "./manager"
+export type { IdeaStatus, MemoryKind, TargetOverview, PlannerProgressPhase, PlannerHealth, PlannerTickOutcome } from "./manager"
 export type { ChallengeProgressDigest } from "./progress-digest"
 export { PROGRESS_PHASE_LABELS } from "./progress-digest"
 

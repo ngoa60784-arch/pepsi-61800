@@ -216,6 +216,7 @@ function formatObserverChallengeContext(challengeId: string, challenge: Challeng
             ? []
             : [
                   `- hint_viewed: ${challenge?.hint_viewed === true ? "yes" : "no"}`,
+                  `- intel_notes: ${challenge?.intel_notes?.trim() || "-"}`,
                   `- hint_content: ${challenge?.hint_content?.trim() || "-"}`,
               ]),
         `- updated_at: ${challenge?.updated_at ?? "-"}`,

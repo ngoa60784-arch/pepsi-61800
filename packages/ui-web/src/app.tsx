@@ -28,11 +28,12 @@ import { Separator } from "./components/ui/separator"
 import { ConfigPage } from "./components/config/page"
 import { ChallengePage } from "./components/challenge/page"
 import { CommanderPage } from "./components/commander/page"
-import { AttackFlowPage } from "./components/challenge/attack-flow"
 import { RuntimeShell } from "./components/runtime/shell"
 import { Input } from "./components/ui/input"
 import { Button } from "./components/ui/button"
-import { auth } from "./lib/api"
+import { auth, planner } from "./lib/api"
+import type { PlannerHealth } from "./lib/api"
+import { Badge } from "./components/ui/badge"
 import { configTabs, mainNavItems } from "./data/app-nav"
 
 function IosNavIcon({ icon: Icon }: { icon: LucideIcon }) {
@@ -51,6 +52,32 @@ function useHash() {
         return () => window.removeEventListener("hashchange", onHash)
     }, [])
     return hash
+}
+
+function usePlannerHealthPoll() {
+    const [health, setHealth] = useState<PlannerHealth | null>(null)
+
+    useEffect(() => {
+        let cancelled = false
+
+        async function loadPlannerHealth() {
+            try {
+                const next = await planner.health()
+                if (!cancelled) setHealth(next)
+            } catch {
+                if (!cancelled) setHealth(null)
+            }
+        }
+
+        void loadPlannerHealth()
+        const timer = setInterval(() => void loadPlannerHealth(), 15_000)
+        return () => {
+            cancelled = true
+            clearInterval(timer)
+        }
+    }, [])
+
+    return health
 }
 
 function getErrorMessage(error: unknown) {
@@ -128,11 +155,16 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
 
 function Router() {
     const hash = useHash()
-    const attackFlowMatch = hash.match(/^#\/challenge\/([^/]+)\/attack-flow$/)
     const challengeMatch = hash.match(/^#\/challenge\/([^/]+)$/)
+
+    useEffect(() => {
+        const legacy = hash.match(/^#\/challenge\/([^/]+)\/attack-flow$/)
+        if (legacy) location.replace(`#/challenge/${legacy[1]}`)
+    }, [hash])
+
     if (hash === "#/runtime" || hash.startsWith("#/runtime/")) return <RuntimeShell />
     if (hash === "#/commander") return <CommanderPage />
-    if (attackFlowMatch) return <AttackFlowPage challengeId={decodeURIComponent(attackFlowMatch[1])} />
+    if (hash.match(/^#\/challenge\/[^/]+\/attack-flow$/)) return null
     if (challengeMatch) return <ChallengePage challengeId={decodeURIComponent(challengeMatch[1])} />
     if (hash.startsWith("#/config/")) {
         const tab = hash.replace("#/config/", "")
@@ -145,7 +177,6 @@ function Router() {
 function getPageTitle(hash: string): string {
     if (hash === "#/commander") return "指挥官"
     if (hash === "#/" || hash === "#/challenge") return "目标"
-    if (hash.startsWith("#/challenge/") && hash.endsWith("/attack-flow")) return "目标 · 攻击流"
     if (hash.startsWith("#/challenge/")) return "目标"
     if (hash === "#/runtime") return "运行时"
     if (hash.startsWith("#/runtime/")) return "运行时 · Solver"
@@ -216,9 +247,9 @@ export function App() {
     const hash = useHash()
     const isOnConfigRoute = hash.startsWith("#/config")
     const [configMenuExpanded, setConfigMenuExpanded] = useState(isOnConfigRoute)
-    const isAttackFlowRoute = /^#\/challenge\/[^/]+\/attack-flow$/.test(hash)
     const { error, clearError } = useGlobalUiError()
     const [authState, markAuthed] = useAuthGate()
+    const plannerHealth = usePlannerHealthPoll()
 
     useEffect(() => {
         if (isOnConfigRoute) setConfigMenuExpanded(true)
@@ -337,8 +368,13 @@ export function App() {
                     <SidebarTrigger className="rounded-lg" />
                     <Separator orientation="vertical" className="h-4 opacity-60" />
                     <span className="text-[1.0625rem] font-semibold tracking-tight">{getPageTitle(hash)}</span>
+                    {plannerHealth?.alerting ? (
+                        <Badge variant="destructive" className="ml-auto shrink-0">
+                            调度器异常
+                        </Badge>
+                    ) : null}
                 </header>
-                <div className={isAttackFlowRoute ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "min-h-0 min-w-0 flex-1 overflow-auto"}>
+                <div className="min-h-0 min-w-0 flex-1 overflow-auto">
                     <AppErrorBoundary>
                         <Router />
                     </AppErrorBoundary>

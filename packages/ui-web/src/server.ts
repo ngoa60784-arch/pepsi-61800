@@ -1,19 +1,25 @@
-import { DaemonManager } from "../../core/src/index"
-import { ARCHIVE_SOLVERS_DIR, solverSessionDir } from "../../core/src/runtime/types"
-import { readSolverBoardSnapshot } from "../../core/src/solver/board-store"
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
-import { CHALLENGE_ENV_CHALLENGE_ID } from "../../core/src/challenge/env"
-import { isEngagementMode } from "../../core/src/challenge/engagement"
-import { buildChallengeAttackTimeline } from "../../core/src/challenge/attack-timeline"
-import { buildChallengeStatsOverview } from "../../core/src/challenge/stats"
 import {
+    ARCHIVE_SOLVERS_DIR,
+    buildChallengeStatsOverview,
+    buildRuntimeMetricsSnapshot,
+    MAX_ACTIVE_CHALLENGES,
+    CHALLENGE_ENV_CHALLENGE_ID,
     checkKaliToolsOnRemote,
+    DaemonManager,
+    fetchKaliSystemStats,
+    formatKaliSshLabel,
+    formatPrometheusMetrics,
+    isEngagementMode,
     kaliEnvToProvisionTarget,
+    provisionKaliWithAgent,
+    readSolverBoardSnapshot,
+    solverSessionDir,
     syncPentestKeysToRemote,
     testKaliSshConnection,
-} from "../../core/src/runtime/kali-ssh"
-import { fetchKaliSystemStats, formatKaliSshLabel, type KaliSystemStats } from "../../core/src/runtime/kali-stats"
-import { provisionKaliWithAgent } from "../../core/src/runtime/kali-provisioner"
+} from "@tch/core"
+import type { KaliSystemStats } from "@tch/core"
+import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
+import os from "node:os"
 import { cp, mkdir, mkdtemp, rm, stat } from "fs/promises"
 import { tmpdir } from "os"
 import { resolve } from "path"
@@ -210,12 +216,34 @@ export async function startWeb(options: WebServerOptions) {
     const encoder = new TextEncoder()
     const runtimeSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
     const solverSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
-    const challengeTimelineSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
     const challengeProgressSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
-    const challengeTimelineBroadcastTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const challengeProgressDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const challengeProgressRefreshTimers = new Map<string, ReturnType<typeof setInterval>>()
     const PROGRESS_SSE_REFRESH_MS = 20_000
     const commanderSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
+
+    async function collectRuntimeMetrics() {
+        const plannerHealth = await daemon.challenge.getPlannerHealth()
+        const solvers = await containers.listAll()
+        const activeSolvers = solvers.filter(
+            (solver) => solver.status === "starting" || solver.status === "running" || solver.status === "stopping",
+        ).length
+        const challenges = await daemon.challenge.listChallengesSafe("metrics")
+        const runningChallenges = challenges.filter((challenge) => challenge.instance_status === "running").length
+        let sseSubscribers = 0
+        for (const subscribers of challengeProgressSubscribers.values()) {
+            sseSubscribers += subscribers.size
+        }
+        return buildRuntimeMetricsSnapshot({
+            activeSolvers,
+            runningChallenges,
+            maxActiveChallenges: MAX_ACTIVE_CHALLENGES,
+            sseSubscribers,
+            plannerConsecutiveFailures: plannerHealth.consecutiveFailures,
+            plannerLastError: plannerHealth.lastError,
+            plannerCurrentTickIntervalMs: plannerHealth.currentTickIntervalMs,
+        })
+    }
     // 把 Commander 的对话事件广播给所有连着 /api/commander/stream 的前端。
     daemon.commander.subscribe((event) => {
         const frame = encodeSse("commander", event)
@@ -362,24 +390,6 @@ export async function startWeb(options: WebServerOptions) {
         }
     }
 
-    async function buildAttackTimelinePayload(challengeId: string) {
-        const [memory, ideas, attempts, submissions, statsResult] = await Promise.all([
-            daemon.challenge.listMemory(challengeId),
-            daemon.challenge.listIdeas(challengeId),
-            daemon.challenge.listAttemptLogs(challengeId),
-            daemon.challenge.listSubmissionLogs(challengeId),
-            daemon.challenge.refreshStats(challengeId),
-        ])
-        return buildChallengeAttackTimeline({
-            challengeId,
-            memory,
-            ideas,
-            attempts,
-            submissions,
-            solverStats: statsResult.solver_stats,
-        })
-    }
-
     async function pushSolverDetails(controller: ReadableStreamDefaultController<Uint8Array>, solverId: string) {
         const details = await resolveSolverDetailsPayload(solverId)
         safeEnqueue(controller, encodeSse("details", details ?? { id: solverId, notFound: true }), () => {
@@ -414,18 +424,6 @@ export async function startWeb(options: WebServerOptions) {
     async function resolveChallengeIdForSolver(solverId: string): Promise<string | undefined> {
         const solver = containers.get(solverId) ?? (await containers.listAll()).find((item) => item.id === solverId)
         return solver?.challengeId?.trim() || undefined
-    }
-
-    async function broadcastChallengeTimeline(challengeId: string) {
-        const subscribers = challengeTimelineSubscribers.get(challengeId)
-        if (!subscribers || subscribers.size === 0) return
-        const frame = encodeSse("snapshot", await buildAttackTimelinePayload(challengeId))
-        for (const controller of [...subscribers]) {
-            safeEnqueue(controller, frame, () => {
-                subscribers.delete(controller)
-                if (subscribers.size === 0) challengeTimelineSubscribers.delete(challengeId)
-            })
-        }
     }
 
     async function buildProgressPayload(challengeId: string) {
@@ -489,34 +487,22 @@ export async function startWeb(options: WebServerOptions) {
         challengeProgressRefreshTimers.set(challengeId, timer)
     }
 
-    async function broadcastChallengeBoard(challengeId: string) {
-        await Promise.all([broadcastChallengeTimeline(challengeId), broadcastChallengeProgress(challengeId)])
-    }
-
-    async function pushChallengeTimeline(controller: ReadableStreamDefaultController<Uint8Array>, challengeId: string) {
-        safeEnqueue(controller, encodeSse("snapshot", await buildAttackTimelinePayload(challengeId)), () => {
-            const subscribers = challengeTimelineSubscribers.get(challengeId)
-            subscribers?.delete(controller)
-            if (subscribers?.size === 0) challengeTimelineSubscribers.delete(challengeId)
-        })
-    }
-
-    async function broadcastChallengeTimelineForSolver(solverId: string) {
+    async function broadcastChallengeProgressForSolver(solverId: string) {
         const challengeId = await resolveChallengeIdForSolver(solverId)
         if (!challengeId) return
-        if (challengeTimelineBroadcastTimers.has(challengeId)) return
+        if (challengeProgressDebounceTimers.has(challengeId)) return
         const timer = setTimeout(() => {
-            challengeTimelineBroadcastTimers.delete(challengeId)
-            runInBackground(`broadcast-challenge-board:${challengeId}`, broadcastChallengeBoard(challengeId))
+            challengeProgressDebounceTimers.delete(challengeId)
+            runInBackground(`broadcast-challenge-progress:${challengeId}`, broadcastChallengeProgress(challengeId))
         }, 500)
-        challengeTimelineBroadcastTimers.set(challengeId, timer)
+        challengeProgressDebounceTimers.set(challengeId, timer)
     }
 
-    // UI 直接改 memory/ideas（无 solver 事件触发）时也要推 attack-timeline / progress board。
-    function broadcastChallengeTimelineNow(challengeId: string) {
+    // UI 直接改 memory/ideas（无 solver 事件触发）时推送作战看板 digest。
+    function broadcastChallengeProgressNow(challengeId: string) {
         const id = challengeId.trim()
         if (!id) return
-        runInBackground(`broadcast-challenge-board:${id}`, broadcastChallengeBoard(id))
+        runInBackground(`broadcast-challenge-progress:${id}`, broadcastChallengeProgress(id))
     }
 
     function broadcastSolverEvent(solverId: string, event: AgentSessionEvent) {
@@ -534,7 +520,7 @@ export async function startWeb(options: WebServerOptions) {
     containers.onEvent((solverId, event) => {
         runInBackground("broadcast-runtime-snapshot", broadcastRuntimeSnapshot())
         broadcastSolverEvent(solverId, event)
-        runInBackground(`broadcast-challenge-timeline:${solverId}`, broadcastChallengeTimelineForSolver(solverId))
+        runInBackground(`broadcast-challenge-progress-solver:${solverId}`, broadcastChallengeProgressForSolver(solverId))
         if (event.type === "agent_end") {
             runInBackground(`broadcast-solver-details:${solverId}`, broadcastSolverDetails(solverId))
         }
@@ -588,7 +574,7 @@ export async function startWeb(options: WebServerOptions) {
         if (!AUTH_ENABLED) return routes
         const out: Record<string, unknown> = {}
         for (const [path, def] of Object.entries(routes)) {
-            if (path === "/" || path.startsWith("/api/auth")) {
+            if (path === "/" || path === "/health" || path === "/ready" || path === "/metrics" || path.startsWith("/api/auth")) {
                 out[path] = def
                 continue
             }
@@ -613,6 +599,37 @@ export async function startWeb(options: WebServerOptions) {
         idleTimeout: 30,
         routes: withAuth({
             "/": index,
+
+            "/health": {
+                GET() {
+                    return Response.json({ ok: true, uptimeSec: Math.floor(process.uptime()) })
+                },
+            },
+
+            "/metrics": {
+                async GET(req) {
+                    const snapshot = await collectRuntimeMetrics()
+                    const url = new URL(req.url)
+                    if (url.searchParams.get("format") === "prometheus") {
+                        return new Response(formatPrometheusMetrics(snapshot), {
+                            headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
+                        })
+                    }
+                    return Response.json(snapshot)
+                },
+            },
+
+            "/ready": {
+                async GET() {
+                    try {
+                        await daemon.config.getHostSettings()
+                        return Response.json({ ok: true })
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return Response.json({ ok: false, error: msg }, { status: 503 })
+                    }
+                },
+            },
 
             // ── Auth（登录前可访问）──
             "/api/auth/status": {
@@ -864,7 +881,41 @@ export async function startWeb(options: WebServerOptions) {
                     return Response.json(prompt)
                 },
             },
+            "/api/planner/health": {
+                async GET() {
+                    return Response.json(await daemon.challenge.getPlannerHealth())
+                },
+            },
+            "/api/metrics": {
+                async GET(req) {
+                    const snapshot = await collectRuntimeMetrics()
+                    const url = new URL(req.url)
+                    if (url.searchParams.get("format") === "prometheus") {
+                        return new Response(formatPrometheusMetrics(snapshot), {
+                            headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
+                        })
+                    }
+                    return Response.json(snapshot)
+                },
+            },
 
+            "/api/challenges/slots": {
+                async GET() {
+                    return Response.json(await daemon.challenge.getActiveChallengeSlots())
+                },
+            },
+            "/api/host/capacity": {
+                async GET() {
+                    const totalMemoryMb = Math.round(os.totalmem() / (1024 * 1024))
+                    const cpuCount = os.cpus().length
+                    return Response.json({
+                        total_memory_mb: totalMemoryMb,
+                        cpu_count: cpuCount,
+                        recommended_memory: "4g",
+                        recommended_cpus: 2,
+                    })
+                },
+            },
             "/api/challenges": {
                 async GET() {
                     return Response.json(await daemon.challenge.listChallengesSafe("challenge-api:web"))
@@ -896,40 +947,6 @@ export async function startWeb(options: WebServerOptions) {
                     return Response.json(buildChallengeStatsOverview(entries))
                 },
             },
-            "/api/challenges/:id/attack-timeline": {
-                async GET(req) {
-                    const challengeId = req.params.id
-                    const challenge = await daemon.challenge.getChallenge(challengeId)
-                    if (!challenge) {
-                        return Response.json({ error: "challenge not found" }, { status: 404 })
-                    }
-                    return Response.json(await buildAttackTimelinePayload(challengeId))
-                },
-            },
-            "/api/challenges/:id/attack-timeline/stream": {
-                async GET(req) {
-                    const challengeId = req.params.id
-                    const challenge = await daemon.challenge.getChallenge(challengeId)
-                    if (!challenge) {
-                        return Response.json({ error: "challenge not found" }, { status: 404 })
-                    }
-                    return openSse(
-                        req,
-                        (controller) => {
-                            const subscribers = challengeTimelineSubscribers.get(challengeId) ?? new Set<ReadableStreamDefaultController<Uint8Array>>()
-                            subscribers.add(controller)
-                            challengeTimelineSubscribers.set(challengeId, subscribers)
-                            runInBackground(`push-challenge-timeline:${challengeId}`, pushChallengeTimeline(controller, challengeId))
-                        },
-                        (controller) => {
-                            const subscribers = challengeTimelineSubscribers.get(challengeId)
-                            subscribers?.delete(controller)
-                            if (subscribers?.size === 0) challengeTimelineSubscribers.delete(challengeId)
-                        },
-                    )
-                },
-            },
-
             "/api/challenges/:id/progress": {
                 async GET(req) {
                     const challengeId = req.params.id
@@ -1002,7 +1019,7 @@ export async function startWeb(options: WebServerOptions) {
                 async DELETE(req) {
                     try {
                         const result = await daemon.challenge.deleteChallenge(req.params.id)
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json({ ok: true, ...result })
                     } catch (e: unknown) {
                         const message = e instanceof Error ? e.message : String(e)
@@ -1031,11 +1048,26 @@ export async function startWeb(options: WebServerOptions) {
                     }
                 },
             },
+            "/api/challenges/:id/intel": {
+                async PATCH(req) {
+                    try {
+                        const body = (await req.json().catch(() => ({}))) as { intel_notes?: string | null }
+                        const challenge = await daemon.challenge.updateIntelNotes(
+                            req.params.id,
+                            typeof body.intel_notes === "string" ? body.intel_notes : body.intel_notes ?? null,
+                        )
+                        broadcastChallengeProgressNow(req.params.id)
+                        return Response.json(challenge)
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 500)
+                    }
+                },
+            },
             "/api/challenges/:id/pause-testing": {
                 async POST(req) {
                     try {
                         const result = await daemon.challenge.pauseTargetTesting(req.params.id)
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json({ ok: true, ...result })
                     } catch (e: unknown) {
                         const message = e instanceof Error ? e.message : String(e)
@@ -1048,7 +1080,7 @@ export async function startWeb(options: WebServerOptions) {
                 async POST(req) {
                     try {
                         const result = await daemon.challenge.resumeTargetTesting(req.params.id)
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json({ ok: true, ...result })
                     } catch (e: unknown) {
                         const message = e instanceof Error ? e.message : String(e)
@@ -1098,7 +1130,7 @@ export async function startWeb(options: WebServerOptions) {
                             refs: Array.isArray(body.refs) ? body.refs : [],
                             source: body.source?.trim() || "challenge-ui",
                         })
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json(entry)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -1120,7 +1152,7 @@ export async function startWeb(options: WebServerOptions) {
                             refs: Array.isArray(body.refs) ? body.refs : body.refs === undefined ? undefined : [],
                             source: body.source,
                         })
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json(entry)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -1129,7 +1161,7 @@ export async function startWeb(options: WebServerOptions) {
                 async DELETE(req) {
                     try {
                         const entry = await daemon.challenge.deleteMemory(req.params.id, req.params.entryId)
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json(entry)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -1149,7 +1181,7 @@ export async function startWeb(options: WebServerOptions) {
                             status: body.status,
                             result: body.result,
                         })
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json(result)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -1169,7 +1201,7 @@ export async function startWeb(options: WebServerOptions) {
                             status: body.status,
                             result: body.result,
                         })
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json(item)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -1178,7 +1210,7 @@ export async function startWeb(options: WebServerOptions) {
                 async DELETE(req) {
                     try {
                         const item = await daemon.challenge.deleteIdea(req.params.id, req.params.ideaId)
-                        broadcastChallengeTimelineNow(req.params.id)
+                        broadcastChallengeProgressNow(req.params.id)
                         return Response.json(item)
                     } catch (error) {
                         return errorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -1199,6 +1231,17 @@ export async function startWeb(options: WebServerOptions) {
                     } catch (e: unknown) {
                         const msg = e instanceof Error ? e.message : String(e)
                         return Response.json({ error: msg }, { status: 500 })
+                    }
+                },
+            },
+            "/api/challenges/:id/submissions/:recordId/reverify": {
+                async POST(req) {
+                    try {
+                        await daemon.challenge.retryVerifyObjective(req.params.id, req.params.recordId)
+                        broadcastChallengeProgressNow(req.params.id)
+                        return Response.json({ ok: true })
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 500)
                     }
                 },
             },

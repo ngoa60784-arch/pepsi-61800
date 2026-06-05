@@ -5,6 +5,8 @@
         "moduleResolution": "bundler",
         "esModuleInterop": true,
         "strict": true,
+        "noImplicitAny": false,
+        "experimentalDecorators": true,
         "skipLibCheck": true,
         "composite": true,
         "jsx": "react-jsx",

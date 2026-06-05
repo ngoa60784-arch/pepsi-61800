@@ -20,7 +20,10 @@
         "build:macos-arm64": "bun run scripts/build.ts bun-darwin-arm64 bin/tch-agent-darwin-arm64",
         "build:macos-x64": "bun run scripts/build.ts bun-darwin-x64 bin/tch-agent-darwin-x64",
         "build:windows": "bun run scripts/build.ts bun-windows-x64-baseline bin/tch-agent-windows-x64.exe",
-        "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/core"
+        "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/core",
+        "typecheck:web": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/ui-web",
+        "typecheck:cli": "bun ./node_modules/typescript/bin/tsc --noEmit -p apps/cli",
+        "typecheck:all": "bun run typecheck && bun run typecheck:web && bun run typecheck:cli"
     },
     "module": "index.ts",
     "devDependencies": {

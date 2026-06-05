@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react"
 import { challenges, hostSettings, prompts, runtime } from "../../lib/api"
-import type { ChallengeDetails, ChallengeInfoRecord, ChallengeStatsOverview, ChallengeStatsOverviewBucket, IdeaRecord, MemoryEntry, SolverInstance } from "../../lib/api"
+import type {
+    ChallengeDetails,
+    ChallengeInfoRecord,
+    ChallengeStatsOverview,
+    ChallengeStatsOverviewBucket,
+    ChallengeSubmissionLogRecord,
+    IdeaRecord,
+    MemoryEntry,
+    SolverInstance,
+} from "../../lib/api"
 import { useFetch } from "../../hooks/use-fetch"
 import { BarChart3Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import { Badge } from "../ui/badge"
@@ -77,6 +86,34 @@ function filterLabel(value: string, fallback: string) {
     return value === "all" ? fallback : value
 }
 
+function submissionVerificationLabel(status?: ChallengeSubmissionLogRecord["verification_status"]) {
+    if (status === "verified") return "已验证"
+    if (status === "pending") return "待验证"
+    if (status === "rejected") return "已驳回"
+    if (status === "inconclusive") return "未决"
+    if (status === "unverified") return "未验证"
+    return null
+}
+
+function canSkipVerifierSubmission(
+    submission: ChallengeSubmissionLogRecord,
+    hostConfig?: { challenge?: { verifierRequired?: boolean; verifierSkipGraceMinutes?: number } },
+): boolean {
+    if (hostConfig?.challenge?.verifierRequired !== false) return false
+    if (submission.verification_status !== "inconclusive" && submission.verification_status !== "pending") return false
+    const graceMin = hostConfig?.challenge?.verifierSkipGraceMinutes ?? 30
+    const created = Date.parse(submission.created_at)
+    if (Number.isNaN(created)) return false
+    return Date.now() - created >= graceMin * 60_000
+}
+
+function submissionVerificationBadgeClass(status?: ChallengeSubmissionLogRecord["verification_status"]) {
+    if (status === "verified") return "badge-success"
+    if (status === "rejected") return "border-rose-600/30 bg-rose-500/15 text-rose-800 dark:text-rose-300"
+    if (status === "inconclusive") return "border-amber-600/30 bg-amber-500/15 text-amber-800 dark:text-amber-300"
+    return ""
+}
+
 function formatPercent(value?: number) {
     if (!value || value <= 0) return "0%"
     return `${Math.round(value * 100)}%`
@@ -99,12 +136,13 @@ function formatShortDuration(value?: number) {
     return `${hours}h ${minutes}m`
 }
 
-const MEMORY_KIND_OPTIONS: MemoryEntry["kind"][] = ["fact", "evidence", "failure", "note", "hint"]
+const MEMORY_KIND_OPTIONS: MemoryEntry["kind"][] = ["fact", "evidence", "credential", "failure", "note", "hint"]
 const IDEA_STATUS_OPTIONS: IdeaRecord["status"][] = ["pending", "testing", "verified", "failed", "skipped"]
 
 const MEMORY_KIND_LABELS: Record<MemoryEntry["kind"], string> = {
     fact: "发现",
     evidence: "证据",
+    credential: "凭据",
     failure: "失败边界",
     note: "笔记",
     hint: "提示",
@@ -535,6 +573,7 @@ function StatsOverviewDialog(props: {
 
 export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const { data: challengeList, loading, reload } = useFetch(challenges.list)
+    const { data: challengeSlots } = useFetch(challenges.slots)
     const { data: hostConfig } = useFetch(hostSettings.get)
     const { data: statsOverview, loading: statsOverviewLoading } = useFetch(challenges.statsOverview)
     const [details, setDetails] = useState<ChallengeDetails | null>(null)
@@ -571,6 +610,11 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const [ideaForm, setIdeaForm] = useState<IdeaFormState>(() => createIdeaFormState())
     const [startSolverError, setStartSolverError] = useState("")
     const [sessionExportError, setSessionExportError] = useState("")
+    const [reverifyingSubmissionId, setReverifyingSubmissionId] = useState("")
+    const [reverifyError, setReverifyError] = useState("")
+    const [intelNotes, setIntelNotes] = useState("")
+    const [intelSaving, setIntelSaving] = useState(false)
+    const [intelMessage, setIntelMessage] = useState("")
 
     const challengeItems = challengeList ?? []
     const { data: agentPrompts, loading: promptsLoading } = useFetch(prompts.listAgents)
@@ -578,6 +622,11 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     useEffect(() => {
         setPlannerStrategy(hostConfig?.planner.strategy ?? "")
     }, [hostConfig?.planner.strategy])
+
+    useEffect(() => {
+        setIntelNotes(details?.challenge.intel_notes ?? "")
+        setIntelMessage("")
+    }, [details?.challenge.id, details?.challenge.intel_notes])
 
     const statusOptions = [...new Set(challengeItems.map((challenge) => challengeStatus(challenge)).filter(Boolean))].sort()
 
@@ -633,6 +682,35 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
         const url = new URL(location.href)
         url.hash = `#/runtime/${encodeURIComponent(solverId)}`
         window.open(url.toString(), "_blank", "noopener,noreferrer")
+    }
+
+    async function handleSaveIntelNotes() {
+        if (!challengeId || intelSaving) return
+        setIntelSaving(true)
+        setIntelMessage("")
+        try {
+            const updated = await challenges.updateIntel(challengeId, intelNotes)
+            setDetails((current) => (current ? { ...current, challenge: updated } : current))
+            setIntelMessage("情报已保存。新启动的 Solver 与 Planner 将带上此摘要。")
+        } catch (error) {
+            setIntelMessage(error instanceof Error ? error.message : String(error))
+        } finally {
+            setIntelSaving(false)
+        }
+    }
+
+    async function handleReverifySubmission(recordId: string) {
+        if (!challengeId || reverifyingSubmissionId) return
+        setReverifyingSubmissionId(recordId)
+        setReverifyError("")
+        try {
+            await challenges.reverifySubmission(challengeId, recordId)
+            await reloadDetails()
+        } catch (error) {
+            setReverifyError(error instanceof Error ? error.message : String(error))
+        } finally {
+            setReverifyingSubmissionId("")
+        }
     }
 
     async function reloadDetails() {
@@ -978,6 +1056,11 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         </div>
                     </CardHeader>
                     <CardContent>
+                        {challengeSlots && challengeSlots.available === 0 && (
+                            <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+                                同时 running 目标已达上限（{challengeSlots.limit} 个：{challengeSlots.running.join("、")}）。需先停止一个实例后 Planner 或操作员才能再启动新目标。
+                            </div>
+                        )}
                         <div className="mb-4 flex flex-wrap items-center gap-3">
                             <Input className="w-64" placeholder="搜索目标" value={search} onChange={(event) => setSearch(event.target.value)} />
                             <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? "all")}>
@@ -1211,6 +1294,17 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
             {details && (
                 <div className="min-w-0 space-y-6">
+                    {details.submissions.some(
+                        (submission) => submission.verification_status === "inconclusive" || submission.verification_status === "pending",
+                    ) && (
+                        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+                            存在待独立验证或验证未决的提交。引擎会自动指数退避重试；也可在「提交」页签手动「重新验证」。
+                            {hostConfig?.challenge?.verifierRequired === false
+                                ? " 验证非强制时，超时未决的提交可「跳过验证并完成」。"
+                                : null}
+                        </div>
+                    )}
+                    {reverifyError && <div className="text-sm text-red-500">{reverifyError}</div>}
                     <div className="min-w-0 space-y-3 border-b pb-6">
                         <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0 space-y-2">
@@ -1240,15 +1334,6 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                 <div className="flex justify-end gap-2">
                                     <Button variant="outline" size="sm" onClick={() => void handleExportSolverSessions()} disabled={exportingSessions || details.solver_stats.length === 0}>
                                         {exportingSessions ? "导出中…" : "导出会话"}
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                            location.hash = `#/challenge/${encodeURIComponent(details.challenge.id)}/attack-flow`
-                                        }}
-                                    >
-                                        攻击流
                                     </Button>
                                     {details.challenge.testing_paused ? (
                                         <Button
@@ -1318,13 +1403,28 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                 <div className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{details.challenge.description || "无描述。"}</div>
                             </section>
                             <section className="min-w-0 space-y-2">
-                                <div className="flex items-center gap-2 text-sm font-medium">
-                                    <span>提示</span>
-                                    <Badge variant="outline">{details.challenge.hint_viewed ? "已查看" : "未查看"}</Badge>
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="text-sm font-medium">初始情报</div>
+                                    <Button variant="outline" size="sm" onClick={() => void handleSaveIntelNotes()} disabled={intelSaving}>
+                                        {intelSaving ? "保存中…" : "保存情报"}
+                                    </Button>
                                 </div>
-                                <div className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                                    {details.challenge.hint_content?.trim() || "无提示内容。"}
+                                <div className="text-xs text-muted-foreground">
+                                    作战前人工背景（授权范围、已知入口、测试账号、约束）。与运行中 memory 区分；新 Solver / Planner 自动注入。
                                 </div>
+                                <Textarea
+                                    value={intelNotes}
+                                    onChange={(event) => setIntelNotes(event.target.value)}
+                                    placeholder="例如：仅从 VPN 10.8.0.0/24 访问；已知入口 https://target/app；测试账号 tester/P@ssw0rd；禁止触碰生产库。"
+                                    className="min-h-32 font-mono text-sm"
+                                />
+                                {intelMessage && <div className="text-sm text-muted-foreground">{intelMessage}</div>}
+                                {details.challenge.hint_content?.trim() && (
+                                    <div className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                                        <span className="font-medium text-foreground">平台提示（CTF）：</span>
+                                        {details.challenge.hint_content}
+                                    </div>
+                                )}
                             </section>
                         </div>
                         <div className="grid gap-3 md:grid-cols-4">
@@ -1357,12 +1457,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                         </TabsList>
 
                         <TabsContent value="board" className="min-w-0">
-                            <OperationsBoard
-                                challengeId={details.challenge.id}
-                                onOpenAttackFlow={() => {
-                                    location.hash = `#/challenge/${encodeURIComponent(details.challenge.id)}/attack-flow`
-                                }}
-                            />
+                            <OperationsBoard challengeId={details.challenge.id} />
                         </TabsContent>
 
                         <TabsContent value="solvers" className="min-w-0 space-y-3">
@@ -1543,16 +1638,56 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                         }`}
                                     >
                                         <div className="flex items-center justify-between gap-3">
-                                            <div className="min-w-0 flex items-center gap-2">
+                                            <div className="min-w-0 flex flex-wrap items-center gap-2">
                                                 <Badge
                                                     variant={submission.correct ? "outline" : "outline"}
                                                     className={submission.correct ? "badge-success" : ""}
                                                 >
                                                     {submission.correct ? "正确" : "错误"}
                                                 </Badge>
+                                                {submissionVerificationLabel(submission.verification_status) && (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className={submissionVerificationBadgeClass(submission.verification_status)}
+                                                    >
+                                                        {submissionVerificationLabel(submission.verification_status)}
+                                                    </Badge>
+                                                )}
                                                 <code className="min-w-0 break-all text-xs">{submission.flag}</code>
                                             </div>
-                                            <div className="text-xs text-muted-foreground">{formatTime(submission.created_at)}</div>
+                                            <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                                                {(submission.verification_status === "inconclusive" ||
+                                                    submission.verification_status === "pending" ||
+                                                    submission.verification_status === "rejected") && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 text-xs"
+                                                        disabled={reverifyingSubmissionId === submission.id}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation()
+                                                            void handleReverifySubmission(submission.id)
+                                                        }}
+                                                    >
+                                                        {reverifyingSubmissionId === submission.id ? "验证中…" : "重新验证"}
+                                                    </Button>
+                                                )}
+                                                {canSkipVerifierSubmission(submission, hostConfig ?? undefined) && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 text-xs"
+                                                        disabled={completionBusy}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation()
+                                                            void handleConfirmComplete()
+                                                        }}
+                                                    >
+                                                        跳过验证并完成
+                                                    </Button>
+                                                )}
+                                                {formatTime(submission.created_at)}
+                                            </div>
                                         </div>
                                         <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
                                             {submission.solver_id && <span>Solver {submission.solver_id}</span>}
@@ -1563,6 +1698,12 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
                                             <div className="mt-2 space-y-1">
                                                 <div className="text-xs font-medium text-foreground">题解</div>
                                                 <div className="break-words text-sm text-muted-foreground">{submission.writeup}</div>
+                                            </div>
+                                        )}
+                                        {submission.verifier_note && (
+                                            <div className="mt-2 space-y-1">
+                                                <div className="text-xs font-medium text-foreground">验证说明</div>
+                                                <div className="break-words text-sm text-muted-foreground">{submission.verifier_note}</div>
                                             </div>
                                         )}
                                         {submission.message && <div className="mt-2 break-words text-sm text-muted-foreground">{submission.message}</div>}

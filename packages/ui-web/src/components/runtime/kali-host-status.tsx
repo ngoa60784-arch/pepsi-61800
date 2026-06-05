@@ -1,6 +1,5 @@
 import { CircleIcon, Loader2, Server } from "lucide-react"
-import type { KaliSystemStats } from "../../../../core/src/runtime/kali-stats"
-import { formatKaliUptime } from "../../../../core/src/runtime/kali-stats"
+import { formatKaliUptime, type KaliSystemStats } from "@tch/core"
 import { Button } from "../ui/button"
 
 function StatItem({ label, value }: { label: string; value: string }) {

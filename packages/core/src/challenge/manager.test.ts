@@ -4,7 +4,7 @@ import { tmpdir } from "os"
 import { resolve } from "path"
 import type { ConfigManager } from "../config/index"
 import { CHALLENGE_ENV_DIR } from "./env"
-import { ChallengeManager } from "./manager"
+import { ChallengeManager, MaxActiveChallengesError } from "./manager"
 import { appendChallengeAttemptLog, appendChallengeSubmissionLog, saveChallengeRecord } from "./store"
 import { readSolverBoardSnapshot } from "../solver/board-store"
 import { solverSessionDir } from "../runtime/types"
@@ -936,6 +936,208 @@ describe("challenge-manager local api", () => {
         expect(item?.progressPhase).toBe("recon")
     })
 
+    test("updateIntelNotes persists operator pre-brief", async () => {
+        await manager.createChallenge({
+            id: "intel-target",
+            title: "intel-target",
+            difficulty: "easy",
+            description: "web app",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: null,
+            instance_status: "stopped",
+            entrypoint: ["127.0.0.1:8080"],
+            flags: ["flag{ok}"],
+        })
+
+        const updated = await manager.updateIntelNotes("intel-target", "  VPN only; creds tester/test  ")
+        expect(updated.intel_notes).toBe("VPN only; creds tester/test")
+
+        const challenge = await manager.getChallenge("intel-target")
+        expect(challenge?.intel_notes).toBe("VPN only; creds tester/test")
+    })
+
+    test("buildEngagementSolverTask injects operator intel_notes into launch brief", async () => {
+        await manager.createChallenge({
+            id: "intel-launch",
+            title: "intel-launch",
+            difficulty: "easy",
+            description: "target app",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: null,
+            intel_notes: "Do not touch prod DB.",
+            instance_status: "running",
+            entrypoint: ["10.0.0.5:443"],
+            flags: ["flag{ok}"],
+        })
+
+        const challenge = await manager.getChallenge("intel-launch")
+        const task = await (
+            manager as unknown as { buildSolverTask: (record: NonNullable<typeof challenge>, options?: object) => Promise<string> }
+        ).buildSolverTask(challenge!)
+        expect(task).toContain("Operator-provided initial intel")
+        expect(task).toContain("Do not touch prod DB.")
+    })
+
+    test("planner snapshot includes intel excerpt", async () => {
+        await manager.createChallenge({
+            id: "intel-planner",
+            title: "intel-planner",
+            difficulty: "easy",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: null,
+            intel_notes: "Known admin panel at /admin",
+            instance_status: "running",
+            entrypoint: ["10.0.0.7:443"],
+            flags: ["flag{ok}"],
+        })
+
+        const listAll = mock(async () => [])
+        manager.attachRuntime({ listAll } as never)
+
+        const snapshot = await (
+            manager as unknown as { buildPlannerSnapshot: (reason: string) => Promise<{ challenges: Array<{ intelNotesExcerpt?: string }> }> }
+        ).buildPlannerSnapshot("test")
+        const item = snapshot.challenges.find((entry) => entry.intelNotesExcerpt?.includes("admin panel"))
+        expect(item?.intelNotesExcerpt).toContain("Known admin panel")
+    })
+
+    test("startChallenge enforces max 3 running targets", async () => {
+        const createStopped = async (id: string) => {
+            await manager.createChallenge({
+                id,
+                title: id,
+                difficulty: "easy",
+                description: "",
+                level: 1,
+                total_score: 100,
+                total_got_score: 0,
+                flag_count: 1,
+                flag_got_count: 0,
+                hint_viewed: false,
+                hint_content: "",
+                instance_status: "stopped",
+                entrypoint: ["127.0.0.1:8080"],
+                flags: ["flag{ok}"],
+            })
+        }
+
+        await createStopped("slot-1")
+        await createStopped("slot-2")
+        await createStopped("slot-3")
+        await createStopped("slot-4")
+
+        await manager.startChallenge("slot-1")
+        await manager.startChallenge("slot-2")
+        await manager.startChallenge("slot-3")
+
+        await expect(manager.startChallenge("slot-4")).rejects.toBeInstanceOf(MaxActiveChallengesError)
+
+        await manager.stopChallenge("slot-1")
+        await manager.startChallenge("slot-4")
+        const challenge = await manager.getChallenge("slot-4")
+        expect(challenge?.instance_status).toBe("running")
+    })
+
+    test("paused targets do not consume running slots", async () => {
+        for (const id of ["run-a", "run-b", "run-c"]) {
+            await manager.createChallenge({
+                id,
+                title: id,
+                difficulty: "easy",
+                description: "",
+                level: 1,
+                total_score: 100,
+                total_got_score: 0,
+                flag_count: 1,
+                flag_got_count: 0,
+                hint_viewed: false,
+                hint_content: "",
+                instance_status: "running",
+                entrypoint: ["127.0.0.1:8080"],
+                flags: ["flag{ok}"],
+            })
+        }
+        await manager.createChallenge({
+            id: "paused-d",
+            title: "paused-d",
+            difficulty: "easy",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: "",
+            instance_status: "stopped",
+            testing_paused: true,
+            entrypoint: ["127.0.0.1:8080"],
+            flags: ["flag{ok}"],
+        })
+
+        await expect(manager.startChallenge("paused-d")).rejects.toBeInstanceOf(MaxActiveChallengesError)
+    })
+
+    test("planner health tracks failures and resets on success", async () => {
+        const internal = manager as unknown as {
+            notePlannerTickFailure: (error: string | undefined, baseIntervalMs: number) => void
+            notePlannerTickSuccess: (baseIntervalMs: number) => void
+        }
+        internal.notePlannerTickFailure("api down", 30_000)
+        internal.notePlannerTickFailure("api down", 30_000)
+        let health = await manager.getPlannerHealth()
+        expect(health.consecutiveFailures).toBe(2)
+        expect(health.currentTickIntervalMs).toBe(120_000)
+
+        internal.notePlannerTickSuccess(30_000)
+        health = await manager.getPlannerHealth()
+        expect(health.consecutiveFailures).toBe(0)
+        expect(health.currentTickIntervalMs).toBe(30_000)
+        expect(health.alerting).toBe(false)
+    })
+
+    test("retryVerifyObjective rejects non-retryable submissions", async () => {
+        await manager.createChallenge({
+            id: "retry-target",
+            title: "retry-target",
+            difficulty: "easy",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: "",
+            instance_status: "running",
+            entrypoint: ["10.0.0.9:80"],
+            flags: ["flag{ok}"],
+        })
+        const record = await appendChallengeSubmissionLog(challengeDir, {
+            challengeId: "retry-target",
+            flag: "uid=0(root)",
+            correct: false,
+            verificationStatus: "verified",
+        })
+        await expect(manager.retryVerifyObjective("retry-target", record.id)).rejects.toThrow("not retryable")
+    })
+
     test("verifyObjective leaves target unfinished + marks record inconclusive when verifier is unavailable", async () => {
         await manager.createChallenge({
             id: "verify-fallback",
@@ -976,6 +1178,34 @@ describe("challenge-manager local api", () => {
         const challenge = await manager.getChallenge("verify-fallback")
         expect(challenge?.objective_achieved).not.toBe(true)
         const submissions = await manager.listSubmissionLogs("verify-fallback")
-        expect(submissions.find((s) => s.id === record.id)?.verification_status).toBe("inconclusive")
+        const updated = submissions.find((s) => s.id === record.id)
+        expect(updated?.verification_status).toBe("pending")
+        expect(updated?.verification_next_retry_at).toBeTruthy()
+        expect(updated?.verification_retry_count).toBe(1)
+    })
+
+    test("getActiveChallengeSlots reports running targets and availability", async () => {
+        for (const id of ["slot-a", "slot-b"]) {
+            await manager.createChallenge({
+                id,
+                title: id,
+                difficulty: "easy",
+                description: "",
+                level: 1,
+                total_score: 100,
+                total_got_score: 0,
+                flag_count: 1,
+                flag_got_count: 0,
+                hint_viewed: false,
+                hint_content: "",
+                instance_status: "running",
+                entrypoint: ["127.0.0.1:8080"],
+                flags: ["flag{ok}"],
+            })
+        }
+        const slots = await manager.getActiveChallengeSlots()
+        expect(slots.limit).toBe(3)
+        expect(slots.running.sort()).toEqual(["slot-a", "slot-b"])
+        expect(slots.available).toBe(1)
     })
 })

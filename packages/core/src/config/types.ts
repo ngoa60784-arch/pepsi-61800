@@ -11,6 +11,12 @@ export interface ActivateModelResult {
     verifierUpdated: boolean
 }
 
+/** P5-A: where solver brain process runs. Default `docker` until LocalProcessBackend ships. */
+export type SolverHostMode = "local" | "docker"
+
+/** P5-B: where authorized target commands execute. Default `remote-vps` (kali-arsenal MCP). */
+export type ExecSurfaceMode = "remote-vps" | "local-host"
+
 export interface HostRuntimeSettings {
     image?: string
     env?: Record<string, string>
@@ -28,10 +34,25 @@ export interface HostRuntimeSettings {
      * Omit for unlimited.
      */
     cpus?: number
+    /** P5-A — solver host: `local` (Bun.spawn rpc) or `docker` (current default). */
+    solverHost?: SolverHostMode
+    /** P5-B — command execution surface for authorized targets. */
+    execSurface?: ExecSurfaceMode
 }
 
-/** Reserved for future host-level challenge options; engagement targets are managed in the UI. */
-export interface HostChallengeSettings {}
+export interface HostChallengeSettings {
+    /** Max automatic verifier re-runs after inconclusive (default 3). `0` disables auto-retry. */
+    verifierAutoRetryMax?: number
+    /** Base delay ms before first auto-retry; doubles each attempt (default 60_000). */
+    verifierAutoRetryBaseMs?: number
+    /**
+     * When `true` (default), objective completion requires verifier `verified` or operator confirm.
+     * When `false`, inconclusive submissions may offer skip-verification after grace period.
+     */
+    verifierRequired?: boolean
+    /** Minutes an inconclusive submission must age before skip-verification prompt (default 30). */
+    verifierSkipGraceMinutes?: number
+}
 
 export interface HostPlannerSettings {
     enabled?: boolean

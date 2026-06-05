@@ -139,6 +139,20 @@ describe("engagement host bridge notifications", () => {
         expect((r2.data as { is_completed: boolean }).is_completed).toBe(true)
     })
 
+    test("challenge_get_hint returns operator intel_notes for get_target_intel", async () => {
+        const handler = createChallengeHostBridgeHandler({
+            getChallenge: async () => ({
+                id: "chal-1",
+                intel_notes: "VPN only; tester/P@ssw0rd",
+            }),
+        } as unknown as ChallengeManager)
+
+        const result = await handler.handle(createContext({ action: "challenge_get_hint" }))
+
+        expect(result.handled).toBe(true)
+        expect((result.data as { code: string; hint_content: string | null }).hint_content).toBe("VPN only; tester/P@ssw0rd")
+    })
+
     test("challenge_get_state returns target record and real completion status", async () => {
         // challenge_get_state must include target record and real completion for observer review
         // context (title/entry); is_completed decides whether review continues.

@@ -35,7 +35,9 @@ import {
     resolveDockerfilePath,
     resolveSolverInjection,
 } from "./helpers"
+import { recordRpcStdoutPollution, tryParseStdoutJsonlLine } from "../observability/metrics"
 const SOLVER_NAME_PREFIX = "tch-solver"
+const RPC_STRICT_POLLUTION_LIMIT = 5
 const DOCKER_PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"] as const
 
 export { getAgentEndError, hashDockerfileContent } from "./helpers"
@@ -508,9 +510,12 @@ export class RuntimeManager {
 
         const id = options?.solverId?.trim() || crypto.randomUUID().slice(0, 8)
         const name = `${SOLVER_NAME_PREFIX}-${id}`
+        const hostSettings = await this.hostConfig.getHostSettings()
+        const execSurface = hostSettings.runtime.execSurface ?? "remote-vps"
         const normalizedSolverEnv = this.normalizeSolverEnv({
             ...solverEnv,
             [TCH_BUILTIN_SKILLS_ENV]: resolveBuiltinSkillsDir(DEFAULT_CONFIG_DIR),
+            TCH_EXEC_SURFACE: execSurface,
         })
 
         const solver: SolverInstance = {
@@ -785,6 +790,8 @@ export class RuntimeManager {
             const reader = proc.stdout.getReader()
             let buffer = ""
             let initResolved = false
+            let consecutivePollution = 0
+            const strictStdout = process.env.TCH_RPC_STRICT === "1"
             try {
                 while (true) {
                     const { done, value } = await reader.read()
@@ -794,8 +801,33 @@ export class RuntimeManager {
                     buffer = parts.pop()!
                     for (const line of parts) {
                         if (!line.trim()) continue
+                        const parsedLine = tryParseStdoutJsonlLine(line)
+                        if (!parsedLine.ok) {
+                            consecutivePollution += 1
+                            recordRpcStdoutPollution(parsedLine.sample)
+                            console.error(
+                                `[runtime:${solverId}:rpc_stdout_pollution]`,
+                                JSON.stringify({ sample: parsedLine.sample, consecutive: consecutivePollution }),
+                            )
+                            void this.appendSolverStartupLog(
+                                solverId,
+                                `[rpc_stdout_pollution] ${parsedLine.sample}`,
+                            )
+                            if (strictStdout && consecutivePollution >= RPC_STRICT_POLLUTION_LIMIT) {
+                                console.error(
+                                    `[runtime:${solverId}] strict RPC mode: stdout pollution limit reached; stopping solver`,
+                                )
+                                try {
+                                    proc.kill()
+                                } catch {
+                                    // ignore kill errors
+                                }
+                            }
+                            continue
+                        }
+                        consecutivePollution = 0
+                        const parsed = parsedLine.value as Record<string, unknown>
                         try {
-                            const parsed = JSON.parse(line)
                             if (isHostBridgeRequestEvent(parsed)) {
                                 // Do not await: host-bridge may be slow (start/stop solver, broadcast),
                                 // awaiting in read loop blocks later stdout (tool results, agent_end).
@@ -809,7 +841,13 @@ export class RuntimeManager {
                                     if (parsed.success) {
                                         resolveInit()
                                     } else {
-                                        rejectInit(new Error(parsed.error ?? "init failed"))
+                                        rejectInit(
+                                            new Error(
+                                                typeof parsed.error === "string" && parsed.error.trim()
+                                                    ? parsed.error
+                                                    : "init failed",
+                                            ),
+                                        )
                                     }
                                 }
                                 continue
@@ -821,7 +859,7 @@ export class RuntimeManager {
                             }
                             this.emit(solverId, event)
                         } catch {
-                            // ignore malformed stdout lines
+                            // ignore event shapes we do not recognize
                         }
                     }
                 }

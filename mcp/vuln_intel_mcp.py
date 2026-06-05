@@ -43,6 +43,38 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "") or os.getenv("GITHUB_PAT", "")
 USER_AGENT = "vuln-intel-mcp/1.0 (pentest research)"
 HTTP_TIMEOUT = 20.0
 
+# Align with core vuln-intel.ts: 24h dedup cache + serial NVD pacing (public API ~5 req/30s).
+_NVD_CACHE_TTL = timedelta(hours=24)
+_NVD_MIN_INTERVAL_SEC = 7.0
+_nvd_cache: dict[str, tuple[datetime, list[dict]]] = {}
+_nvd_lock = asyncio.Lock()
+_last_nvd_at = 0.0
+
+
+def _nvd_cache_key(params: dict) -> str:
+    return json.dumps(params, sort_keys=True, ensure_ascii=False)
+
+
+async def _rate_limited_nvd(client: httpx.AsyncClient, params: dict) -> list[dict]:
+    global _last_nvd_at
+    key = _nvd_cache_key(params)
+    cached = _nvd_cache.get(key)
+    if cached and datetime.now(timezone.utc) - cached[0] < _NVD_CACHE_TTL:
+        return cached[1]
+
+    async with _nvd_lock:
+        cached = _nvd_cache.get(key)
+        if cached and datetime.now(timezone.utc) - cached[0] < _NVD_CACHE_TTL:
+            return cached[1]
+        wait = max(0.0, _NVD_MIN_INTERVAL_SEC - (datetime.now(timezone.utc).timestamp() - _last_nvd_at))
+        if wait > 0:
+            await asyncio.sleep(wait)
+        results = await _nvd_query(client, params)
+        _last_nvd_at = datetime.now(timezone.utc).timestamp()
+        if results and not results[0].get("_error"):
+            _nvd_cache[key] = (datetime.now(timezone.utc), results)
+        return results
+
 
 def _client() -> httpx.AsyncClient:
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
@@ -74,6 +106,8 @@ async def _nvd_query(client: httpx.AsyncClient, params: dict) -> list[dict]:
         headers["apiKey"] = NVD_API_KEY
     try:
         r = await client.get(NVD_API, params=params, headers=headers)
+        if r.status_code == 429:
+            return [{"_error": "NVD 429 — rate limited; retry later or set NVD_API_KEY"}]
         if r.status_code == 403:
             return [{"_error": "NVD 403 — 限速 (5 req/30s 无 key) 或 IP 被封"}]
         r.raise_for_status()
@@ -285,7 +319,7 @@ async def vuln_search(
             # 没指定生态系统时,尝试不带 ecosystem 的查询
             osv_results = await _osv_query(client, component, version=version)
 
-        nvd_task = _nvd_query(client, nvd_params)
+        nvd_task = _rate_limited_nvd(client, nvd_params)
         ghsa_task = _ghsa_search(client, q, first=n)
         nvd_results, ghsa_results = await asyncio.gather(nvd_task, ghsa_task)
 
@@ -455,7 +489,7 @@ async def vuln_recent(days: int = 7, severity: str = "") -> str:
         if sev:
             params["cvssV3Severity"] = sev
 
-        nvd_task = _nvd_query(client, params)
+        nvd_task = _rate_limited_nvd(client, params)
         kev_task = _kev_fetch(client)
         nvd_results, kev_data = await asyncio.gather(nvd_task, kev_task)
 

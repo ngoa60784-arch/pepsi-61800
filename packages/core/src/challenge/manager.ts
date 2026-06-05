@@ -28,6 +28,7 @@ import {
 import type { ChallengeStatsOverviewBucket, ChallengeStatsRecord, SolverStatsRecord } from "./stats"
 import { buildChallengeStatsOverview, refreshChallengeStats } from "./stats"
 import { buildChallengeAttackTimeline } from "./attack-timeline"
+import { recordPlannerRoundFailure, recordPlannerRoundSuccess } from "../observability/metrics"
 import { buildChallengeProgressDigest, type ChallengeProgressDigest } from "./progress-digest"
 import { isRealFinding } from "./submission-utils"
 import {
@@ -73,6 +74,15 @@ import {
     updateChallengeStateAsset,
     deleteChallengeStateAsset,
 } from "./state-store"
+import {
+    formatVulnBroadcast,
+    formatVulnStatusNote,
+    lookupComponentVulns,
+    peekVulnLookupStatus,
+    splitServiceVersion,
+    type VulnLookupAck,
+    type VulnLookupStatus,
+} from "./vuln-intel"
 import { Type } from "@sinclair/typebox"
 import { CHALLENGE_PLANNER_PROMPT_NAME, KALI_PROVISIONER_PROMPT_NAME, OBJECTIVE_VERIFIER_PROMPT_NAME } from "../config/prompts/index"
 import {
@@ -93,7 +103,11 @@ const DEFAULT_PLANNER_PROMPT_NAME = CHALLENGE_PLANNER_PROMPT_NAME
 const DEFAULT_TICK_INTERVAL_MS = 30_000
 const DEFAULT_STALE_TIMEOUT_MS = 60 * 60 * 1000
 const DEFAULT_MAX_SOLVERS = 1
-const MAX_ACTIVE_CHALLENGES = 3
+export const MAX_ACTIVE_CHALLENGES = 3
+const DEFAULT_VERIFIER_AUTO_RETRY_MAX = 3
+const DEFAULT_VERIFIER_AUTO_RETRY_BASE_MS = 60_000
+const PLANNER_FAILURE_ALERT_THRESHOLD = 5
+const PLANNER_MAX_BACKOFF_MS = 10 * 60 * 1000
 const NOISY_ERROR_THROTTLE_WINDOW_MS = 60_000
 const NOISY_ERROR_SIGNATURE_LIMIT = 200
 const SOLVER_MEMORY_LIMIT = 10
@@ -109,6 +123,7 @@ const PLANNER_FAILURE_LIMIT = 4
 const PLANNER_IDEA_LIMIT = 5
 const PLANNER_FINDING_LIMIT = 4
 const PLANNER_SUMMARY_CONTENT_MAX_CHARS = 140
+const PLANNER_INTEL_MAX_CHARS = 240
 // research: hard route dead-ends >=3 with no foothold/live hypothesis → prune target, shift resources to more promising ones.
 const PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD = 3
 const CHALLENGE_STATE_PLACEHOLDER = "{{CHALLENGE_STATE}}"
@@ -144,6 +159,37 @@ export interface ChallengeSubmissionMeta {
 interface LaunchSolverOptions {
     plannerHandoff?: string
 }
+
+export class MaxActiveChallengesError extends Error {
+    readonly code = "max_active_challenges" as const
+    readonly limit: number
+    readonly running: string[]
+
+    constructor(limit: number, running: string[]) {
+        super(`maximum active challenges (${limit}) reached; running: ${running.join(", ")}`)
+        this.name = "MaxActiveChallengesError"
+        this.limit = limit
+        this.running = running
+    }
+}
+
+export interface ActiveChallengeSlots {
+    limit: number
+    running: string[]
+    available: number
+}
+
+export interface PlannerHealth {
+    lastOkAt: string | null
+    consecutiveFailures: number
+    lastError: string | null
+    lastErrorAt: string | null
+    alerting: boolean
+    currentTickIntervalMs: number
+    baseTickIntervalMs: number
+}
+
+export type PlannerTickOutcome = { ok: true; skipped?: boolean } | { ok: false; error: string }
 
 function extractErrorMessage(error: unknown): string | undefined {
     if (error instanceof Error) {
@@ -203,6 +249,8 @@ interface PlannerSnapshotChallenge {
     failedRouteCount: number // Dead-end route count (failed ideas + failure memories)
     effortRank?: number // Cross-target relative effort rank (1=most effort); horizon proxy; filled by buildPlannerSnapshot
     pruneRecommended: boolean // >=3 dead routes + no foothold + no live hypothesis → recommend pruning this target
+    /** Operator pre-brief excerpt for scheduling (not solver memory). */
+    intelNotesExcerpt?: string
 }
 
 // Progress phase derived from outcomes; drives difficulty-aware scheduling (broad recon vs deep exploit/lateral).
@@ -678,6 +726,7 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
                 ? `- Minutes since last correct submission: ${challenge.minutesSinceLastCorrectSubmission}`
                 : "- Minutes since last correct submission: -",
             challenge.entrypoint && challenge.entrypoint.length > 0 ? `- Entrypoints: ${challenge.entrypoint.join(", ")}` : "- Entrypoints: -",
+            challenge.intelNotesExcerpt ? `- Operator intel (pre-brief): ${challenge.intelNotesExcerpt.replaceAll("\n", " ")}` : "- Operator intel (pre-brief): (none)",
             // Outcome summary: scheduler sees what solvers gained for informed dispatch/hold/handoff.
             `- Shared state assets (hosts/services/credentials/sessions — reusable across solvers):`,
             ...(challenge.stateAssets.length > 0 ? challenge.stateAssets.map((line) => `    - ${line}`) : ["    - (none)"]),
@@ -824,7 +873,16 @@ export class ChallengeManager {
     private stoppedOnPause = new Map<string, string[]>()
     private plannerRunning = false
     private loopTickCount = 0
+    private plannerBackoffMultiplier = 1
+    private plannerHealthState = {
+        lastOkAt: null as string | null,
+        consecutiveFailures: 0,
+        lastError: null as string | null,
+        lastErrorAt: null as string | null,
+        currentTickIntervalMs: DEFAULT_TICK_INTERVAL_MS,
+    }
     private noisyErrorLogState = new Map<string, { lastLoggedAt: number; suppressedCount: number }>()
+    private verifierRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
     constructor(config: ConfigManager) {
         this.config = config
@@ -871,6 +929,18 @@ export class ChallengeManager {
 
     attachRuntime(runtime: RuntimeManager): void {
         this.runtime = runtime
+        void this.resumePendingVerifierRetries()
+    }
+
+    async getActiveChallengeSlots(): Promise<ActiveChallengeSlots> {
+        const rootDir = await this.getRootDir()
+        const challenges = await this.filterChallengesByMode(await listChallengeRecords(rootDir))
+        const running = challenges.filter((challenge) => challenge.instance_status === "running").map((challenge) => challenge.id)
+        return {
+            limit: MAX_ACTIVE_CHALLENGES,
+            running,
+            available: Math.max(0, MAX_ACTIVE_CHALLENGES - running.length),
+        }
     }
 
     reloadFromConfig(): void {
@@ -879,6 +949,53 @@ export class ChallengeManager {
 
     getRuntime(): RuntimeManager | undefined {
         return this.runtime
+    }
+
+    async getPlannerHealth(): Promise<PlannerHealth> {
+        const settings = await this.config.getHostSettings()
+        const baseTickIntervalMs = resolvePlannerTickIntervalMs(settings.planner.tickIntervalMs)
+        return {
+            ...this.plannerHealthState,
+            alerting: this.plannerHealthState.consecutiveFailures >= PLANNER_FAILURE_ALERT_THRESHOLD,
+            baseTickIntervalMs,
+        }
+    }
+
+    private notePlannerTickSuccess(baseIntervalMs: number): void {
+        recordPlannerRoundSuccess()
+        this.plannerHealthState.lastOkAt = new Date().toISOString()
+        this.plannerHealthState.consecutiveFailures = 0
+        this.plannerHealthState.lastError = null
+        this.plannerBackoffMultiplier = 1
+        this.plannerHealthState.currentTickIntervalMs = baseIntervalMs
+    }
+
+    private notePlannerTickFailure(error: string | undefined, baseIntervalMs: number): void {
+        recordPlannerRoundFailure()
+        this.plannerHealthState.consecutiveFailures += 1
+        this.plannerHealthState.lastError = error ?? "planner tick failed"
+        this.plannerHealthState.lastErrorAt = new Date().toISOString()
+        this.plannerBackoffMultiplier = Math.min(this.plannerBackoffMultiplier * 2, 64)
+        const nextIntervalMs = Math.min(baseIntervalMs * this.plannerBackoffMultiplier, PLANNER_MAX_BACKOFF_MS)
+        this.plannerHealthState.currentTickIntervalMs = nextIntervalMs
+        if (this.plannerHealthState.consecutiveFailures >= PLANNER_FAILURE_ALERT_THRESHOLD) {
+            this.error("challenge:planner-health", "consecutive planner failures threshold reached", undefined, {
+                consecutiveFailures: this.plannerHealthState.consecutiveFailures,
+                lastError: this.plannerHealthState.lastError,
+                nextIntervalMs,
+            })
+        }
+    }
+
+    private async assertCanStartChallenge(challengeId: string): Promise<void> {
+        const rootDir = await this.getRootDir()
+        const challenges = await this.filterChallengesByMode(await listChallengeRecords(rootDir))
+        const running = challenges.filter((challenge) => challenge.instance_status === "running").map((challenge) => challenge.id)
+        const current = challenges.find((challenge) => challenge.id === challengeId)
+        if (current?.instance_status === "running") return
+        if (running.length >= MAX_ACTIVE_CHALLENGES) {
+            throw new MaxActiveChallengesError(MAX_ACTIVE_CHALLENGES, running)
+        }
     }
 
     private broadcastHintToRunningSolvers(challengeId: string, hintContent: string): void {
@@ -926,14 +1043,21 @@ export class ChallengeManager {
         const tick = async () => {
             this.syncRunning = true
             const tickId = ++this.loopTickCount
-            let nextIntervalMs = DEFAULT_TICK_INTERVAL_MS
+            let nextIntervalMs = this.plannerHealthState.currentTickIntervalMs
             try {
                 console.log(`\n========== planner round #${tickId} ==========`)
-                nextIntervalMs = resolvePlannerTickIntervalMs((await this.config.getHostSettings()).planner.tickIntervalMs)
+                const settings = await this.config.getHostSettings()
+                const baseIntervalMs = resolvePlannerTickIntervalMs(settings.planner.tickIntervalMs)
+                nextIntervalMs = baseIntervalMs
                 await this.tickPlanner("challenge-planner:loop")
+                nextIntervalMs = this.plannerHealthState.currentTickIntervalMs
                 console.log(`========== end planner round #${tickId} ==========\n`)
             } catch (error) {
-                this.error("challenge:sync-loop", "tick failed", error, { tickId })
+                const settings = await this.config.getHostSettings()
+                const baseIntervalMs = resolvePlannerTickIntervalMs(settings.planner.tickIntervalMs)
+                this.notePlannerTickFailure(extractErrorMessage(error), baseIntervalMs)
+                nextIntervalMs = this.plannerHealthState.currentTickIntervalMs
+                this.error("challenge:sync-loop", "tick failed", error, { tickId, nextIntervalMs })
                 console.log(`========== end planner round #${tickId} ==========\n`)
             } finally {
                 this.syncRunning = false
@@ -945,18 +1069,28 @@ export class ChallengeManager {
         void tick()
     }
 
-    async tickPlanner(source = "challenge-planner:manual"): Promise<string | undefined> {
+    async tickPlanner(source = "challenge-planner:manual"): Promise<PlannerTickOutcome> {
         const settings = await this.config.getHostSettings()
-        resolvePlannerTickIntervalMs(settings.planner.tickIntervalMs)
-        if (this.plannerRunning) return
-        if (settings.planner.enabled !== true) return
+        const baseIntervalMs = resolvePlannerTickIntervalMs(settings.planner.tickIntervalMs)
+        if (this.plannerRunning) return { ok: true, skipped: true }
+        if (settings.planner.enabled !== true) return { ok: true, skipped: true }
 
         this.plannerRunning = true
         try {
-            return await this.runPlannerOnce(source)
+            const outcome = await this.runPlannerOnce(source)
+            if (outcome.ok) {
+                if (!outcome.skipped) {
+                    this.notePlannerTickSuccess(baseIntervalMs)
+                }
+            } else {
+                this.notePlannerTickFailure(outcome.error, baseIntervalMs)
+            }
+            return outcome
         } catch (error) {
+            const message = extractErrorMessage(error) ?? "planner tick failed"
+            this.notePlannerTickFailure(message, baseIntervalMs)
             this.error("challenge:planner", "tick failed", error, { source })
-            return
+            return { ok: false, error: message }
         } finally {
             this.plannerRunning = false
         }
@@ -1025,6 +1159,11 @@ export class ChallengeManager {
                     }
                     if (challenge.instance_status === "running") {
                         return resolveEntrypoint()
+                    }
+                    const stored = await listStored()
+                    const running = stored.filter((item) => item.instance_status === "running").map((item) => item.id)
+                    if (running.length >= MAX_ACTIVE_CHALLENGES) {
+                        throw new MaxActiveChallengesError(MAX_ACTIVE_CHALLENGES, running)
                     }
                     const entrypoint = resolveEntrypoint()
                     await saveChallengeRecord(
@@ -1128,6 +1267,7 @@ export class ChallengeManager {
                     hint_viewed: existing?.hint_viewed === true || next.hint_viewed,
                     flags: existing?.flags ?? next.flags,
                     hint_content: existing?.hint_content ?? next.hint_content,
+                    intel_notes: existing?.intel_notes ?? next.intel_notes,
                 },
                 source,
             )
@@ -1165,6 +1305,19 @@ export class ChallengeManager {
 
     async getChallenge(challengeId: string): Promise<ChallengeInfoRecord | undefined> {
         return this.readVisibleChallenge(challengeId)
+    }
+
+    async updateIntelNotes(challengeId: string, intelNotes: string | null | undefined): Promise<ChallengeInfoRecord> {
+        const rootDir = await this.getRootDir()
+        const id = requireText(challengeId, "challengeId")
+        const challenge = await readChallengeRecord(rootDir, id)
+        if (!challenge) throw new Error(`challenge "${id}" not found`)
+        const normalized = intelNotes?.trim() ? intelNotes.trim() : null
+        await saveChallengeRecord(rootDir, { ...challenge, intel_notes: normalized }, "challenge:update-intel")
+        this.log("challenge:intel", "operator intel updated", { challengeId: id, chars: normalized?.length ?? 0 })
+        const updated = await readChallengeRecord(rootDir, id)
+        if (!updated) throw new Error(`challenge "${id}" not found after intel update`)
+        return updated
     }
 
     async deleteChallenge(challengeId: string): Promise<{ deletedSolvers: string[] }> {
@@ -1249,6 +1402,7 @@ export class ChallengeManager {
     async startChallenge(challengeId: string): Promise<ChallengeActionResult<ChallengeApiStartData>> {
         const { api } = await this.getContext()
         const id = requireText(challengeId, "challengeId")
+        await this.assertCanStartChallenge(id)
         this.log("challenge:start", "starting challenge instance", { challengeId: id })
         const remote = await api.startChallenge(id)
         const challenge = await this.syncChallenge(id, "challenge-api:start")
@@ -1379,6 +1533,113 @@ export class ChallengeManager {
         await this.finishChallenge(id)
     }
 
+    private verifierRetryKey(challengeId: string, recordId: string): string {
+        return `${challengeId}:${recordId}`
+    }
+
+    private async resolveVerifierRetrySettings(): Promise<{ maxRetries: number; baseMs: number }> {
+        const settings = await this.config.getHostSettings()
+        const maxRetries = clampInt(settings.challenge.verifierAutoRetryMax ?? DEFAULT_VERIFIER_AUTO_RETRY_MAX, 0, 12)
+        const baseMs = clampInt(settings.challenge.verifierAutoRetryBaseMs ?? DEFAULT_VERIFIER_AUTO_RETRY_BASE_MS, 5_000, 30 * 60_000)
+        return { maxRetries, baseMs }
+    }
+
+    private clearVerifierRetryTimer(challengeId: string, recordId: string): void {
+        const key = this.verifierRetryKey(challengeId, recordId)
+        const timer = this.verifierRetryTimers.get(key)
+        if (timer) {
+            clearTimeout(timer)
+            this.verifierRetryTimers.delete(key)
+        }
+    }
+
+    private async scheduleVerifierAutoRetry(input: {
+        challengeId: string
+        recordId: string
+        proof: string
+        writeup?: string
+        entrypoint?: string[] | null
+        retryCount: number
+        reason: string
+    }): Promise<void> {
+        const { maxRetries, baseMs } = await this.resolveVerifierRetrySettings()
+        if (maxRetries <= 0 || input.retryCount >= maxRetries) {
+            this.clearVerifierRetryTimer(input.challengeId, input.recordId)
+            const rootDir = await this.getRootDir()
+            await updateChallengeSubmissionVerification(rootDir, input.challengeId, input.recordId, {
+                verification_status: "inconclusive",
+                verifier_note: `${input.reason} (auto-retry exhausted after ${input.retryCount} attempts)`,
+                verification_next_retry_at: null,
+            }).catch(() => {})
+            return
+        }
+
+        const delayMs = baseMs * 2 ** input.retryCount
+        const nextAt = new Date(Date.now() + delayMs).toISOString()
+        const rootDir = await this.getRootDir()
+        await updateChallengeSubmissionVerification(rootDir, input.challengeId, input.recordId, {
+            verification_status: "pending",
+            verifier_note: `${input.reason}; auto-retry ${input.retryCount + 1}/${maxRetries} scheduled`,
+            verification_retry_count: input.retryCount + 1,
+            verification_next_retry_at: nextAt,
+        }).catch(() => {})
+
+        const key = this.verifierRetryKey(input.challengeId, input.recordId)
+        this.clearVerifierRetryTimer(input.challengeId, input.recordId)
+        const timer = setTimeout(() => {
+            this.verifierRetryTimers.delete(key)
+            void this.runVerifierAutoRetry(input.challengeId, input.recordId)
+        }, delayMs)
+        this.verifierRetryTimers.set(key, timer)
+        this.log("engagement:verify", "scheduled verifier auto-retry", {
+            challengeId: input.challengeId,
+            recordId: input.recordId,
+            attempt: input.retryCount + 1,
+            maxRetries,
+            delayMs,
+        })
+    }
+
+    private async runVerifierAutoRetry(challengeId: string, recordId: string): Promise<void> {
+        const rootDir = await this.getRootDir()
+        const id = requireText(challengeId, "challengeId")
+        const submissions = await this.listSubmissionLogs(id)
+        const record = submissions.find((item) => item.id === recordId)
+        if (!record) return
+        if (record.verification_status === "verified" || record.verification_status === "rejected") return
+        const challenge = await readChallengeRecord(rootDir, id)
+        await this.verifyObjective({
+            challengeId: id,
+            recordId,
+            proof: record.flag,
+            writeup: record.writeup,
+            entrypoint: challenge?.entrypoint ?? null,
+        })
+    }
+
+    async resumePendingVerifierRetries(): Promise<void> {
+        const rootDir = await this.getRootDir()
+        const challenges = await this.filterChallengesByMode(await listChallengeRecords(rootDir))
+        const now = Date.now()
+        for (const challenge of challenges) {
+            const submissions = await listChallengeSubmissionLogs(rootDir, challenge.id)
+            for (const record of submissions) {
+                if (!record.verification_next_retry_at) continue
+                if (record.verification_status === "verified" || record.verification_status === "rejected") continue
+                const dueAt = Date.parse(record.verification_next_retry_at)
+                if (Number.isNaN(dueAt)) continue
+                const delayMs = Math.max(0, dueAt - now)
+                const key = this.verifierRetryKey(challenge.id, record.id)
+                if (this.verifierRetryTimers.has(key)) continue
+                const timer = setTimeout(() => {
+                    this.verifierRetryTimers.delete(key)
+                    void this.runVerifierAutoRetry(challenge.id, record.id)
+                }, delayMs)
+                this.verifierRetryTimers.set(key, timer)
+            }
+        }
+    }
+
     /**
      * Independent verifier re-run (the "active reproduction" half of dual verification).
      *
@@ -1403,11 +1664,32 @@ export class ChallengeManager {
         const objectiveText = challengeRecord ? `${challengeRecord.title}\n${challengeRecord.description}` : ""
         const entrypoint = input.entrypoint ?? challengeRecord?.entrypoint ?? null
         const resolve = async (verdict: "verified" | "rejected" | "inconclusive", note: string) => {
-            await updateChallengeSubmissionVerification(rootDir, id, input.recordId, { verification_status: verdict, verifier_note: note }).catch(() => {})
+            if (verdict === "verified" || verdict === "rejected") {
+                this.clearVerifierRetryTimer(id, input.recordId)
+            }
+            await updateChallengeSubmissionVerification(rootDir, id, input.recordId, {
+                verification_status: verdict,
+                verifier_note: note,
+                verification_next_retry_at: verdict === "verified" || verdict === "rejected" ? null : undefined,
+            }).catch(() => {})
             try {
                 input.onResolved?.(verdict, note)
             } catch {
                 // ignore callback errors
+            }
+            if (verdict === "inconclusive") {
+                const submissions = await this.listSubmissionLogs(id)
+                const record = submissions.find((item) => item.id === input.recordId)
+                const retryCount = record?.verification_retry_count ?? 0
+                await this.scheduleVerifierAutoRetry({
+                    challengeId: id,
+                    recordId: input.recordId,
+                    proof: input.proof,
+                    writeup: input.writeup,
+                    entrypoint,
+                    retryCount,
+                    reason: note,
+                })
             }
         }
 
@@ -1510,6 +1792,35 @@ export class ChallengeManager {
         // No verdict / inconclusive: do not wind down; operator reviews.
         this.log("engagement:verify", "verifier inconclusive; left for operator review", { challengeId: id })
         await resolve("inconclusive", verdictNote || "verifier could not run the check")
+    }
+
+    /** Operator-triggered re-run of independent objective verification. */
+    async retryVerifyObjective(challengeId: string, recordId: string): Promise<void> {
+        const rootDir = await this.getRootDir()
+        const id = requireText(challengeId, "challengeId")
+        const rid = requireText(recordId, "recordId")
+        const submissions = await this.listSubmissionLogs(id)
+        const record = submissions.find((item) => item.id === rid)
+        if (!record) throw new Error(`submission "${rid}" not found`)
+        const status = record.verification_status
+        if (status !== "inconclusive" && status !== "pending" && status !== "rejected") {
+            throw new Error(`submission verification status "${status ?? "unset"}" is not retryable`)
+        }
+        this.clearVerifierRetryTimer(id, rid)
+        await updateChallengeSubmissionVerification(rootDir, id, rid, {
+            verification_status: "pending",
+            verifier_note: "operator requested re-verification",
+            verification_retry_count: 0,
+            verification_next_retry_at: null,
+        })
+        const challenge = await readChallengeRecord(rootDir, id)
+        await this.verifyObjective({
+            challengeId: id,
+            recordId: rid,
+            proof: record.flag,
+            writeup: record.writeup,
+            entrypoint: challenge?.entrypoint ?? null,
+        })
     }
 
     /** Operator manually confirms completion (same as marking primary objective achieved). */
@@ -2021,12 +2332,45 @@ export class ChallengeManager {
         return listChallengeStateAssets(rootDir, challengeId)
     }
 
-    async upsertStateAsset(challengeId: string, input: AddStateAssetInput): Promise<UpsertStateAssetResult> {
+    async upsertStateAsset(challengeId: string, input: AddStateAssetInput): Promise<UpsertStateAssetResult & { vulnLookup?: VulnLookupAck }> {
         const rootDir = await this.getRootDir()
         const result = await upsertChallengeStateAsset(rootDir, challengeId, input)
         // New assets (especially creds/sessions) are high-value intel → broadcast to avoid duplicate brute/re-acquisition.
         this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, formatChallengeStateAssetBroadcastMessage(result.created ? "added" : "updated", result.asset))
-        return result
+
+        let vulnLookup: VulnLookupAck | undefined
+        if (input.kind === "service") {
+            const serviceText = (input.service ?? input.label).trim()
+            const { component, version } = splitServiceVersion(serviceText)
+            if (component) {
+                vulnLookup = peekVulnLookupStatus(component, version)
+                void this.finalizeServiceVulnLookup(challengeId, component, version, vulnLookup.status)
+            }
+        }
+        return { ...result, vulnLookup }
+    }
+
+    private async finalizeServiceVulnLookup(
+        challengeId: string,
+        component: string,
+        version: string | undefined,
+        initialStatus: VulnLookupStatus,
+    ): Promise<void> {
+        if (initialStatus === "queued") {
+            const note = formatVulnStatusNote("queued", component, version)
+            if (note) await this.appendMemory({ challengeId, kind: "note", content: note, source: "vuln-intel" })
+        }
+
+        const result = await lookupComponentVulns(component, version)
+
+        if (result.status === "rate_limited") {
+            const note = formatVulnStatusNote("rate_limited", component, version)
+            if (note) await this.appendMemory({ challengeId, kind: "note", content: note, source: "vuln-intel" })
+            return
+        }
+
+        const broadcast = formatVulnBroadcast(result)
+        if (broadcast) this.broadcastChallengeBoardUpdateToRunningSolvers(challengeId, broadcast)
     }
 
     async updateStateAsset(challengeId: string, assetId: string, patch: UpdateStateAssetInput): Promise<StateAsset | undefined> {
@@ -2216,20 +2560,20 @@ export class ChallengeManager {
         }
     }
 
-    private async runPlannerOnce(source: string): Promise<string | undefined> {
+    private async runPlannerOnce(source: string): Promise<PlannerTickOutcome> {
         const runtime = this.getRuntime()
-        if (!runtime) return
+        if (!runtime) return { ok: true, skipped: true }
 
         const settings = await this.config.getHostSettings()
         const sessionOpts = await this.config.resolvePromptSession(DEFAULT_PLANNER_PROMPT_NAME)
         if (!sessionOpts?.resourceLoader) {
             this.error("challenge:planner", "planner prompt missing or failed to resolve", undefined, { promptName: DEFAULT_PLANNER_PROMPT_NAME })
-            return
+            return { ok: false, error: "planner prompt missing or failed to resolve" }
         }
 
         const snapshot = await this.buildPlannerSnapshot(source)
         if (snapshot.challenges.length === 0) {
-            return `source=${source} unsolved=0`
+            return { ok: true, skipped: true }
         }
 
         const previousRound = await this.readPreviousPlannerRound()
@@ -2288,8 +2632,16 @@ export class ChallengeManager {
             }
         })
 
-        await session.prompt("Begin this scheduling round.")
+        try {
+            await session.prompt("Begin this scheduling round.")
+        } catch (error) {
+            session.dispose()
+            return { ok: false, error: extractErrorMessage(error) ?? "planner session failed" }
+        }
         session.dispose()
+        if (plannerStopReason === "error") {
+            return { ok: false, error: "planner LLM round errored" }
+        }
         const plannerText =
             plannerMessage ||
             [
@@ -2307,7 +2659,7 @@ export class ChallengeManager {
             summary: plannerText,
             battlePlan: [...battlePlan.values()],
         })
-        return plannerMessage || plannerStopReason || undefined
+        return { ok: true }
     }
 
     private createPlannerTools(snapshot: PlannerSnapshot, battlePlan?: Map<string, PlannerBattlePlanEntry>): ToolDefinition[] {
@@ -2687,6 +3039,7 @@ export class ChallengeManager {
             failedRouteCount,
             effortRank: undefined, // filled by buildPlannerSnapshot
             pruneRecommended,
+            intelNotesExcerpt: clipTaskText(challenge.intel_notes?.trim() || "", PLANNER_INTEL_MAX_CHARS) || undefined,
         }
     }
 
@@ -2754,6 +3107,13 @@ export class ChallengeManager {
             ...scopeLines,
             ``,
             ...(plannerHandoff ? [`Startup brief:`, plannerHandoff, ``] : []),
+            ...(challenge.intel_notes?.trim()
+                ? [
+                      `Operator-provided initial intel (authoritative pre-brief — not solver memory; use get_target_intel to re-read):`,
+                      challenge.intel_notes.trim(),
+                      ``,
+                  ]
+                : []),
             `Current Memory summary:`,
             formatSolverMemorySection(memoryItems),
             ``,

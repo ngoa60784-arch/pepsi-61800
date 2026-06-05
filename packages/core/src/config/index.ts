@@ -30,7 +30,16 @@ import type {
     HostPlannerSettings,
     HostSettings,
 } from "./types"
-export type { ActivateModelResult, AddResult, HostRuntimeSettings, HostChallengeSettings, HostPlannerSettings, HostSettings } from "./types"
+export type {
+    ActivateModelResult,
+    AddResult,
+    ExecSurfaceMode,
+    HostRuntimeSettings,
+    HostChallengeSettings,
+    HostPlannerSettings,
+    HostSettings,
+    SolverHostMode,
+} from "./types"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { isEngagementMode } from "../challenge/engagement"
 

@@ -442,6 +442,7 @@ export class CommanderManager {
                     id: Type.String({ minLength: 1, description: "short id, e.g. example-com" }),
                     entrypoint: Type.Array(Type.String(), { description: "array of entry addresses, at least one" }),
                     description: Type.Optional(Type.String({ description: "target background / known info" })),
+                    intel_notes: Type.Optional(Type.String({ description: "operator pre-brief intel (scope, creds, constraints)" })),
                 }),
                 execute: async (_id, params) => {
                     const targetId = params.id.trim()
@@ -461,6 +462,7 @@ export class CommanderManager {
                             flag_got_count: 0,
                             hint_viewed: false,
                             hint_content: null,
+                            intel_notes: params.intel_notes?.trim() || null,
                             instance_status: "running",
                             entrypoint,
                             flags: [],

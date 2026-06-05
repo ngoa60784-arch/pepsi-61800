@@ -8,7 +8,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core"
 import { icon } from "@mariozechner/mini-lit"
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js"
 import "@mariozechner/mini-lit/dist/CodeBlock.js"
-import { html, LitElement } from "lit"
+import { html, LitElement, type TemplateResult } from "lit"
 import { customElement, property } from "lit/decorators.js"
 import { FunctionSquare } from "lucide"
 import { renderTool } from "./tools/index"
@@ -96,7 +96,7 @@ export class AssistantMessage extends LitElement {
     }
 
     override render() {
-        const orderedParts = []
+        const orderedParts: TemplateResult[] = []
 
         for (const chunk of this.message.content) {
             if (chunk.type === "text" && chunk.text.trim() !== "") {

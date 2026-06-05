@@ -17,6 +17,8 @@ export interface ChallengeRecord {
     flag_got_count: number
     hint_viewed: boolean
     hint_content?: string | null
+    /** Operator-authored pre-engagement intel (scope, creds, constraints). Distinct from solver memory and CTF hints. */
+    intel_notes?: string | null
     instance_status: string
     entrypoint: string[] | null
     flags?: string[]
@@ -62,6 +64,10 @@ export interface ChallengeSubmissionLogRecord {
     verification_status?: "unverified" | "pending" | "verified" | "rejected" | "inconclusive"
     verifier_note?: string
     verified_at?: string
+    /** Automatic verifier re-run count after inconclusive (ST-01). */
+    verification_retry_count?: number
+    /** ISO timestamp when the next auto-retry is scheduled; cleared after success or max retries. */
+    verification_next_retry_at?: string | null
 }
 
 function nowIso(): string {
@@ -248,7 +254,12 @@ export async function updateChallengeSubmissionVerification(
     rootDir: string,
     challengeId: string,
     recordId: string,
-    patch: { verification_status: ChallengeSubmissionLogRecord["verification_status"]; verifier_note?: string },
+    patch: {
+        verification_status: ChallengeSubmissionLogRecord["verification_status"]
+        verifier_note?: string
+        verification_retry_count?: number
+        verification_next_retry_at?: string | null
+    },
 ): Promise<ChallengeSubmissionLogRecord | undefined> {
     const id = requireText(challengeId, "challengeId")
     const targetId = requireText(recordId, "recordId")
@@ -277,6 +288,10 @@ export async function updateChallengeSubmissionVerification(
             ...current,
             verification_status: patch.verification_status,
             verifier_note: patch.verifier_note?.trim() || current.verifier_note,
+            verification_retry_count:
+                patch.verification_retry_count !== undefined ? patch.verification_retry_count : current.verification_retry_count,
+            verification_next_retry_at:
+                patch.verification_next_retry_at !== undefined ? patch.verification_next_retry_at : current.verification_next_retry_at,
             verified_at: nowIso(),
         }
         await atomicWriteJson(path, updated)

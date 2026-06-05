@@ -37,4 +37,40 @@ describe("buildChallengeProgressDigest", () => {
         expect(digest.solvers[0]?.promptName).toBe("kimi-security")
         expect(digest.ideasByStatus.testing).toHaveLength(1)
     })
+
+    test("maps recentEvents and tolerates undefined events list", () => {
+        const digest = buildChallengeProgressDigest({
+            challenge: baseChallenge,
+            overview: baseOverview,
+            ideas: [],
+            memory: [],
+            submissions: [],
+            solverPromptById: {},
+            recentEvents: [
+                {
+                    id: "evt-1",
+                    timestamp: 1_700_000_000_000,
+                    challengeId: "demo",
+                    lane: "solver",
+                    kind: "tool_call",
+                    title: "bash",
+                    summary: "nmap -sV target",
+                    solverId: "s1",
+                },
+            ],
+        })
+        expect(digest.recentEvents).toHaveLength(1)
+        expect(digest.recentEvents[0]?.lane).toBe("solver")
+
+        const empty = buildChallengeProgressDigest({
+            challenge: baseChallenge,
+            overview: baseOverview,
+            ideas: [],
+            memory: [],
+            submissions: [],
+            solverPromptById: {},
+            recentEvents: [],
+        })
+        expect(empty.recentEvents).toEqual([])
+    })
 })

@@ -464,7 +464,7 @@ All include 5s `: keepalive`. Reverse proxy needs `proxy_buffering off` (see doc
 - Entry `index.html → main.tsx → app.tsx`, hash routing.
 - Login gate: `useAuthGate` + `LoginScreen` (`app.tsx`); unauthenticated users see login before main UI.
 - Main nav: Commander / Targets / Runtime; Config subpages: Targets / Planner / Providers / Models / Tools / MCP / Skills / Prompts.
-- Key pages: `challenge/page.tsx` (list+detail tabs), `challenge/attack-flow.tsx` (ReactFlow+ELK attack flow, SSE replay), `commander/page.tsx` (chat+document upload), `runtime/detail-page.tsx` (message timeline+board), `config/host.tsx` (incl. memory/CPU limit config).
+- Key pages: `challenge/page.tsx` (list+detail tabs + `operations-board.tsx` SSE digest), `commander/page.tsx` (chat+document upload), `runtime/detail-page.tsx` (message timeline+board), `config/host.tsx` (runtime limits, planner health).
 
 ---
 

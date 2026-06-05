@@ -176,10 +176,14 @@ async function handleEngagementAction(
             }
         }
         case "challenge_get_hint": {
-            // Engagement has no hint judge; say so explicitly so the model does not wait.
+            const challenge =
+                typeof challengeManager.getChallenge === "function"
+                    ? await challengeManager.getChallenge(storeKey).catch(() => undefined)
+                    : undefined
+            const intel = challenge?.intel_notes?.trim() || null
             return {
                 handled: true,
-                data: { code: storeKey, hint_content: null },
+                data: { code: storeKey, hint_content: intel },
             }
         }
         case "challenge_submit_flag": {
@@ -370,6 +374,7 @@ async function handleEngagementAction(
                     asset_id: result.asset.id,
                     created: result.created,
                     message: result.created ? "asset recorded to shared state" : "asset merged into existing shared-state entry",
+                    ...(result.vulnLookup ? { vuln_lookup: result.vulnLookup } : {}),
                 },
             }
         }

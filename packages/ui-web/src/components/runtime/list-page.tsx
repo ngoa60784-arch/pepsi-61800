@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { CircleIcon, PlayIcon, RefreshCwIcon, Trash2Icon, XIcon } from "lucide-react"
-import { runtime, prompts } from "../../lib/api"
+import { metrics, planner, runtime, prompts } from "../../lib/api"
+import type { PlannerHealth, RuntimeMetricsSnapshot } from "../../lib/api"
 import { useFetch } from "../../hooks/use-fetch"
 import { Badge } from "../ui/badge"
 import { Button } from "../ui/button"
@@ -46,6 +47,8 @@ export function RuntimeListPage() {
     const [batchBusy, setBatchBusy] = useState("")
     const [page, setPage] = useState(1)
     const [selectedSolverIds, setSelectedSolverIds] = useState<string[]>([])
+    const [plannerHealth, setPlannerHealth] = useState<PlannerHealth | null>(null)
+    const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetricsSnapshot | null>(null)
 
     const agentPrompts = useMemo(() => (promptList ?? []) as unknown as AgentPromptView[], [promptList])
     const filteredSolvers = useMemo(() => {
@@ -72,6 +75,28 @@ export function RuntimeListPage() {
     useEffect(() => {
         setSelectedSolverIds((current) => current.filter((id) => solverList.some((solver) => solver.id === id)))
     }, [solverList])
+
+    useEffect(() => {
+        let active = true
+        async function loadHealth() {
+            try {
+                const [health, snapshot] = await Promise.all([planner.health(), metrics.get()])
+                if (!active) return
+                setPlannerHealth(health)
+                setRuntimeMetrics(snapshot)
+            } catch {
+                if (!active) return
+                setPlannerHealth(null)
+                setRuntimeMetrics(null)
+            }
+        }
+        void loadHealth()
+        const timer = setInterval(() => void loadHealth(), 10_000)
+        return () => {
+            active = false
+            clearInterval(timer)
+        }
+    }, [])
 
     useEffect(() => {
         let active = true
@@ -220,6 +245,45 @@ export function RuntimeListPage() {
 
     return (
         <div className="page-shell">
+            <div className="grid gap-3 md:grid-cols-4">
+                <div className="rounded-lg border px-4 py-3">
+                    <div className="text-xs text-muted-foreground">调度器</div>
+                    <div className="mt-1 flex items-center gap-2 text-sm font-medium">
+                        {plannerHealth?.alerting ? <Badge variant="destructive">异常</Badge> : <Badge variant="outline">正常</Badge>}
+                        <span>失败 {plannerHealth?.consecutiveFailures ?? 0}</span>
+                    </div>
+                    {plannerHealth?.lastError ? (
+                        <div className="mt-2 text-xs text-muted-foreground break-words">{plannerHealth.lastError}</div>
+                    ) : null}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                        tick {Math.round((plannerHealth?.currentTickIntervalMs ?? 30_000) / 1000)}s
+                    </div>
+                </div>
+                <div className="rounded-lg border px-4 py-3">
+                    <div className="text-xs text-muted-foreground">活跃 Solver</div>
+                    <div className="mt-1 text-sm font-medium">{runtimeMetrics?.active_solvers ?? status?.solvers ?? 0}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">RPC 污染 {runtimeMetrics?.rpc_stdout_pollution_total ?? 0}</div>
+                </div>
+                <div className="rounded-lg border px-4 py-3">
+                    <div className="text-xs text-muted-foreground">Running 目标</div>
+                    <div className="mt-1 text-sm font-medium">{runtimeMetrics?.running_challenges ?? 0}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Planner 轮次 {runtimeMetrics?.planner_rounds_total ?? 0}</div>
+                </div>
+                <div className="rounded-lg border px-4 py-3">
+                    <div className="text-xs text-muted-foreground">SSE 订阅</div>
+                    <div className="mt-1 text-sm font-medium">{runtimeMetrics?.sse_subscribers ?? 0}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                        <a className="underline" href="#/config/planner">
+                            调度参数
+                        </a>
+                    </div>
+                </div>
+            </div>
+            {plannerHealth?.alerting ? (
+                <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-900 dark:text-rose-200">
+                    调度器已连续失败 {plannerHealth.consecutiveFailures} 次，tick 已退避；请检查模型配置与 Planner 提示词。
+                </div>
+            ) : null}
             <div className="flex flex-wrap items-center gap-3">
                 <KaliHostStatusBar kali={kali} loading={kaliLoading} sshHint={kaliSshHint} onProbe={() => void probeKali()} />
                 <Input className="min-w-72 flex-1 basis-full sm:basis-auto" placeholder="按名称、Prompt、任务过滤" value={filter} onChange={(event) => setFilter(event.target.value)} />

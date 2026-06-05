@@ -1,16 +1,36 @@
-import type { ActivateModelResult, AddResult, HostSettings } from "../../../core/src/config/index"
-import type { ChallengeInfoRecord, ChallengeAttemptLogRecord, ChallengeSubmissionLogRecord } from "../../../core/src/challenge/store"
-import type { AddIdeaResult, IdeaRecord, MemoryEntry } from "../../../core/src/challenge/manager"
-import type { AttackTimelineEvent, AttackTimelineSnapshot } from "../../../core/src/challenge/attack-timeline"
-import type { ChallengeProgressDigest } from "../../../core/src/challenge/progress-digest"
-import type { ChallengeStatsOverview, ChallengeStatsOverviewBucket, ChallengeStatsRecord, SolverStatsRecord } from "../../../core/src/challenge/stats"
-import type { McpServerItem, ProbeResult } from "../../../core/src/config/mcp/index"
-import type { PromptFile } from "../../../core/src/config/prompts/index"
-import type { BuiltInProvider, ConfiguredModel, ModelConfigEntry, ModelDefinition, ProviderPrefEntry } from "../../../core/src/config/providers/types"
-import type { ToolEntry } from "../../../core/src/config/tools/index"
-import type { KaliSshTestResult, PentestKeysSyncResult } from "../../../core/src/runtime/kali-ssh"
-import type { KaliSystemStats } from "../../../core/src/runtime/kali-stats"
-import type { RuntimeMessageThread, RuntimeSolverDetails, SolverInstance } from "../../../core/src/runtime/types"
+import type {
+    ActivateModelResult,
+    AddIdeaResult,
+    AddResult,
+    BuiltInProvider,
+    ChallengeAttemptLogRecord,
+    ChallengeInfoRecord,
+    ChallengeProgressDigest,
+    ChallengeStatsOverview,
+    ChallengeStatsOverviewBucket,
+    ChallengeStatsRecord,
+    ChallengeSubmissionLogRecord,
+    ConfiguredModel,
+    HostSettings,
+    IdeaRecord,
+    KaliSshTestResult,
+    KaliSystemStats,
+    MemoryEntry,
+    McpServerItem,
+    ModelConfigEntry,
+    ModelDefinition,
+    PlannerHealth,
+    PromptFile,
+    ProbeResult,
+    ProviderPrefEntry,
+    RuntimeMessageThread,
+    RuntimeMetricsSnapshot,
+    RuntimeSolverDetails,
+    SolverInstance,
+    SolverStatsRecord,
+    ToolEntry,
+    PentestKeysSyncResult,
+} from "@tch/core"
 import type { Skill } from "@mariozechner/pi-coding-agent"
 import type { Api, Model } from "@mariozechner/pi-ai"
 import type { ServerEntry as McpServerEntry, McpSettings } from "pi-mcp-adapter/types.js"
@@ -29,8 +49,6 @@ export type {
     ChallengeStatsRecord,
     ChallengeStatsOverview,
     ChallengeStatsOverviewBucket,
-    AttackTimelineEvent,
-    AttackTimelineSnapshot,
     ChallengeProgressDigest,
     SolverStatsRecord,
     MemoryEntry,
@@ -264,12 +282,7 @@ export const tools = {
 
 // ── MCP Servers ──
 
-export interface KaliSshTestResult {
-    ok: boolean
-    message: string
-    uid?: string
-    isRoot?: boolean
-}
+export type { KaliSshTestResult }
 
 export interface KaliToolCheckEntry {
     tool: string
@@ -420,6 +433,10 @@ export const hostSettings = {
         }),
 }
 
+export const hostCapacity = {
+    get: () => json<HostCapacity>("/api/host/capacity"),
+}
+
 export const hostPlannerPrompt = {
     get: () => json<PromptFile>("/api/config/host-planner-prompt"),
     set: (content: string, model?: string) =>
@@ -428,6 +445,16 @@ export const hostPlannerPrompt = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ content, model }),
         }),
+}
+
+export type { PlannerHealth, RuntimeMetricsSnapshot }
+
+export const planner = {
+    health: () => json<PlannerHealth>("/api/planner/health"),
+}
+
+export const metrics = {
+    get: () => json<RuntimeMetricsSnapshot>("/api/metrics"),
 }
 
 export interface ChallengeDetails {
@@ -441,14 +468,27 @@ export interface ChallengeDetails {
     solvers: SolverInstance[]
 }
 
+export interface ActiveChallengeSlots {
+    limit: number
+    running: string[]
+    available: number
+}
+
+export interface HostCapacity {
+    total_memory_mb: number
+    cpu_count: number
+    recommended_memory: string
+    recommended_cpus: number
+}
+
 export const challenges = {
     list: () => json<ChallengeInfoRecord[]>("/api/challenges"),
+    slots: () => json<ActiveChallengeSlots>("/api/challenges/slots"),
     get: (id: string) => json<ChallengeDetails>(`/api/challenges/${encodeURIComponent(id)}`),
     delete: (id: string) =>
         json<{ ok: boolean; deletedSolvers: string[] }>(`/api/challenges/${encodeURIComponent(id)}`, {
             method: "DELETE",
         }),
-    attackTimeline: (id: string) => json<AttackTimelineSnapshot>(`/api/challenges/${encodeURIComponent(id)}/attack-timeline`),
     progress: (id: string) => json<ChallengeProgressDigest>(`/api/challenges/${encodeURIComponent(id)}/progress`),
     exportSolverSessions: (id: string) => download(`/api/challenges/${encodeURIComponent(id)}/solver-sessions.zip`),
     startSolver: (id: string, promptName: string) =>
@@ -464,6 +504,16 @@ export const challenges = {
         json<{ ok: boolean; stoppedSolvers: string[] }>(`/api/challenges/${encodeURIComponent(id)}/pause-testing`, { method: "POST" }),
     resumeTesting: (id: string) =>
         json<{ ok: boolean; resumed: string[] }>(`/api/challenges/${encodeURIComponent(id)}/resume-testing`, { method: "POST" }),
+    reverifySubmission: (id: string, recordId: string) =>
+        json<{ ok: boolean }>(`/api/challenges/${encodeURIComponent(id)}/submissions/${encodeURIComponent(recordId)}/reverify`, {
+            method: "POST",
+        }),
+    updateIntel: (id: string, intelNotes: string) =>
+        json<ChallengeInfoRecord>(`/api/challenges/${encodeURIComponent(id)}/intel`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ intel_notes: intelNotes }),
+        }),
     addMemory: (id: string, input: { kind: MemoryEntry["kind"]; content: string; refs?: string[]; source?: string }) =>
         json<MemoryEntry>(`/api/challenges/${encodeURIComponent(id)}/memory`, {
             method: "POST",
@@ -529,8 +579,6 @@ export interface KaliProbeResult {
     ssh: KaliSshTestResult
     stats: KaliSystemStats
 }
-
-export type { KaliSystemStats }
 
 export const runtime = {
     status: () => json<RuntimeStatus>("/api/runtime/status"),

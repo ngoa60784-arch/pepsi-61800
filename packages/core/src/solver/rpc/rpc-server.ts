@@ -64,8 +64,20 @@ function applyEnvPairs(pairs?: string[]) {
 
 // ── Server ──
 
+function redirectConsoleToStderr(): void {
+    const write = (...args: unknown[]) => {
+        const text = args.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg))).join(" ")
+        process.stderr.write(`${text}\n`)
+    }
+    console.log = write
+    console.info = write
+    console.debug = write
+    console.warn = write
+}
+
 export async function runSolverRpc(options?: RunSolverRpcOptions): Promise<never> {
     applyEnvPairs(options?.env)
+    redirectConsoleToStderr()
 
     // 1. Bootstrap — read init payload (first JSONL line)
     const raw = await new Promise<string>((resolve, reject) => {

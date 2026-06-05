@@ -4,9 +4,8 @@ import type { ContainerConfig } from "./types"
 /**
  * Execution backend abstraction: decouples where solver processes start from RuntimeManager JSONL-over-stdio bridge.
  *
- * Invariant: solver runs in a local Docker container; child is `Bun.spawn` from `docker run`,
- * with the same JSONL RPC on stdin/stdout. readStream/sendCommand are reused;
- * backend only builds which child to start and how to stop it.
+ * Default: DockerBackend (`docker run` + JSONL RPC on stdin/stdout).
+ * P5-A: LocalProcessBackend (`Bun.spawn` local `tch-agent solver rpc`) — stub until FP-06 lands.
  */
 export interface SolverLaunchSpec {
     solverId: string
@@ -25,8 +24,10 @@ export interface SolverLaunchSpec {
     hostWorkspaceDir: string
 }
 
+export type ExecutionBackendKind = "docker" | "local"
+
 export interface ExecutionBackend {
-    readonly kind: "docker"
+    readonly kind: ExecutionBackendKind
     /** Build and spawn solver child (stdin/stdout/stderr piped) */
     spawn(spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe">
     /** Stop a solver */
@@ -122,8 +123,24 @@ export class DockerBackend implements ExecutionBackend {
     }
 }
 
-/** Solver execution is always local Docker. Remote Kali is reached via MCP `kali-arsenal` (ssh_execute). */
-export function createExecutionBackend(config: ContainerConfig): ExecutionBackend {
-    return new DockerBackend(config)
+/** P5-A placeholder — throws until LocalProcessBackend is implemented. */
+export class LocalProcessBackend implements ExecutionBackend {
+    readonly kind = "local" as const
+
+    constructor(private readonly _config: ContainerConfig) {}
+
+    spawn(_spec: SolverLaunchSpec): Subprocess<"pipe", "pipe", "pipe"> {
+        throw new Error("LocalProcessBackend is not implemented yet (P5-A / FP-06). Set runtime.solverHost=docker for now.")
+    }
+
+    async stop(): Promise<void> {
+        // no-op stub
+    }
 }
 
+export function createExecutionBackend(config: ContainerConfig): ExecutionBackend {
+    if (config.solverHost === "local") {
+        return new LocalProcessBackend(config)
+    }
+    return new DockerBackend(config)
+}

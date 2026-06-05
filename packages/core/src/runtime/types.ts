@@ -11,6 +11,10 @@ export const ARCHIVE_SOLVERS_DIR = resolve(TCH_AGENT_HOME_DIR, "archive_solvers"
 export interface ContainerConfig {
     /** Docker image to use */
     image: string
+    /** P5-A — `local` uses Bun.spawn rpc; `docker` (default) uses docker run. */
+    solverHost?: "local" | "docker"
+    /** P5-B — injected as TCH_EXEC_SURFACE on solver launch. */
+    execSurface?: "remote-vps" | "local-host"
     /** Extra environment variables */
     env?: Record<string, string>
     /** Extra volume binds (host:container format) */

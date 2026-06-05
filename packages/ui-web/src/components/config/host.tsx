@@ -1,7 +1,10 @@
 import type { FormEvent } from "react"
 import { useEffect, useState } from "react"
-import { hostPlannerPrompt, hostSettings, modelPrefs } from "../../lib/api"
+import { hostCapacity, hostPlannerPrompt, hostSettings, modelPrefs, planner } from "../../lib/api"
+import type { HostCapacity } from "../../lib/api"
+import type { HostSettings, PlannerHealth } from "../../lib/api"
 import { useFetch } from "../../hooks/use-fetch"
+import { Badge } from "../ui/badge"
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { Label } from "../ui/label"
@@ -28,7 +31,7 @@ export function PlannerPage() {
     const { data: plannerPromptData, reload: reloadPlannerPrompt } = useFetch(hostPlannerPrompt.get)
     const { data: models } = useFetch(modelPrefs.list)
     const [maxSolvers, setMaxSolvers] = useState(String(DEFAULT_MAX_SOLVERS))
-    const [networkMode, setNetworkMode] = useState(DEFAULT_RUNTIME_NETWORK_MODE)
+    const [networkMode, setNetworkMode] = useState<"host" | "bridge">(DEFAULT_RUNTIME_NETWORK_MODE)
     const [memory, setMemory] = useState("")
     const [cpus, setCpus] = useState("")
     const [plannerPromptContent, setPlannerPromptContent] = useState("")
@@ -38,6 +41,41 @@ export function PlannerPage() {
     const [staleTimeoutMinutes, setStaleTimeoutMinutes] = useState(String(DEFAULT_STALE_TIMEOUT_MINUTES))
     const [saving, setSaving] = useState(false)
     const [message, setMessage] = useState("")
+    const [plannerHealth, setPlannerHealth] = useState<PlannerHealth | null>(null)
+    const [capacity, setCapacity] = useState<HostCapacity | null>(null)
+
+    useEffect(() => {
+        let cancelled = false
+        void hostCapacity
+            .get()
+            .then((next) => {
+                if (!cancelled) setCapacity(next)
+            })
+            .catch(() => {
+                if (!cancelled) setCapacity(null)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [])
+
+    useEffect(() => {
+        let cancelled = false
+        async function loadPlannerHealth() {
+            try {
+                const health = await planner.health()
+                if (!cancelled) setPlannerHealth(health)
+            } catch {
+                if (!cancelled) setPlannerHealth(null)
+            }
+        }
+        void loadPlannerHealth()
+        const timer = setInterval(() => void loadPlannerHealth(), 15_000)
+        return () => {
+            cancelled = true
+            clearInterval(timer)
+        }
+    }, [])
 
     useEffect(() => {
         setMaxSolvers(String(data?.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS))
@@ -59,7 +97,7 @@ export function PlannerPage() {
         setSaving(true)
         setMessage("")
         try {
-            const runtime = {
+            const runtime: HostSettings["runtime"] = {
                 maxSolvers: Math.max(0, Number(maxSolvers) || DEFAULT_MAX_SOLVERS),
                 networkMode: networkMode === "bridge" ? "bridge" : "host",
                 memory: memory.trim() || undefined,
@@ -102,6 +140,15 @@ export function PlannerPage() {
 
     return (
         <form onSubmit={handleSave} className="space-y-4">
+            {plannerHealth?.alerting && (
+                <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-900 dark:text-rose-200">
+                    调度器已连续失败 {plannerHealth.consecutiveFailures} 次。
+                    {plannerHealth.lastError ? ` 最近错误：${plannerHealth.lastError}` : null}
+                    {plannerHealth.currentTickIntervalMs > plannerHealth.baseTickIntervalMs
+                        ? ` 当前 tick 已退避至 ${Math.round(plannerHealth.currentTickIntervalMs / 1000)} 秒。`
+                        : null}
+                </div>
+            )}
             <div className="space-y-4 rounded-lg border p-4">
                 <div className="space-y-1">
                     <div className="text-sm font-medium">调度器运行时</div>
@@ -133,25 +180,39 @@ export function PlannerPage() {
                     </Select>
                     <div className="text-sm text-muted-foreground">solver 容器启动时使用的 Docker 网络模式。</div>
                 </div>
+                {capacity && (
+                    <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                        宿主机约 {capacity.total_memory_mb} MB 内存、{capacity.cpu_count} 核。
+                        推荐每 Solver：内存 {capacity.recommended_memory}、CPU {capacity.recommended_cpus}（多容器并行时请自行估算总占用）。
+                    </div>
+                )}
                 <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                        <Label htmlFor="runtime-memory">内存上限 / Solver</Label>
+                        <div className="flex items-center gap-2">
+                            <Label htmlFor="runtime-memory">内存上限 / Solver</Label>
+                            {!memory.trim() ? <Badge variant="outline">无限制</Badge> : null}
+                        </div>
                         <Input
                             id="runtime-memory"
-                            placeholder="如 2g、512m（留空 = 不限制）"
+                            placeholder={capacity?.recommended_memory ?? "如 4g、2g（留空 = 不限制）"}
                             value={memory}
                             onChange={(event) => setMemory(event.target.value)}
                         />
-                        <div className="text-sm text-muted-foreground">单个 solver 容器内存上限（Docker `--memory`）。防止失控扫描/爆破吃满宿主。</div>
+                        <div className="text-sm text-muted-foreground">
+                            单个 solver 容器内存上限（Docker `--memory`）。留空时无上限，多 Solver 易 OOM。
+                        </div>
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="runtime-cpus">CPU 上限 / Solver</Label>
+                        <div className="flex items-center gap-2">
+                            <Label htmlFor="runtime-cpus">CPU 上限 / Solver</Label>
+                            {!cpus.trim() ? <Badge variant="outline">无限制</Badge> : null}
+                        </div>
                         <Input
                             id="runtime-cpus"
                             type="number"
                             min="0"
                             step="0.5"
-                            placeholder="如 1.5、2（留空 = 不限制）"
+                            placeholder={capacity ? String(capacity.recommended_cpus) : "如 2（留空 = 不限制）"}
                             value={cpus}
                             onChange={(event) => setCpus(event.target.value)}
                         />
