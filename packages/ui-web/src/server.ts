@@ -211,7 +211,10 @@ export async function startWeb(options: WebServerOptions) {
     const runtimeSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
     const solverSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
     const challengeTimelineSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
+    const challengeProgressSubscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
     const challengeTimelineBroadcastTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const challengeProgressRefreshTimers = new Map<string, ReturnType<typeof setInterval>>()
+    const PROGRESS_SSE_REFRESH_MS = 20_000
     const commanderSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
     // 把 Commander 的对话事件广播给所有连着 /api/commander/stream 的前端。
     daemon.commander.subscribe((event) => {
@@ -425,6 +428,71 @@ export async function startWeb(options: WebServerOptions) {
         }
     }
 
+    async function buildProgressPayload(challengeId: string) {
+        return daemon.challenge.buildProgressDigest(challengeId)
+    }
+
+    async function pushChallengeProgress(controller: ReadableStreamDefaultController<Uint8Array>, challengeId: string) {
+        try {
+            const digest = await buildProgressPayload(challengeId)
+            safeEnqueue(controller, encodeSse("digest", digest), () => {
+                const subscribers = challengeProgressSubscribers.get(challengeId)
+                subscribers?.delete(controller)
+                if (subscribers && subscribers.size === 0) {
+                    challengeProgressSubscribers.delete(challengeId)
+                    stopChallengeProgressRefresh(challengeId)
+                }
+            })
+        } catch (error) {
+            logBackgroundError(`push-challenge-progress:${challengeId}`, error)
+        }
+    }
+
+    async function broadcastChallengeProgress(challengeId: string) {
+        const subscribers = challengeProgressSubscribers.get(challengeId)
+        if (!subscribers || subscribers.size === 0) return
+        let frame: Uint8Array
+        try {
+            frame = encodeSse("digest", await buildProgressPayload(challengeId))
+        } catch (error) {
+            logBackgroundError(`broadcast-challenge-progress:${challengeId}`, error)
+            return
+        }
+        for (const controller of [...subscribers]) {
+            safeEnqueue(controller, frame, () => {
+                subscribers.delete(controller)
+                if (subscribers.size === 0) {
+                    challengeProgressSubscribers.delete(challengeId)
+                    stopChallengeProgressRefresh(challengeId)
+                }
+            })
+        }
+    }
+
+    function stopChallengeProgressRefresh(challengeId: string) {
+        const timer = challengeProgressRefreshTimers.get(challengeId)
+        if (!timer) return
+        clearInterval(timer)
+        challengeProgressRefreshTimers.delete(challengeId)
+    }
+
+    function ensureChallengeProgressRefresh(challengeId: string) {
+        if (challengeProgressRefreshTimers.has(challengeId)) return
+        const timer = setInterval(() => {
+            const subscribers = challengeProgressSubscribers.get(challengeId)
+            if (!subscribers || subscribers.size === 0) {
+                stopChallengeProgressRefresh(challengeId)
+                return
+            }
+            runInBackground(`refresh-challenge-progress:${challengeId}`, broadcastChallengeProgress(challengeId))
+        }, PROGRESS_SSE_REFRESH_MS)
+        challengeProgressRefreshTimers.set(challengeId, timer)
+    }
+
+    async function broadcastChallengeBoard(challengeId: string) {
+        await Promise.all([broadcastChallengeTimeline(challengeId), broadcastChallengeProgress(challengeId)])
+    }
+
     async function pushChallengeTimeline(controller: ReadableStreamDefaultController<Uint8Array>, challengeId: string) {
         safeEnqueue(controller, encodeSse("snapshot", await buildAttackTimelinePayload(challengeId)), () => {
             const subscribers = challengeTimelineSubscribers.get(challengeId)
@@ -439,17 +507,16 @@ export async function startWeb(options: WebServerOptions) {
         if (challengeTimelineBroadcastTimers.has(challengeId)) return
         const timer = setTimeout(() => {
             challengeTimelineBroadcastTimers.delete(challengeId)
-            runInBackground(`broadcast-challenge-timeline:${challengeId}`, broadcastChallengeTimeline(challengeId))
+            runInBackground(`broadcast-challenge-board:${challengeId}`, broadcastChallengeBoard(challengeId))
         }, 500)
         challengeTimelineBroadcastTimers.set(challengeId, timer)
     }
 
-    // UI 直接改 memory/ideas（无 solver 事件触发）时也要推 attack-timeline，否则 Attack Flow
-    // 页面在没有运行中 solver 时看不到操作员的手动编辑。直接广播（非 solver 防抖路径）。
+    // UI 直接改 memory/ideas（无 solver 事件触发）时也要推 attack-timeline / progress board。
     function broadcastChallengeTimelineNow(challengeId: string) {
         const id = challengeId.trim()
         if (!id) return
-        runInBackground(`broadcast-challenge-timeline:${id}`, broadcastChallengeTimeline(id))
+        runInBackground(`broadcast-challenge-board:${id}`, broadcastChallengeBoard(id))
     }
 
     function broadcastSolverEvent(solverId: string, event: AgentSessionEvent) {
@@ -858,6 +925,50 @@ export async function startWeb(options: WebServerOptions) {
                             const subscribers = challengeTimelineSubscribers.get(challengeId)
                             subscribers?.delete(controller)
                             if (subscribers?.size === 0) challengeTimelineSubscribers.delete(challengeId)
+                        },
+                    )
+                },
+            },
+
+            "/api/challenges/:id/progress": {
+                async GET(req) {
+                    const challengeId = req.params.id
+                    const challenge = await daemon.challenge.getChallenge(challengeId)
+                    if (!challenge) {
+                        return Response.json({ error: "challenge not found" }, { status: 404 })
+                    }
+                    try {
+                        return Response.json(await buildProgressPayload(challengeId))
+                    } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : String(e)
+                        return Response.json({ error: msg }, { status: 500 })
+                    }
+                },
+            },
+
+            "/api/challenges/:id/progress/stream": {
+                async GET(req) {
+                    const challengeId = req.params.id
+                    const challenge = await daemon.challenge.getChallenge(challengeId)
+                    if (!challenge) {
+                        return Response.json({ error: "challenge not found" }, { status: 404 })
+                    }
+                    return openSse(
+                        req,
+                        (controller) => {
+                            const subscribers = challengeProgressSubscribers.get(challengeId) ?? new Set<ReadableStreamDefaultController<Uint8Array>>()
+                            subscribers.add(controller)
+                            challengeProgressSubscribers.set(challengeId, subscribers)
+                            ensureChallengeProgressRefresh(challengeId)
+                            runInBackground(`push-challenge-progress:${challengeId}`, pushChallengeProgress(controller, challengeId))
+                        },
+                        (controller) => {
+                            const subscribers = challengeProgressSubscribers.get(challengeId)
+                            subscribers?.delete(controller)
+                            if (subscribers?.size === 0) {
+                                challengeProgressSubscribers.delete(challengeId)
+                                stopChallengeProgressRefresh(challengeId)
+                            }
                         },
                     )
                 },

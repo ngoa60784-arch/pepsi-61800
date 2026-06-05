@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=BreachWeave Stop
+Name[zh_CN]=停止 BreachWeave
+Comment=Stop BreachWeave Web UI
+Comment[zh_CN]=停止 BreachWeave Web 服务
+Exec=@@INSTALL_ROOT@@/scripts/stop-breachweave.sh
+Icon=@@INSTALL_ROOT@@/deploy/icons/breachweave.png
+Path=@@INSTALL_ROOT@@
+Terminal=false
+Categories=Development;Security;
+StartupNotify=true
+Keywords=penetration;security;stop;tch;

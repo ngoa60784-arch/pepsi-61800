@@ -21,9 +21,9 @@ bun run install && bun run web
 ### 一键启动（桌面图标）
 
 ```bash
-./scripts/install-desktop-shortcut.sh   # 安装桌面/菜单快捷方式（仅需一次）
-./scripts/start-breachweave.sh        # 或双击「BreachWeave」图标
-./scripts/stop-breachweave.sh           # 停止 Web 服务
+./scripts/install-desktop-shortcut.sh   # 安装桌面/菜单快捷方式（启动+停止，仅需一次）
+./scripts/start-breachweave.sh        # 或双击「BreachWeave」
+./scripts/stop-breachweave.sh           # 或双击「停止 BreachWeave」
 ./scripts/pack-release.sh               # 打包为 dist/breachweave-YYYYMMDD.tar.gz
 ```
 

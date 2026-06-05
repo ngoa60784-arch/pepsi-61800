@@ -13,6 +13,7 @@ import { Skeleton } from "../ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs"
+import { OperationsBoard } from "./operations-board"
 import { Textarea } from "../ui/textarea"
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
@@ -543,7 +544,7 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
     const [statusFilter, setStatusFilter] = useState("all")
     const [statsDialogOpen, setStatsDialogOpen] = useState(false)
     const [startDialogOpen, setStartDialogOpen] = useState(false)
-    const [detailTab, setDetailTab] = useState("solvers")
+    const [detailTab, setDetailTab] = useState("board")
     const [plannerDialogOpen, setPlannerDialogOpen] = useState(false)
     const [plannerStrategy, setPlannerStrategy] = useState("")
     const [plannerSaving, setPlannerSaving] = useState(false)
@@ -1348,11 +1349,21 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
                     <Tabs value={detailTab} onValueChange={setDetailTab} className="min-w-0 space-y-4">
                         <TabsList>
+                            <TabsTrigger value="board">作战看板</TabsTrigger>
                             <TabsTrigger value="solvers">Solver</TabsTrigger>
                             <TabsTrigger value="memory">记忆</TabsTrigger>
                             <TabsTrigger value="ideas">思路</TabsTrigger>
                             <TabsTrigger value="submissions">提交</TabsTrigger>
                         </TabsList>
+
+                        <TabsContent value="board" className="min-w-0">
+                            <OperationsBoard
+                                challengeId={details.challenge.id}
+                                onOpenAttackFlow={() => {
+                                    location.hash = `#/challenge/${encodeURIComponent(details.challenge.id)}/attack-flow`
+                                }}
+                            />
+                        </TabsContent>
 
                         <TabsContent value="solvers" className="min-w-0 space-y-3">
                             {details.solver_stats.length > 0 && (

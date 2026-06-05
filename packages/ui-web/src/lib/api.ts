@@ -2,6 +2,7 @@ import type { ActivateModelResult, AddResult, HostSettings } from "../../../core
 import type { ChallengeInfoRecord, ChallengeAttemptLogRecord, ChallengeSubmissionLogRecord } from "../../../core/src/challenge/store"
 import type { AddIdeaResult, IdeaRecord, MemoryEntry } from "../../../core/src/challenge/manager"
 import type { AttackTimelineEvent, AttackTimelineSnapshot } from "../../../core/src/challenge/attack-timeline"
+import type { ChallengeProgressDigest } from "../../../core/src/challenge/progress-digest"
 import type { ChallengeStatsOverview, ChallengeStatsOverviewBucket, ChallengeStatsRecord, SolverStatsRecord } from "../../../core/src/challenge/stats"
 import type { McpServerItem, ProbeResult } from "../../../core/src/config/mcp/index"
 import type { PromptFile } from "../../../core/src/config/prompts/index"
@@ -30,6 +31,7 @@ export type {
     ChallengeStatsOverviewBucket,
     AttackTimelineEvent,
     AttackTimelineSnapshot,
+    ChallengeProgressDigest,
     SolverStatsRecord,
     MemoryEntry,
     IdeaRecord,
@@ -447,6 +449,7 @@ export const challenges = {
             method: "DELETE",
         }),
     attackTimeline: (id: string) => json<AttackTimelineSnapshot>(`/api/challenges/${encodeURIComponent(id)}/attack-timeline`),
+    progress: (id: string) => json<ChallengeProgressDigest>(`/api/challenges/${encodeURIComponent(id)}/progress`),
     exportSolverSessions: (id: string) => download(`/api/challenges/${encodeURIComponent(id)}/solver-sessions.zip`),
     startSolver: (id: string, promptName: string) =>
         json<SolverInstance>(`/api/challenges/${encodeURIComponent(id)}/solvers`, {

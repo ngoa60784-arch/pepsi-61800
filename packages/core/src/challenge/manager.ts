@@ -27,6 +27,8 @@ import {
 } from "./store"
 import type { ChallengeStatsOverviewBucket, ChallengeStatsRecord, SolverStatsRecord } from "./stats"
 import { buildChallengeStatsOverview, refreshChallengeStats } from "./stats"
+import { buildChallengeAttackTimeline } from "./attack-timeline"
+import { buildChallengeProgressDigest, type ChallengeProgressDigest } from "./progress-digest"
 import { isRealFinding } from "./submission-utils"
 import {
     type AddIdeaResult,
@@ -1912,6 +1914,73 @@ export class ChallengeManager {
             findings: snapshot.findings,
             activeSolvers: activeSolverRows,
         }
+    }
+
+    /** Aggregated live progress view for the operations board UI. */
+    async buildProgressDigest(challengeId: string): Promise<ChallengeProgressDigest> {
+        const id = requireText(challengeId, "challengeId")
+        const challenge = await this.getChallenge(id)
+        if (!challenge) {
+            throw new Error(`challenge "${id}" not found`)
+        }
+
+        const [overview, ideas, memory, submissions, attempts, statsResult] = await Promise.all([
+            this.buildTargetOverview(id),
+            this.listIdeas(id),
+            this.listMemory(id),
+            this.listSubmissionLogs(id),
+            this.listAttemptLogs(id),
+            this.refreshStats(id),
+        ])
+
+        const solverPromptById: Record<string, string | undefined> = {}
+        if (this.runtime) {
+            const allSolvers =
+                typeof this.runtime.listAll === "function" ? await this.runtime.listAll() : this.runtime.list()
+            for (const solver of allSolvers) {
+                if (solver.challengeId === id) solverPromptById[solver.id] = solver.promptName
+            }
+        }
+
+        const previousRound = await this.readPreviousPlannerRound()
+        const battlePlanEntry = previousRound?.battlePlan?.find((entry) => entry.challengeId === id)
+        const timeline = await buildChallengeAttackTimeline({
+            challengeId: id,
+            memory,
+            ideas,
+            attempts,
+            submissions,
+            solverStats: statsResult.solver_stats,
+        })
+
+        return buildChallengeProgressDigest({
+            challenge,
+            overview: {
+                progressPhase: overview.progressPhase,
+                instanceStatus: overview.instanceStatus,
+                activeSolverCount: overview.activeSolverCount,
+                findingCount: overview.findingCount,
+                failedRouteCount: overview.failedRouteCount,
+                successRate: overview.successRate,
+                pruneRecommended: overview.pruneRecommended,
+                stateAssets: overview.stateAssets,
+                activeSolvers: overview.activeSolvers,
+            },
+            ideas,
+            memory,
+            submissions,
+            solverPromptById,
+            battlePlan: battlePlanEntry
+                ? {
+                      challengeId: battlePlanEntry.challengeId,
+                      strategy: battlePlanEntry.strategy,
+                      nextCheckpoint: battlePlanEntry.nextCheckpoint,
+                      updated_at: battlePlanEntry.updated_at,
+                  }
+                : undefined,
+            plannerSummary: previousRound?.summary,
+            recentEvents: timeline.events,
+        })
     }
 
     async listIdeas(challengeId: string): Promise<IdeaRecord[]> {
