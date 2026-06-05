@@ -1,20 +1,29 @@
-import { readFileSync } from "fs"
-import { writeFile } from "fs/promises"
+import { existsSync, readFileSync } from "fs"
+import { mkdir, writeFile } from "fs/promises"
 import { resolve } from "path"
 import type { ServerEntry, McpConfig, McpSettings } from "pi-mcp-adapter/types.js"
+import { BUILTIN_MCP_FILES } from "../builtin-assets.generated"
 import {
     BUILTIN_MCP_SCRIPT_NAMES,
+    applyMcpDirEnv,
     containerMcpScriptPath,
+    getRepoMcpDir,
     isContainerMcpScriptPath,
     isLegacyRepoMcpScriptPath,
+    isSolverMcpMountAvailable,
     withHostResolvedMcpServer,
 } from "./paths"
 export {
     BUILTIN_MCP_SCRIPT_NAMES,
     SOLVER_MCP_MOUNT,
+    TCH_MCP_DIR_ENV,
+    applyMcpDirEnv,
     containerMcpScriptPath,
-    resolveRepoMcpDir,
+    getRepoMcpDir,
+    isSolverMcpMountAvailable,
+    resolveMcpDir,
     resolveMcpScriptPathForHost,
+    resolveRepoMcpDir,
     withHostResolvedMcpServer,
 } from "./paths"
 import { loadMcpConfig } from "pi-mcp-adapter/config.js"
@@ -123,6 +132,43 @@ export async function migrateMcpPathsToContainerMount(dir: string) {
     if (changed) await writeMcpConfig(dir, config)
 }
 
+/**
+ * Release built-in MCP Python scripts into the user's config directory when the
+ * repo `mcp/` tree is unavailable (compiled sidecar). Sets `TCH_MCP_DIR`.
+ */
+export async function initBuiltinMcpScripts(dir: string) {
+    const repoDir = getRepoMcpDir()
+    if (existsSync(resolve(repoDir, "ssh_mcp.py"))) {
+        applyMcpDirEnv(dir)
+        return
+    }
+
+    const destBase = resolve(dir, "mcp")
+    await mkdir(destBase, { recursive: true })
+    const builtinMcpFiles = BUILTIN_MCP_FILES as unknown as Record<string, string>
+    for (const [name, sourcePath] of Object.entries(builtinMcpFiles)) {
+        await Bun.write(resolve(destBase, name), Bun.file(sourcePath))
+    }
+    applyMcpDirEnv(dir)
+}
+
+/** Host-resolved mcp.json for sessions outside the Docker `/opt/tch-mcp` mount. */
+export async function resolveMcpConfigPathForSession(dir: string): Promise<string> {
+    if (isSolverMcpMountAvailable()) {
+        return mcpJsonPath(dir)
+    }
+    const config = getMcpConfig(dir)
+    const resolved: McpConfig = {
+        ...config,
+        mcpServers: Object.fromEntries(
+            Object.entries(config.mcpServers).map(([name, server]) => [name, withHostResolvedMcpServer(server, dir)]),
+        ),
+    }
+    const outPath = resolve(dir, "mcp.host-resolved.json")
+    await Bun.write(outPath, JSON.stringify(resolved, null, 2))
+    return outPath
+}
+
 /** Seed the built-in MCP servers on first startup (only fills in what's missing, never overwrites the user's existing config/credentials). */
 export async function initBuiltinMcpServers(dir: string) {
     const config = getMcpConfig(dir)
@@ -212,9 +258,9 @@ export interface ProbeResult {
     resources: McpServerCacheEntry["resources"]
 }
 
-export async function probeMcpServerDefinition(serverName: string, definition: ServerEntry): Promise<ProbeResult> {
+export async function probeMcpServerDefinition(serverName: string, definition: ServerEntry, configDir?: string): Promise<ProbeResult> {
     const manager = new McpServerManager()
-    const resolved = withHostResolvedMcpServer(definition)
+    const resolved = withHostResolvedMcpServer(definition, configDir)
     try {
         const connection = await manager.connect(serverName, resolved)
         const tools = connection.tools.map((t) => ({
@@ -240,7 +286,7 @@ export async function probeMcpServer(dir: string, serverName: string): Promise<P
     const definition = config.mcpServers[serverName]
     if (!definition) throw new Error(`MCP server "${serverName}" not found`)
 
-    const result = await probeMcpServerDefinition(serverName, definition)
+    const result = await probeMcpServerDefinition(serverName, definition, dir)
 
     // Update the cache
     const cache = loadMcpToolCache(dir) ?? { version: 1, servers: {} }

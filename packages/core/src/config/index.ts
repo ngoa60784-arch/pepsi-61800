@@ -1065,10 +1065,11 @@ export class ConfigManager {
 
         // 7) Build MCP extension
         const enabledMcpServers = (prompt.meta.mcps ?? []).filter((name) => name in this.getMcpConfig().mcpServers)
+        const mcpConfigPath = await mcp.resolveMcpConfigPathForSession(this.dir)
         const mcpExtension =
             enabledMcpServers.length > 0
                 ? createMcpAdapter({
-                      configPath: this.mcpJsonPath(),
+                      configPath: mcpConfigPath,
                       enabledServers: enabledMcpServers,
                       enabledTools: enabledToolNames,
                   })

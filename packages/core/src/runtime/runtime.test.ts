@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
-import { getAgentEndError, hashDockerfileContent, RuntimeManager } from "./runtime"
+import { applyDesktopRuntimeOverrides, getAgentEndError, hashDockerfileContent, RuntimeManager } from "./runtime"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { ChallengeManager } from "../challenge/manager"
 import { createChallengeHostBridgeHandler } from "../challenge/host-bridge-handler"
@@ -32,6 +32,24 @@ async function createRuntimeManager(): Promise<{ runtime: RuntimeManager; challe
     const runtime = new RuntimeManager(config, [createChallengeHostBridgeHandler(challengeManager)])
     return { runtime, challengeManager }
 }
+
+describe("applyDesktopRuntimeOverrides", () => {
+    test("forces local solver host when TCH_DESKTOP=1", () => {
+        process.env.TCH_DESKTOP = "1"
+        const runtime = applyDesktopRuntimeOverrides({ solverHost: "docker", execSurface: "remote-vps" })
+        expect(runtime.solverHost).toBe("local")
+        expect(runtime.execSurface).toBe("remote-vps")
+        delete process.env.TCH_DESKTOP
+    })
+
+    test("defaults execSurface to local-host when unset", () => {
+        process.env.TCH_DESKTOP = "1"
+        const runtime = applyDesktopRuntimeOverrides({})
+        expect(runtime.solverHost).toBe("local")
+        expect(runtime.execSurface).toBe("local-host")
+        delete process.env.TCH_DESKTOP
+    })
+})
 
 describe("getAgentEndError", () => {
     test("returns assistant error from agent_end", () => {

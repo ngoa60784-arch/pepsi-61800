@@ -1,0 +1,45 @@
+{
+    "identifier": "default",
+    "description": "BreachWeave desktop default permissions",
+    "windows": ["main"],
+    "webviews": ["main"],
+    "permissions": [
+        "core:default",
+        "core:window:allow-create",
+        "core:window:allow-set-focus",
+        "core:window:allow-unminimize",
+        "core:window:allow-show",
+        "core:webview:allow-create-webview-window",
+        "shell:allow-kill",
+        {
+            "identifier": "shell:allow-execute",
+            "allow": [
+                {
+                    "name": "binaries/tch-agent",
+                    "sidecar": true,
+                    "args": true
+                },
+                {
+                    "name": "bun",
+                    "cmd": "bun",
+                    "args": true
+                }
+            ]
+        },
+        {
+            "identifier": "shell:allow-spawn",
+            "allow": [
+                {
+                    "name": "binaries/tch-agent",
+                    "sidecar": true,
+                    "args": true
+                },
+                {
+                    "name": "bun",
+                    "cmd": "bun",
+                    "args": true
+                }
+            ]
+        }
+    ]
+}

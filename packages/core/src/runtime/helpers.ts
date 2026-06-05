@@ -215,6 +215,28 @@ async function ensureRuntimePackageManifest(): Promise<string> {
     return path
 }
 
+function resolveProjectRoot(): string {
+    return resolve(import.meta.dir, "../../../..")
+}
+
+/** Local-process backend: spawn solver rpc on the host (no Docker). */
+export async function resolveLocalSolverInjection(): Promise<{ binds: string[]; cmd: string[] }> {
+    const execPath = process.execPath
+    const bunRuntime = isBunRuntime()
+
+    if (bunRuntime) {
+        const cliEntry = resolve(resolveProjectRoot(), "apps/cli/src/main.ts")
+        return { binds: [], cmd: [execPath, cliEntry, "solver", "rpc"] }
+    }
+
+    if (process.platform === "linux" && process.arch === "x64") {
+        return { binds: [], cmd: [execPath, "solver", "rpc"] }
+    }
+
+    const binary = await ensureSolverBinary()
+    return { binds: [], cmd: [binary, "solver", "rpc"] }
+}
+
 export async function resolveSolverInjection(): Promise<{ binds: string[]; cmd: string[] }> {
     const execPath = process.execPath
     const bunRuntime = isBunRuntime()

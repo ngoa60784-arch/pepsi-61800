@@ -12,6 +12,8 @@ type BuildTarget =
     | "bun-windows-x64"
     | "bun-windows-x64-baseline"
 
+// P5-C: `bun compile` control-plane sidecar — bundles prompts/skills/MCP via generateBuiltinAssets().
+// Release binary runs `web` / `solver rpc` without a source checkout (~/.tch-agent/config for user data).
 const projectRoot = resolve(import.meta.dir, "..")
 const entrypoint = resolve(projectRoot, "apps/cli/src/main.ts")
 const runtimeAssetsDir = resolve(projectRoot, "packages/core/src/runtime/assets")
@@ -62,10 +64,7 @@ await mkdir(dirname(outfile), { recursive: true })
 
 const result = await Bun.build({
     entrypoints: [entrypoint],
-    outdir: dirname(outfile),
-    naming: {
-        entry: dirname(outfile) === "." ? "[dir]/[name]" : "[name]",
-    },
+    target: "bun",
     // cpu-features is an optional native module of ssh2 (pulled in via dockerode→docker-modem).
     // It requires compilation and cannot be bundled into the `bun build --compile` single-file
     // package, otherwise compilation errors out. It is only used by ssh2 when "connecting to a
@@ -85,6 +84,14 @@ if (!result.success) {
     }
     process.exit(1)
 }
+
+const runtimePackageJson = {
+    name: "tch-agent-runtime",
+    version: "0.0.1",
+    private: true,
+    type: "module",
+}
+await Bun.write(resolve(dirname(outfile), "package.json"), JSON.stringify(runtimePackageJson, null, 2))
 
 if (generatedEmbeddedLinuxSolver || (generatedEmbeddedLinuxSolverPlaceholder && outfile !== embeddedLinuxSolverPath)) {
     await rm(embeddedLinuxSolverPath, { force: true })

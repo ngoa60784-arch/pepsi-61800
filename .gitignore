@@ -26,6 +26,10 @@ keys.env
 
 bin
 
+# desktop / compile artifacts
+apps/desktop/src-tauri/target/
+packages/core/src/runtime/assets/tch-agent-linux-x64
+
 # caches
 .eslintcache
 .cache

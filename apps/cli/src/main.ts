@@ -1,5 +1,5 @@
 import { Command } from "commander"
-import { basename, resolve } from "node:path"
+import { basename, dirname, resolve } from "node:path"
 
 const GENERATED_PACKAGE_JSON = {
     name: "tch-agent-runtime",
@@ -86,10 +86,15 @@ function installGlobalErrorHandlers() {
 
 async function ensureRuntimePackageJson(): Promise<void> {
     if (basename(process.execPath).startsWith("bun")) return
-    const packageJsonPath = resolve(process.cwd(), "package.json")
-    const file = Bun.file(packageJsonPath)
-    if (await file.exists()) return
-    await Bun.write(packageJsonPath, JSON.stringify(GENERATED_PACKAGE_JSON, null, 2))
+    const candidates = [
+        resolve(dirname(process.execPath), "package.json"),
+        resolve(process.cwd(), "package.json"),
+    ]
+    for (const packageJsonPath of candidates) {
+        const file = Bun.file(packageJsonPath)
+        if (await file.exists()) continue
+        await Bun.write(packageJsonPath, JSON.stringify(GENERATED_PACKAGE_JSON, null, 2))
+    }
 }
 
 async function ensureBuiltinAssetsGenerated(): Promise<void> {
@@ -102,9 +107,10 @@ async function ensureBuiltinAssetsGenerated(): Promise<void> {
 async function ensureHostStaticConfig(configDir: string): Promise<void> {
     const { initBuiltinSkills } = await import("../../../packages/core/src/config/skills/index")
     const { initBuiltinPrompts } = await import("../../../packages/core/src/config/prompts/index")
-    const { initBuiltinMcpServers } = await import("../../../packages/core/src/config/mcp/index")
+    const { initBuiltinMcpScripts, initBuiltinMcpServers } = await import("../../../packages/core/src/config/mcp/index")
     await initBuiltinSkills(configDir)
     await initBuiltinPrompts(configDir)
+    await initBuiltinMcpScripts(configDir)
     await initBuiltinMcpServers(configDir)
 }
 
@@ -112,7 +118,7 @@ function shouldPrepareHostStaticConfig(argv: string[]): boolean {
     const command = argv[2]
     if (!command) return false
     if (command === "web") return true
-    if (command === "solver" && argv[3] === "list") return true
+    if (command === "solver" && (argv[3] === "list" || argv[3] === "rpc")) return true
     if (command === "subagent" && argv[3] === "list") return true
     return false
 }

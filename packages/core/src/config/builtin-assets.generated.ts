@@ -420,8 +420,12 @@ import skill_412 from "./skills/builtin/targeted-pentest/references/server-side-
 import skill_413 from "./skills/builtin/targeted-pentest/references/server-side-exec.md" with { type: "file" }
 import skill_414 from "./skills/builtin/targeted-pentest/references/server-side.md" with { type: "file" }
 import skill_415 from "./skills/builtin/targeted-pentest/references/sql-injection.md" with { type: "file" }
+import mcp_0 from "./mcp/builtin/ssh_mcp.py" with { type: "file" }
+import mcp_1 from "./mcp/builtin/vuln_intel_mcp.py" with { type: "file" }
 import runtime_0 from "../runtime/assets/Dockerfile" with { type: "file" }
-import runtime_1 from "../runtime/assets/provision-pentest-vps.sh" with { type: "file" }
+import runtime_1 from "../runtime/assets/package.json" with { type: "file" }
+import runtime_2 from "../runtime/assets/provision-pentest-vps.sh" with { type: "file" }
+import runtime_3 from "../runtime/assets/tch-agent-linux-x64" with { type: "file" }
 
 export const BUILTIN_PROMPTS = {
     "CHALLENGE_PLANNER.md": prompt_0,
@@ -850,7 +854,14 @@ export const BUILTIN_SKILL_FILES = {
     "targeted-pentest/references/sql-injection.md": skill_415,
 } as const
 
+export const BUILTIN_MCP_FILES = {
+    "ssh_mcp.py": mcp_0,
+    "vuln_intel_mcp.py": mcp_1,
+} as const
+
 export const RUNTIME_ASSET_FILES = {
     "Dockerfile": runtime_0,
-    "provision-pentest-vps.sh": runtime_1,
+    "package.json": runtime_1,
+    "provision-pentest-vps.sh": runtime_2,
+    "tch-agent-linux-x64": runtime_3,
 } as const

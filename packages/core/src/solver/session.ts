@@ -6,6 +6,7 @@ import type { PromptFile } from "../config/prompts/index"
 import type { SolverInitPayload } from "./rpc/rpc-types"
 import { solverDir, solverSessionDir, solverWorkspaceDir } from "../runtime/types"
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
+import { execSurfaceExtension } from "./extension/exec-surface"
 import { largeToolResultExtension } from "./extension/large-tool-result"
 import { isEngagementMode, loadEngagementScope } from "../challenge/engagement"
 
@@ -127,6 +128,7 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
 
     const extensions = [
+        execSurfaceExtension(),
         // Context compaction: tool output over threshold (default 32KB) spills to workspace .tool-results/,
         // context keeps ~600-char preview + path with grep/chunk hints. Avoids nmap/ffuf/nuclei
         // flooding context. Before observer so hooks see compressed results.

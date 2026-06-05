@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CheckCircle2, Loader2, Server, Wrench, XCircle } from "lucide-react"
-import { formatKaliEnvFields, hasFofaCredentials, KALI_OPTIONAL_TOOLS, parseProvisionLogSummary } from "@tch/core"
+import { formatKaliEnvFields, hasFofaCredentials, KALI_OPTIONAL_TOOLS, parseProvisionLogSummary } from "@tch/core/ui"
 import { mcpServers } from "../../lib/api"
 import type { KaliProvisionEvent, KaliToolCheckResult } from "../../lib/api"
 

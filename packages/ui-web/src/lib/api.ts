@@ -30,7 +30,7 @@ import type {
     SolverStatsRecord,
     ToolEntry,
     PentestKeysSyncResult,
-} from "@tch/core"
+} from "@tch/core/ui"
 import type { Skill } from "@mariozechner/pi-coding-agent"
 import type { Api, Model } from "@mariozechner/pi-ai"
 import type { ServerEntry as McpServerEntry, McpSettings } from "pi-mcp-adapter/types.js"

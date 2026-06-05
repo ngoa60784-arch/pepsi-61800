@@ -11,7 +11,8 @@ import type {
 } from "./types"
 import { ARCHIVE_SOLVERS_DIR, SOLVERS_DIR, solverDir, solverSessionDir, solverStartupPath, solverWorkspaceDir } from "./types"
 import { ConfigManager, DEFAULT_CONFIG_DIR } from "../config/index"
-import { resolveRepoMcpDir, SOLVER_MCP_MOUNT } from "../config/mcp/paths"
+import type { HostRuntimeSettings } from "../config/types"
+import { resolveMcpDir, SOLVER_MCP_MOUNT } from "../config/mcp/paths"
 import { resolveBuiltinSkillsDir, TCH_BUILTIN_SKILLS_ENV } from "../config/skills/index"
 import { existsSync } from "node:fs"
 import { CHALLENGE_ENV_CHALLENGE_ID, ENGAGEMENT_ENV_SCOPE } from "../challenge/env"
@@ -33,6 +34,7 @@ import {
     readMessagesFromSessionDir,
     readStartup,
     resolveDockerfilePath,
+    resolveLocalSolverInjection,
     resolveSolverInjection,
 } from "./helpers"
 import { recordRpcStdoutPollution, tryParseStdoutJsonlLine } from "../observability/metrics"
@@ -206,6 +208,16 @@ function solverStartupLogPath(solverId: string): string {
     return resolve(solverDir(solverId), "startup.log")
 }
 
+/** Desktop shell (Tauri) forces local solver host — no Docker / compile-on-start required. */
+export function applyDesktopRuntimeOverrides(runtime: HostRuntimeSettings): HostRuntimeSettings {
+    if (process.env.TCH_DESKTOP !== "1") return runtime
+    return {
+        ...runtime,
+        solverHost: "local",
+        execSurface: runtime.execSurface ?? "local-host",
+    }
+}
+
 export class RuntimeManager {
     private docker: Dockerode
     private config: ContainerConfig
@@ -222,9 +234,9 @@ export class RuntimeManager {
     constructor(config: ConfigManager, hostBridgeHandlers: HostBridgeHandler[]) {
         this.docker = new Dockerode()
         const binds = [`${DEFAULT_CONFIG_DIR}:/root/.tch-agent/config:ro`]
-        const repoMcpDir = resolveRepoMcpDir()
-        if (existsSync(repoMcpDir)) {
-            binds.push(`${repoMcpDir}:${SOLVER_MCP_MOUNT}:ro`)
+        const mcpDir = resolveMcpDir(DEFAULT_CONFIG_DIR)
+        if (existsSync(resolve(mcpDir, "ssh_mcp.py"))) {
+            binds.push(`${mcpDir}:${SOLVER_MCP_MOUNT}:ro`)
         }
         const builtinSkillsDir = resolveBuiltinSkillsDir(DEFAULT_CONFIG_DIR)
         if (existsSync(builtinSkillsDir) && builtinSkillsDir !== resolve(DEFAULT_CONFIG_DIR, "skills")) {
@@ -247,13 +259,21 @@ export class RuntimeManager {
 
     async reloadFromConfig(): Promise<void> {
         const hostSettings = await this.hostConfig.getHostSettings()
-        this.config = { ...this.config, ...hostSettings.runtime }
+        const runtime = applyDesktopRuntimeOverrides(hostSettings.runtime)
+        this.config = { ...this.config, ...runtime }
         this.backend = createExecutionBackend(this.config)
+    }
+
+    private usesDockerBackend(): boolean {
+        return this.backend.kind === "docker"
     }
 
     async init(onProgress?: (message: string) => void) {
         await this.ensureReady()
-        await this.ensureImage(onProgress)
+        if (this.usesDockerBackend()) {
+            await this.ensureImage(onProgress)
+        }
+        if (!this.usesDockerBackend()) return
         const execName = basename(process.execPath).toLowerCase()
         if (execName === "bun" || execName === "bun.exe") {
             await ensureSolverBinary(onProgress)
@@ -430,6 +450,7 @@ export class RuntimeManager {
      * If the user copy doesn't exist, the built-in one is copied there first.
      */
     async ensureImage(onProgress?: (message: string) => void): Promise<void> {
+        if (!this.usesDockerBackend()) return
         const dockerfilePath = await resolveDockerfilePath(onProgress)
         const imageExists = await this.hasImage()
 
@@ -503,10 +524,12 @@ export class RuntimeManager {
         onProgress?.(`Image ${this.config.image} built successfully`)
     }
 
-    /** Start a new solver in a local Docker container (pentest commands go to remote Kali via MCP kali-arsenal). */
+    /** Start a new solver (Docker container or local process per runtime.solverHost). */
     async launch(promptName: string, task: string, solverEnv?: Record<string, string>, options?: { solverId?: string; resume?: boolean }): Promise<SolverInstance> {
         await this.ensureReady()
-        await this.ensureImage()
+        if (this.usesDockerBackend()) {
+            await this.ensureImage()
+        }
 
         const id = options?.solverId?.trim() || crypto.randomUUID().slice(0, 8)
         const name = `${SOLVER_NAME_PREFIX}-${id}`
@@ -539,7 +562,7 @@ export class RuntimeManager {
         await mkdir(sessionDir, { recursive: true })
         await mkdir(workspaceDir, { recursive: true })
 
-        const injection = await resolveSolverInjection()
+        const injection = this.usesDockerBackend() ? await resolveSolverInjection() : await resolveLocalSolverInjection()
         const hostScopePath = normalizedSolverEnv[ENGAGEMENT_ENV_SCOPE]?.trim() || undefined
 
         try {

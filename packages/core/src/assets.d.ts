@@ -18,6 +18,11 @@ declare module "*.sh" {
     export default content
 }
 
+declare module "*.py" {
+    const path: string
+    export default path
+}
+
 declare module "*.json" {
     const content: string
     export default content

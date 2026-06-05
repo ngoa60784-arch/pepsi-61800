@@ -23,7 +23,20 @@
         "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/core",
         "typecheck:web": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/ui-web",
         "typecheck:cli": "bun ./node_modules/typescript/bin/tsc --noEmit -p apps/cli",
-        "typecheck:all": "bun run typecheck && bun run typecheck:web && bun run typecheck:cli"
+        "typecheck:all": "bun run typecheck && bun run typecheck:web && bun run typecheck:cli",
+        "desktop:prepare": "bun run scripts/prepare-desktop-sidecar.ts --platform=linux",
+        "desktop:prepare:dev": "bun run scripts/prepare-desktop-sidecar.ts --dev",
+        "desktop:prepare:all": "bun run scripts/prepare-desktop-sidecar.ts --all-platforms",
+        "desktop:prepare:windows": "bun run scripts/prepare-desktop-sidecar.ts --platform=windows",
+        "desktop:prepare:macos": "bun run scripts/prepare-desktop-sidecar.ts --platform=macos-arm64 --platform=macos-x64",
+        "desktop:dev": "bash scripts/desktop-dev.sh",
+        "desktop:smoke": "bash scripts/smoke-desktop-sidecar.sh",
+        "desktop:deps": "bash scripts/install-desktop-deps.sh",
+        "desktop:build": "bash scripts/pack-desktop.sh",
+        "desktop:build:windows": "bash scripts/pack-desktop-windows.sh",
+        "desktop:build:macos": "bash scripts/pack-desktop-macos.sh",
+        "desktop:build:all": "bash scripts/pack-desktop-all.sh",
+        "desktop:build:appimage": "cd apps/desktop && bun run tauri build -- --bundles appimage"
     },
     "module": "index.ts",
     "devDependencies": {

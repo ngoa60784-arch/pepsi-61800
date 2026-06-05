@@ -365,37 +365,37 @@ export function CommanderPage() {
                             <ul className="space-y-2">
                                 {sessions.map((item) => (
                                     <li key={item.path}>
-                                        <button
-                                            type="button"
-                                            disabled={busy}
-                                            onClick={() => void handleSwitchSession(item)}
+                                        <div
                                             className={cn(
-                                                "commander-session-row group w-full text-left",
+                                                "commander-session-row group flex w-full items-start justify-between gap-2 text-left",
                                                 item.active && "commander-session-row-active",
                                                 busy && "opacity-50",
                                             )}
                                         >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="line-clamp-2 text-[0.9375rem] font-medium leading-snug">{item.preview}</p>
-                                                    <p className="mt-1 text-[0.75rem] text-muted-foreground">
-                                                        {formatSessionTime(item.modified)} · {item.messageCount} 条
-                                                        {item.active ? " · 当前" : ""}
-                                                    </p>
-                                                </div>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon-sm"
-                                                    className="shrink-0 rounded-lg opacity-0 group-hover:opacity-100"
-                                                    disabled={busy}
-                                                    title="删除此对话"
-                                                    onClick={(event) => void handleDeleteSession(item, event)}
-                                                >
-                                                    <Trash2Icon className="size-4 text-destructive" />
-                                                </Button>
-                                            </div>
-                                        </button>
+                                            <button
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() => void handleSwitchSession(item)}
+                                                className="min-w-0 flex-1 text-left"
+                                            >
+                                                <p className="line-clamp-2 text-[0.9375rem] font-medium leading-snug">{item.preview}</p>
+                                                <p className="mt-1 text-[0.75rem] text-muted-foreground">
+                                                    {formatSessionTime(item.modified)} · {item.messageCount} 条
+                                                    {item.active ? " · 当前" : ""}
+                                                </p>
+                                            </button>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon-sm"
+                                                className="shrink-0 rounded-lg opacity-0 group-hover:opacity-100"
+                                                disabled={busy}
+                                                title="删除此对话"
+                                                onClick={(event) => void handleDeleteSession(item, event)}
+                                            >
+                                                <Trash2Icon className="size-4 text-destructive" />
+                                            </Button>
+                                        </div>
                                     </li>
                                 ))}
                             </ul>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, startTransition } from "react"
-import type { ChallengeProgressDigest, IdeaStatus } from "@tch/core"
+import type { ChallengeProgressDigest, IdeaStatus } from "@tch/core/ui"
 import { challenges } from "../../lib/api"
 import { formatFreshness, isDataStale, useSse } from "../../lib/use-sse"
 import { Badge } from "../ui/badge"
