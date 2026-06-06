@@ -76,6 +76,26 @@ _conns: dict[str, asyncssh.SSHClientConnection] = {}
 _locks: dict[str, asyncio.Lock] = {}
 _global_lock = asyncio.Lock()
 
+# Cached session is dead — drop from pool and retry once (keep-alive MCP processes).
+_RECONNECT_ERRORS = (
+    asyncssh.DisconnectError,
+    asyncssh.ChannelOpenError,
+    asyncssh.ConnectionLost,
+    BrokenPipeError,
+    ConnectionError,
+    OSError,
+)
+
+
+def _drop_conn(k: str) -> None:
+    conn = _conns.pop(k, None)
+    if conn is None:
+        return
+    try:
+        conn.close()
+    except Exception:
+        pass
+
 
 def _key(host: str, port: int, username: str) -> str:
     return f"{username}@{host}:{port}"
@@ -104,8 +124,7 @@ async def _connect(
     async with lock:
         conn = _conns.get(k)
 
-        # 不做主动探活 — 让 _run 的重试逻辑处理断线
-        # 这样连接复用是 O(1), 不发任何网络包
+        # 不做主动探活 — _run / SFTP 在 ChannelOpenError 等断线异常时 _drop_conn 后重试
         if conn is None:
             conn = await asyncio.wait_for(
                 asyncssh.connect(
@@ -190,8 +209,8 @@ async def _run(
         except asyncio.TimeoutError:
             return f"[TIMEOUT] 命令超过 {timeout}s, 已中断"
 
-        except (asyncssh.DisconnectError, OSError, ConnectionError):
-            _conns.pop(k, None)
+        except _RECONNECT_ERRORS:
+            _drop_conn(k)
             if attempt == 0:
                 continue  # 自动重连一次
             return f"[SSH ERROR] 连接 {k} 失败, 请检查网络"
@@ -338,13 +357,24 @@ async def ssh_upload(
         except Exception as e:
             return f"[ERROR] 上传失败: {e}"
 
-    try:
-        conn = await _connect(host, port, username, password)
-        async with conn.start_sftp_client() as sftp:
-            await sftp.put(local_path, remote_path)
-        return f"[OK] 已上传: {local_path} → {remote_path}"
-    except Exception as e:
-        return f"[ERROR] 上传失败: {e}"
+    h = host     or DEFAULT_SSH["host"]
+    p = port     or DEFAULT_SSH["port"]
+    u = username or DEFAULT_SSH["username"]
+    k = _key(h, p, u)
+    for attempt in range(2):
+        try:
+            conn = await _connect(host, port, username, password)
+            async with conn.start_sftp_client() as sftp:
+                await sftp.put(local_path, remote_path)
+            return f"[OK] 已上传: {local_path} → {remote_path}"
+        except _RECONNECT_ERRORS:
+            _drop_conn(k)
+            if attempt == 0:
+                continue
+            return f"[SSH ERROR] 连接 {k} 失败, 请检查网络"
+        except Exception as e:
+            return f"[ERROR] 上传失败: {e}"
+    return "[ERROR] 上传失败: 未知错误"
 
 
 @mcp.tool()
@@ -382,13 +412,24 @@ async def ssh_download(
         except Exception as e:
             return f"[ERROR] 下载失败: {e}"
 
-    try:
-        conn = await _connect(host, port, username, password)
-        async with conn.start_sftp_client() as sftp:
-            await sftp.get(remote_path, local_path)
-        return f"[OK] 已下载: {remote_path} → {local_path}"
-    except Exception as e:
-        return f"[ERROR] 下载失败: {e}"
+    h = host     or DEFAULT_SSH["host"]
+    p = port     or DEFAULT_SSH["port"]
+    u = username or DEFAULT_SSH["username"]
+    k = _key(h, p, u)
+    for attempt in range(2):
+        try:
+            conn = await _connect(host, port, username, password)
+            async with conn.start_sftp_client() as sftp:
+                await sftp.get(remote_path, local_path)
+            return f"[OK] 已下载: {remote_path} → {local_path}"
+        except _RECONNECT_ERRORS:
+            _drop_conn(k)
+            if attempt == 0:
+                continue
+            return f"[SSH ERROR] 连接 {k} 失败, 请检查网络"
+        except Exception as e:
+            return f"[ERROR] 下载失败: {e}"
+    return "[ERROR] 下载失败: 未知错误"
 
 
 @mcp.tool()
