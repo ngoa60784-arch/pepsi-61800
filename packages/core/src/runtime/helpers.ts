@@ -268,7 +268,11 @@ export async function resolveDockerfilePath(onProgress?: (message: string) => vo
     for (const [relativePath, sourcePath] of Object.entries(RUNTIME_ASSET_FILES)) {
         const targetPath = resolve(RUNTIME_DIR, relativePath)
         await mkdir(dirname(targetPath), { recursive: true })
-        await Bun.write(targetPath, Bun.file(sourcePath))
+        if (typeof sourcePath === "string") {
+            await Bun.write(targetPath, Bun.file(sourcePath))
+        } else {
+            await Bun.write(targetPath, JSON.stringify(sourcePath, null, 2))
+        }
     }
     onProgress?.(`Synced runtime assets to ${RUNTIME_DIR}`)
 

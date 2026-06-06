@@ -1,6 +1,6 @@
 {
     "name": "tch-agent",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "private": true,
     "type": "module",
     "workspaces": [
@@ -13,7 +13,8 @@
         "start": "bun run apps/cli/src/main.ts",
         "web": "bun run apps/cli/src/main.ts web",
         "tui": "bun run apps/cli/src/main.ts",
-        "dev": "bun --hot apps/cli/src/main.ts web",
+        "dev": "bun apps/cli/src/main.ts web",
+        "dev:hot": "bun --hot apps/cli/src/main.ts web",
         "build:kimi-gateway-test:linux": "bun build --compile ./scripts/test-kimi-gateway.ts --outfile ./bin/test-kimi-gateway-linux-x64 --target bun-linux-x64-baseline",
         "build": "bun run build:linux && bun run build:macos-arm64 && bun run build:macos-x64 && bun run build:windows && cp package.json bin/",
         "build:linux": "bun run scripts/build.ts bun-linux-x64-baseline bin/tch-agent-linux-x64",

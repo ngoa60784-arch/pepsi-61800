@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-desktop-confirm-exit"
+description = "Allow the web UI to confirm desktop exit"
+commands.allow = ["desktop_confirm_exit"]

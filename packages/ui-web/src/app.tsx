@@ -10,6 +10,7 @@ import type { LucideIcon } from "lucide-react"
 import {
     Sidebar,
     SidebarContent,
+    SidebarFooter,
     SidebarGroup,
     SidebarGroupLabel,
     SidebarGroupContent,
@@ -35,6 +36,10 @@ import { auth, planner } from "./lib/api"
 import type { PlannerHealth } from "./lib/api"
 import { Badge } from "./components/ui/badge"
 import { configTabs, mainNavItems } from "./data/app-nav"
+import { DesktopExitDialog } from "./components/desktop-exit-dialog"
+import { ThemeAppearanceButton } from "./components/theme-appearance-button"
+import { ThemeCycleButton } from "./components/theme-cycle-button"
+import { useTheme } from "./hooks/use-theme"
 
 function IosNavIcon({ icon: Icon }: { icon: LucideIcon }) {
     return (
@@ -224,7 +229,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
         <div className="flex h-screen items-center justify-center bg-background p-6">
             <form
                 onSubmit={handleSubmit}
-                className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 ring-1 ring-border/60"
+                className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 ring-1 ring-border/75"
             >
                 <div className="space-y-1">
                     <div className="flex items-center gap-2 text-base font-semibold">
@@ -250,6 +255,7 @@ export function App() {
     const { error, clearError } = useGlobalUiError()
     const [authState, markAuthed] = useAuthGate()
     const plannerHealth = usePlannerHealthPoll()
+    const { palette, appearance, cyclePalette, toggleAppearance } = useTheme()
 
     useEffect(() => {
         if (isOnConfigRoute) setConfigMenuExpanded(true)
@@ -274,7 +280,7 @@ export function App() {
     return (
         <SidebarProvider className="bg-background">
             {error && (
-                <div className="fixed top-4 left-1/2 z-50 flex w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 items-start justify-between gap-3 rounded-2xl bg-card/95 px-4 py-3 text-sm text-destructive ring-1 ring-border/80 backdrop-blur-xl backdrop-saturate-150">
+                <div className="fixed top-4 left-1/2 z-50 flex w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 items-start justify-between gap-3 rounded-2xl bg-card/95 px-4 py-3 text-sm text-destructive ring-1 ring-border backdrop-blur-xl backdrop-saturate-150">
                     <span className="min-w-0 flex-1 break-words">{error}</span>
                     <button type="button" onClick={clearError} className="shrink-0 text-muted-foreground transition-colors hover:text-foreground">
                         <XIcon className="size-4" />
@@ -282,7 +288,7 @@ export function App() {
                 </div>
             )}
             <Sidebar className="ios-sidebar">
-                <SidebarHeader className="border-b border-border/50 px-4 py-4">
+                <SidebarHeader className="border-b border-border/75 px-4 py-4">
                     <div className="flex items-center gap-3">
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-[0.7rem] bg-gradient-to-b from-primary to-primary/80 text-primary-foreground shadow-sm">
                             <BotIcon className="size-5" strokeWidth={2.25} />
@@ -295,7 +301,7 @@ export function App() {
                         </div>
                     </div>
                 </SidebarHeader>
-                <SidebarContent className="gap-5 px-3 py-4">
+                <SidebarContent className="min-h-0 flex-1 gap-5 overflow-y-auto px-3 py-4">
                     <SidebarGroup className="p-0">
                         <SidebarGroupLabel className="mb-1.5 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
                             功能
@@ -362,10 +368,21 @@ export function App() {
                         </div>
                     </SidebarGroup>
                 </SidebarContent>
+                <SidebarFooter className="shrink-0 border-t border-border/75 bg-sidebar px-3 py-3">
+                    <div className="flex items-center gap-1.5">
+                        <div className="min-w-0 flex-1">
+                            <ThemeCycleButton palette={palette} onCycle={cyclePalette} />
+                        </div>
+                        <ThemeAppearanceButton appearance={appearance} onToggle={toggleAppearance} />
+                    </div>
+                </SidebarFooter>
             </Sidebar>
+            <DesktopExitDialog />
             <SidebarInset className="h-screen min-h-0 min-w-0 overflow-hidden bg-background">
-                <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/72">
+                <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border/80 bg-background px-4">
                     <SidebarTrigger className="rounded-lg" />
+                    <ThemeCycleButton palette={palette} onCycle={cyclePalette} variant="header" />
+                    <ThemeAppearanceButton appearance={appearance} onToggle={toggleAppearance} variant="header" />
                     <Separator orientation="vertical" className="h-4 opacity-60" />
                     <span className="text-[1.0625rem] font-semibold tracking-tight">{getPageTitle(hash)}</span>
                     {plannerHealth?.alerting ? (
@@ -374,7 +391,7 @@ export function App() {
                         </Badge>
                     ) : null}
                 </header>
-                <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+                <div className="min-h-0 min-w-0 flex-1 overflow-auto bg-background">
                     <AppErrorBoundary>
                         <Router />
                     </AppErrorBoundary>

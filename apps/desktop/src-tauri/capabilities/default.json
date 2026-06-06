@@ -3,8 +3,18 @@
     "description": "BreachWeave desktop default permissions",
     "windows": ["main"],
     "webviews": ["main"],
+    "remote": {
+        "urls": [
+            "http://127.0.0.1:38472",
+            "http://127.0.0.1:38472/*",
+            "http://localhost:38472",
+            "http://localhost:38472/*"
+        ]
+    },
     "permissions": [
         "core:default",
+        "core:event:default",
+        "allow-desktop-confirm-exit",
         "core:window:allow-create",
         "core:window:allow-set-focus",
         "core:window:allow-unminimize",

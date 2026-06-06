@@ -81,5 +81,5 @@ Sidecar 二进制由 `scripts/prepare-desktop-sidecar.ts` 从 `bin/tch-agent-lin
 ## 行为
 
 - 监听地址：`127.0.0.1:38472`（固定，避免随机端口与 WebView 不同步）
-- 退出时 kill sidecar 子进程
+- 点击关闭窗口会弹出确认框；确认后退出并 kill sidecar 子进程
 - 重复启动聚焦已有窗口（`tauri-plugin-single-instance`）

@@ -1,9 +1,31 @@
 <!doctype html>
-<html lang="zh-CN" class="dark ios">
+<html lang="zh-CN" class="ios" data-theme="ocean">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
         <meta name="theme-color" content="#000000" />
+        <script>
+            ;(function () {
+                try {
+                    var palette = localStorage.getItem("tch-ui-theme-palette") || "ocean"
+                    var appearance = localStorage.getItem("tch-ui-appearance")
+                    document.documentElement.dataset.theme = palette
+                    if (appearance === "light") {
+                        document.documentElement.classList.remove("dark")
+                    } else {
+                        document.documentElement.classList.add("dark")
+                    }
+                } catch (_) {}
+            })()
+        </script>
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+        />
+        <script>
+            window.__TCH_DESKTOP_RUNTIME__ =
+                window.location.hostname === "127.0.0.1" && window.location.port === "38472"
+        </script>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <title>tch-agent</title>
         <link rel="stylesheet" href="./app.css" />

@@ -224,7 +224,7 @@ export function PlannerPage() {
                     </div>
                 )}
                 {capacity && (
-                    <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                    <div className="rounded-lg border border-border/85 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                         宿主机约 {capacity.total_memory_mb} MB 内存、{capacity.cpu_count} 核。
                         推荐每 Solver：内存 {capacity.recommended_memory}、CPU {capacity.recommended_cpus}（多容器并行时请自行估算总占用）。
                     </div>

@@ -202,7 +202,7 @@ export class ToolMessage extends LitElement {
                         </div>
                     </div>
                 </summary>
-                <div class="mt-2 min-w-0 max-w-full overflow-x-hidden border-l border-border/60 pl-4">
+                <div class="mt-2 min-w-0 max-w-full overflow-x-hidden border-l border-border/75 pl-4">
                     ${renderResult.content}
                     ${
                         toolName === "subagent" && this.subagentThreads.length > 0
@@ -218,7 +218,7 @@ export class ToolMessage extends LitElement {
                                                       </div>
                                                       ${thread.task ? html`<div class="mt-1 text-xs text-muted-foreground">${thread.task}</div>` : ""}
                                                   </summary>
-                                                  <div class="mt-2 min-w-0 max-w-full overflow-x-hidden border-l border-border/60 pl-2">
+                                                  <div class="mt-2 min-w-0 max-w-full overflow-x-hidden border-l border-border/75 pl-2">
                                                       <runtime-official-message-list
                                                           .messages=${thread.messages as unknown as AssistantMessageType[]}
                                                           .tools=${[]}

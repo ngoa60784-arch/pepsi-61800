@@ -1,4 +1,6 @@
 import { Command } from "commander"
+import { access, mkdir } from "node:fs/promises"
+import { homedir } from "node:os"
 import { basename, dirname, resolve } from "node:path"
 
 const GENERATED_PACKAGE_JSON = {
@@ -84,16 +86,44 @@ function installGlobalErrorHandlers() {
     })
 }
 
+async function isWritableDirectory(dir: string): Promise<boolean> {
+    try {
+        await access(dir, 2 /* W_OK */)
+        return true
+    } catch {
+        return false
+    }
+}
+
 async function ensureRuntimePackageJson(): Promise<void> {
     if (basename(process.execPath).startsWith("bun")) return
+
     const candidates = [
         resolve(dirname(process.execPath), "package.json"),
+        resolve(homedir(), ".tch-agent", "runtime", "package.json"),
         resolve(process.cwd(), "package.json"),
     ]
+
     for (const packageJsonPath of candidates) {
         const file = Bun.file(packageJsonPath)
-        if (await file.exists()) continue
-        await Bun.write(packageJsonPath, JSON.stringify(GENERATED_PACKAGE_JSON, null, 2))
+        if (await file.exists()) return
+
+        const parentDir = dirname(packageJsonPath)
+        if (!(await isWritableDirectory(parentDir))) {
+            try {
+                await mkdir(parentDir, { recursive: true })
+            } catch {
+                continue
+            }
+            if (!(await isWritableDirectory(parentDir))) continue
+        }
+
+        try {
+            await Bun.write(packageJsonPath, JSON.stringify(GENERATED_PACKAGE_JSON, null, 2))
+            return
+        } catch {
+            continue
+        }
     }
 }
 

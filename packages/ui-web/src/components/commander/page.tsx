@@ -338,7 +338,7 @@ export function CommanderPage() {
 
     return (
         <div className="commander-page flex h-full min-h-0 flex-col">
-            <div className="commander-toolbar flex shrink-0 items-center justify-end gap-2 border-b border-border/50 px-3 py-2">
+            <div className="commander-toolbar flex shrink-0 items-center justify-end gap-2 border-b border-border/75 px-3 py-2">
                 <Sheet
                     open={sessionsOpen}
                     onOpenChange={(open) => {
@@ -350,8 +350,8 @@ export function CommanderPage() {
                         <HistoryIcon className="size-4" />
                         <span className="text-[0.8125rem] font-medium">历史</span>
                     </SheetTrigger>
-                    <SheetContent side="left" className="w-full border-border/50 bg-background sm:max-w-md">
-                        <SheetHeader className="border-b border-border/50 pb-4">
+                    <SheetContent side="left" className="w-full border-border/75 bg-background sm:max-w-md">
+                        <SheetHeader className="border-b border-border/75 pb-4">
                             <SheetTitle className="text-[1.25rem] font-bold">对话</SheetTitle>
                             <SheetDescription className="text-[0.875rem]">切换或删除历史记录，不影响已派出的 solver。</SheetDescription>
                         </SheetHeader>
@@ -410,7 +410,7 @@ export function CommanderPage() {
 
             <div ref={scrollRef} className="commander-messages min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
                 {messages.length === 0 && (
-                    <div className="commander-empty mx-auto max-w-md rounded-2xl bg-card px-4 py-5 text-center ring-1 ring-border/40">
+                    <div className="commander-empty mx-auto max-w-md rounded-2xl bg-card px-4 py-5 text-center ring-1 ring-border/65">
                         <p className="text-[0.9375rem] font-medium text-foreground">下达渗透目标</p>
                         <p className="mt-2 text-[0.8125rem] leading-relaxed text-muted-foreground">
                             例如：「测一下 example.com，重点看上传和 SSRF」。可上传半途中断的渗透记录，指挥官会导入并派出 solver。
@@ -470,10 +470,10 @@ export function CommanderPage() {
                 <div className="commander-error shrink-0 px-4 py-2 text-center text-[0.8125rem] font-medium text-destructive">{error}</div>
             )}
 
-            <div className="commander-composer shrink-0 border-t border-border/50 bg-card/80 backdrop-blur-xl backdrop-saturate-150">
+            <div className="commander-composer shrink-0 border-t border-border/75">
                 {pendingDoc && (
-                    <div className="space-y-2 border-b border-border/40 px-3 py-2.5">
-                        <div className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2.5 ring-1 ring-border/30">
+                    <div className="space-y-2 border-b border-border/65 px-3 py-2.5">
+                        <div className="flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2.5 ring-1 ring-border/55">
                             <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
                                 <FileTextIcon className="size-4" />
                             </div>
@@ -517,7 +517,7 @@ export function CommanderPage() {
                     >
                         <PaperclipIcon className="size-5" strokeWidth={2} />
                     </Button>
-                    <div className="commander-input-wrap flex min-h-9 min-w-0 flex-1 items-end rounded-[1.25rem] bg-muted px-3 py-1.5 ring-1 ring-border/30">
+                    <div className="commander-input-wrap flex min-h-9 min-w-0 flex-1 items-end rounded-[1.25rem] bg-muted px-3 py-1.5 ring-1 ring-border/55">
                         <Textarea
                             value={input}
                             onChange={(event) => setInput(event.target.value)}

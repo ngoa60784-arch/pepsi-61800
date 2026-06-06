@@ -425,7 +425,6 @@ import mcp_1 from "./mcp/builtin/vuln_intel_mcp.py" with { type: "file" }
 import runtime_0 from "../runtime/assets/Dockerfile" with { type: "file" }
 import runtime_1 from "../runtime/assets/package.json" with { type: "file" }
 import runtime_2 from "../runtime/assets/provision-pentest-vps.sh" with { type: "file" }
-import runtime_3 from "../runtime/assets/tch-agent-linux-x64" with { type: "file" }
 
 export const BUILTIN_PROMPTS = {
     "CHALLENGE_PLANNER.md": prompt_0,
@@ -863,5 +862,4 @@ export const RUNTIME_ASSET_FILES = {
     "Dockerfile": runtime_0,
     "package.json": runtime_1,
     "provision-pentest-vps.sh": runtime_2,
-    "tch-agent-linux-x64": runtime_3,
 } as const

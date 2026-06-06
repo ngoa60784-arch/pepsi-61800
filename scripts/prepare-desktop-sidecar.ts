@@ -6,6 +6,19 @@ const projectRoot = resolve(import.meta.dir, "..")
 const desktopBinDir = resolve(projectRoot, "apps/desktop/src-tauri/binaries")
 const devMode = process.argv.includes("--dev")
 
+const RUNTIME_PACKAGE_JSON = {
+    name: "tch-agent-runtime",
+    version: "0.0.1",
+    private: true,
+    type: "module",
+}
+
+async function ensureSidecarPackageJson(): Promise<string> {
+    const packageJsonPath = resolve(desktopBinDir, "package.json")
+    await Bun.write(packageJsonPath, JSON.stringify(RUNTIME_PACKAGE_JSON, null, 2))
+    return packageJsonPath
+}
+
 type DesktopPlatform = "linux" | "windows" | "macos-x64" | "macos-arm64"
 
 const PLATFORM_SPECS: Record<
@@ -139,8 +152,10 @@ async function main() {
     for (const platform of platforms) {
         prepared.push(await preparePlatform(platform))
     }
+    await ensureSidecarPackageJson()
+    prepared.push("package.json")
 
-    await Bun.write(resolve(desktopBinDir, ".gitignore"), "*\n!.gitignore\n")
+    await Bun.write(resolve(desktopBinDir, ".gitignore"), "*\n!.gitignore\n!package.json\n")
     console.log(`Sidecar ready: ${prepared.join(", ")}`)
 }
 
