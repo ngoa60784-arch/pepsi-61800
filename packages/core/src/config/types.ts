@@ -11,32 +11,14 @@ export interface ActivateModelResult {
     verifierUpdated: boolean
 }
 
-/** P5-A: where solver brain process runs. Default `docker` until LocalProcessBackend ships. */
-export type SolverHostMode = "local" | "docker"
-
-/** P5-B: where authorized target commands execute. Default `remote-vps` (kali-arsenal MCP). */
+/** Where authorized target commands execute. Default `remote-vps` (kali-arsenal MCP). */
 export type ExecSurfaceMode = "remote-vps" | "local-host"
 
 export interface HostRuntimeSettings {
-    image?: string
     env?: Record<string, string>
     solverEnv?: Record<string, string>
-    binds?: string[]
     maxSolvers?: number
-    networkMode?: "bridge" | "host"
-    /**
-     * Per-solver container memory cap (docker backend only), Docker `--memory` syntax, e.g. "2g" / "512m".
-     * Omit for unlimited — a runaway scan/brute may exhaust host memory.
-     */
-    memory?: string
-    /**
-     * Per-solver container CPU cap (docker only), Docker `--cpus` syntax, e.g. 1.5 / 2.
-     * Omit for unlimited.
-     */
-    cpus?: number
-    /** P5-A — solver host: `local` (Bun.spawn rpc) or `docker` (current default). */
-    solverHost?: SolverHostMode
-    /** P5-B — command execution surface for authorized targets. */
+    /** Command execution surface for authorized targets. */
     execSurface?: ExecSurfaceMode
 }
 

@@ -1,4 +1,6 @@
 import type { ChallengeManager } from "./manager"
+import { recordSolverSteerFocus } from "../solver/board-store"
+import { solverSessionDir } from "../runtime/types"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "./env"
 import { loadEngagementScope } from "./engagement"
 import { buildPromoteIdeaInput, buildPromoteMemoryInput } from "./board-promotion"
@@ -55,6 +57,7 @@ function sendFollowUpToSolver(context: HostBridgeHandleContext, solverId: string
 function sendSteerToSolver(context: HostBridgeHandleContext, solverId: string, message: string): void {
     const text = message.trim()
     if (!text) return
+    void recordSolverSteerFocus({ message: text, source: "host-bridge:steer" }, solverSessionDir(solverId)).catch(() => {})
     context.sendCommand?.(solverId, {
         type: "steer",
         message: text,

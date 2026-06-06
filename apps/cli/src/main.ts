@@ -135,6 +135,9 @@ async function ensureBuiltinAssetsGenerated(): Promise<void> {
 }
 
 async function ensureHostStaticConfig(configDir: string): Promise<void> {
+    const { isConfigDirWritable } = await import("../../../packages/core/src/config/writable")
+    if (!(await isConfigDirWritable(configDir))) return
+
     const { initBuiltinSkills } = await import("../../../packages/core/src/config/skills/index")
     const { initBuiltinPrompts } = await import("../../../packages/core/src/config/prompts/index")
     const { initBuiltinMcpScripts, initBuiltinMcpServers } = await import("../../../packages/core/src/config/mcp/index")

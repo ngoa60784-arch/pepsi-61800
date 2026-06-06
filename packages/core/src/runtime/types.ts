@@ -9,30 +9,18 @@ export const SOLVERS_DIR = resolve(TCH_AGENT_HOME_DIR, "solvers")
 export const ARCHIVE_SOLVERS_DIR = resolve(TCH_AGENT_HOME_DIR, "archive_solvers")
 
 export interface ContainerConfig {
-    /** Docker image to use */
-    image: string
-    /** P5-A — `local` uses Bun.spawn rpc; `docker` (default) uses docker run. */
-    solverHost?: "local" | "docker"
-    /** P5-B — injected as TCH_EXEC_SURFACE on solver launch. */
+    /** Injected as TCH_EXEC_SURFACE on solver launch. */
     execSurface?: "remote-vps" | "local-host"
     /** Extra environment variables */
     env?: Record<string, string>
-    /** Extra volume binds (host:container format) */
-    binds?: string[]
-    /** Docker network mode */
-    networkMode?: "bridge" | "host"
-    /** Per-solver container memory cap (docker `--memory`, e.g. "2g"); omit = unlimited */
-    memory?: string
-    /** Per-solver container CPU cap (docker `--cpus`, e.g. 1.5); omit = unlimited */
-    cpus?: number
 }
 
 export interface SolverInstance {
     /** Unique solver ID */
     id: string
-    /** Docker container ID */
+    /** Process identifier (legacy field name kept for API compat) */
     containerId: string
-    /** Container name */
+    /** Solver process name */
     name: string
     /** Prompt name used to create this solver */
     promptName: string

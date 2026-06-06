@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { CircleIcon, PlayIcon, RefreshCwIcon, Trash2Icon, XIcon } from "lucide-react"
 import { metrics, planner, runtime, prompts } from "../../lib/api"
 import type { PlannerHealth, RuntimeMetricsSnapshot } from "../../lib/api"
+import { useConfirm } from "../../hooks/use-confirm"
 import { useFetch } from "../../hooks/use-fetch"
 import { Badge } from "../ui/badge"
 import { Button } from "../ui/button"
@@ -29,6 +30,7 @@ function paginate<T>(items: T[], page: number): T[] {
 }
 
 export function RuntimeListPage() {
+    const confirmDialog = useConfirm()
     const { data: promptList } = useFetch(prompts.listAgents)
     const [status, setStatus] = useState<RuntimeStatusView | null>(null)
     const [kali, setKali] = useState<KaliSystemStats | null>(null)
@@ -171,7 +173,15 @@ export function RuntimeListPage() {
 
     async function handleStop(solverId: string) {
         const solver = solverList.find((item) => item.id === solverId)
-        if (!window.confirm(`停止 Solver ${solver?.name ?? solverId}？`)) return
+        if (
+            !(await confirmDialog({
+                title: "停止 Solver",
+                description: `确定停止 ${solver?.name ?? solverId}？`,
+                confirmLabel: "停止",
+            }))
+        ) {
+            return
+        }
         setBusySolverId(solverId)
         setActionError("")
         try {
@@ -185,7 +195,16 @@ export function RuntimeListPage() {
 
     async function handleRemove(solverId: string) {
         const solver = solverList.find((item) => item.id === solverId)
-        if (!window.confirm(`删除 Solver ${solver?.name ?? solverId}？`)) return
+        if (
+            !(await confirmDialog({
+                title: "删除 Solver",
+                description: `确定删除 ${solver?.name ?? solverId}？`,
+                confirmLabel: "删除",
+                variant: "destructive",
+            }))
+        ) {
+            return
+        }
         setBusySolverId(solverId)
         setActionError("")
         try {
@@ -213,7 +232,15 @@ export function RuntimeListPage() {
 
     async function handleBatchStop() {
         if (selectedLiveSolvers.length === 0) return
-        if (!window.confirm(`停止选中的 ${selectedLiveSolvers.length} 个运行中 Solver？`)) return
+        if (
+            !(await confirmDialog({
+                title: "批量停止",
+                description: `确定停止选中的 ${selectedLiveSolvers.length} 个运行中 Solver？`,
+                confirmLabel: "停止",
+            }))
+        ) {
+            return
+        }
         setBatchBusy("stop")
         setActionError("")
         try {
@@ -229,7 +256,16 @@ export function RuntimeListPage() {
 
     async function handleBatchDelete() {
         if (selectedInactiveSolvers.length === 0) return
-        if (!window.confirm(`删除选中的 ${selectedInactiveSolvers.length} 个已停止 Solver？`)) return
+        if (
+            !(await confirmDialog({
+                title: "批量删除",
+                description: `确定删除选中的 ${selectedInactiveSolvers.length} 个已停止 Solver？`,
+                confirmLabel: "删除",
+                variant: "destructive",
+            }))
+        ) {
+            return
+        }
         setBatchBusy("delete")
         setActionError("")
         try {
@@ -323,7 +359,7 @@ export function RuntimeListPage() {
                 <Button variant="outline" size="icon-sm" onClick={handleRefresh} title="刷新" aria-label="刷新">
                     <RefreshCwIcon className="size-4" />
                 </Button>
-                <Button onClick={() => setDialogOpen(true)} disabled={status?.docker === false}>
+                <Button onClick={() => setDialogOpen(true)}>
                     <PlayIcon className="size-4" />
                     启动 Solver
                 </Button>
@@ -461,7 +497,7 @@ export function RuntimeListPage() {
                         <Button variant="outline" onClick={() => setDialogOpen(false)}>
                             取消
                         </Button>
-                        <Button onClick={handleStart} disabled={status?.docker === false || !selectedPrompt || !task.trim() || starting}>
+                        <Button onClick={handleStart} disabled={!selectedPrompt || !task.trim() || starting}>
                             <PlayIcon className="size-4" />
                             启动
                         </Button>

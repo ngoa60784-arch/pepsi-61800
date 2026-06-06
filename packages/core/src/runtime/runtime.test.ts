@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
-import { applyDesktopRuntimeOverrides, getAgentEndError, hashDockerfileContent, RuntimeManager } from "./runtime"
+import { applyDesktopRuntimeOverrides, getAgentEndError, RuntimeManager } from "./runtime"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { ChallengeManager } from "../challenge/manager"
 import { createChallengeHostBridgeHandler } from "../challenge/host-bridge-handler"
@@ -34,10 +34,9 @@ async function createRuntimeManager(): Promise<{ runtime: RuntimeManager; challe
 }
 
 describe("applyDesktopRuntimeOverrides", () => {
-    test("forces local solver host when TCH_DESKTOP=1", () => {
+    test("preserves execSurface when TCH_DESKTOP=1", () => {
         process.env.TCH_DESKTOP = "1"
-        const runtime = applyDesktopRuntimeOverrides({ solverHost: "docker", execSurface: "remote-vps" })
-        expect(runtime.solverHost).toBe("local")
+        const runtime = applyDesktopRuntimeOverrides({ execSurface: "remote-vps" })
         expect(runtime.execSurface).toBe("remote-vps")
         delete process.env.TCH_DESKTOP
     })
@@ -45,7 +44,6 @@ describe("applyDesktopRuntimeOverrides", () => {
     test("defaults execSurface to local-host when unset", () => {
         process.env.TCH_DESKTOP = "1"
         const runtime = applyDesktopRuntimeOverrides({})
-        expect(runtime.solverHost).toBe("local")
         expect(runtime.execSurface).toBe("local-host")
         delete process.env.TCH_DESKTOP
     })
@@ -88,18 +86,6 @@ describe("getAgentEndError", () => {
         } as unknown as AgentSessionEvent
 
         expect(getAgentEndError(event)).toBeUndefined()
-    })
-})
-
-describe("hashDockerfileContent", () => {
-    test("returns stable hash for identical content", () => {
-        const content = "FROM kali\nRUN echo test\n"
-
-        expect(hashDockerfileContent(content)).toBe(hashDockerfileContent(content))
-    })
-
-    test("returns different hashes for different content", () => {
-        expect(hashDockerfileContent("FROM kali\n")).not.toBe(hashDockerfileContent("FROM kali\nRUN echo test\n"))
     })
 })
 

@@ -10,6 +10,7 @@ import type {
     MemoryEntry,
     SolverInstance,
 } from "../../lib/api"
+import { useConfirm } from "../../hooks/use-confirm"
 import { useFetch } from "../../hooks/use-fetch"
 import { BarChart3Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import { Badge } from "../ui/badge"
@@ -572,6 +573,7 @@ function StatsOverviewDialog(props: {
 }
 
 export function ChallengePage({ challengeId }: { challengeId?: string }) {
+    const confirmDialog = useConfirm()
     const { data: challengeList, loading, reload } = useFetch(challenges.list)
     const { data: challengeSlots } = useFetch(challenges.slots)
     const { data: hostConfig } = useFetch(hostSettings.get)
@@ -725,7 +727,15 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
     async function handleConfirmComplete() {
         if (!challengeId || completionBusy) return
-        if (!window.confirm("确认该目标主目标已达成？将停掉它的所有 solver，planner 也不再补派。")) return
+        if (
+            !(await confirmDialog({
+                title: "确认目标完成",
+                description: "确认该目标主目标已达成？将停掉它的所有 solver，planner 也不再补派。",
+                confirmLabel: "确认完成",
+            }))
+        ) {
+            return
+        }
         setCompletionBusy(true)
         setCompletionMessage("")
         try {
@@ -743,9 +753,12 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
         if (deletingChallengeId) return
         const label = targetTitle?.trim() || targetId
         if (
-            !window.confirm(
-                `确定删除目标「${label}」（${targetId}）？\n将永久删除该目标的记忆、思路、提交与尝试记录、关系图、状态资产，并停止并移除关联 Solver。此操作不可恢复。`,
-            )
+            !(await confirmDialog({
+                title: "删除目标",
+                description: `确定删除目标「${label}」（${targetId}）？\n将永久删除该目标的记忆、思路、提交与尝试记录、关系图、状态资产，并停止并移除关联 Solver。此操作不可恢复。`,
+                confirmLabel: "删除",
+                variant: "destructive",
+            }))
         ) {
             return
         }
@@ -766,7 +779,15 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
     async function handlePauseTesting(targetId: string) {
         if (pauseBusy) return
-        if (!window.confirm("暂停该目标的测试？将停止当前运行的 Solver，调度器不再派单；记忆/思路/资产会保留。")) return
+        if (
+            !(await confirmDialog({
+                title: "暂停测试",
+                description: "将停止当前运行的 Solver，调度器不再派单；记忆/思路/资产会保留。",
+                confirmLabel: "暂停",
+            }))
+        ) {
+            return
+        }
         setPauseBusy(true)
         setPauseMessage("")
         try {
@@ -787,7 +808,15 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
     async function handleResumeTesting(targetId: string) {
         if (pauseBusy) return
-        if (!window.confirm("继续测试？将尝试用原 session 续跑暂停时停掉的 Solver；若无则可由调度器重新派单。")) return
+        if (
+            !(await confirmDialog({
+                title: "继续测试",
+                description: "将尝试用原 session 续跑暂停时停掉的 Solver；若无则可由调度器重新派单。",
+                confirmLabel: "继续",
+            }))
+        ) {
+            return
+        }
         setPauseBusy(true)
         setPauseMessage("")
         try {
@@ -808,7 +837,15 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
     async function handleRevokeComplete() {
         if (!challengeId || completionBusy) return
-        if (!window.confirm("撤销完成判定？将把之前停掉的 solver 用原 session 续跑（带上下文接着推进），planner 重新接管。")) return
+        if (
+            !(await confirmDialog({
+                title: "撤销完成判定",
+                description: "将把之前停掉的 solver 用原 session 续跑（带上下文接着推进），planner 重新接管。",
+                confirmLabel: "撤销完成",
+            }))
+        ) {
+            return
+        }
         setCompletionBusy(true)
         setCompletionMessage("")
         try {
@@ -971,7 +1008,16 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
     async function handleDeleteMemory(entry: MemoryEntry) {
         if (!challengeId) return
-        if (!window.confirm(`删除记忆 ${entry.id}？`)) return
+        if (
+            !(await confirmDialog({
+                title: "删除记忆",
+                description: `确定删除记忆 ${entry.id}？`,
+                confirmLabel: "删除",
+                variant: "destructive",
+            }))
+        ) {
+            return
+        }
         setBoardBusyKey(`memory-delete:${entry.id}`)
         setBoardError("")
         try {
@@ -1013,7 +1059,16 @@ export function ChallengePage({ challengeId }: { challengeId?: string }) {
 
     async function handleDeleteIdea(entry: IdeaRecord) {
         if (!challengeId) return
-        if (!window.confirm(`删除 idea ${entry.id}？`)) return
+        if (
+            !(await confirmDialog({
+                title: "删除思路",
+                description: `确定删除 idea ${entry.id}？`,
+                confirmLabel: "删除",
+                variant: "destructive",
+            }))
+        ) {
+            return
+        }
         setBoardBusyKey(`idea-delete:${entry.id}`)
         setBoardError("")
         try {

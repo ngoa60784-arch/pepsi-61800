@@ -1,14 +1,10 @@
-import { createHash } from "node:crypto"
 import { mkdir, readdir, stat } from "node:fs/promises"
-import { basename, dirname, resolve } from "node:path"
+import { basename, resolve } from "node:path"
 import type { Message } from "@mariozechner/pi-ai"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 import { TCH_AGENT_HOME_DIR } from "../config/index"
-import { RUNTIME_ASSET_FILES } from "../config/builtin-assets.generated"
 import { solverDir } from "./types"
 
-const DOCKERFILE_HASH_LABEL = "ai.tch-agent.dockerfile-sha256"
-const RUNTIME_IMAGE_ARCH = "amd64"
 const RUNTIME_DIR = resolve(TCH_AGENT_HOME_DIR, "runtime")
 const RUNTIME_SELF_DIR = resolve(RUNTIME_DIR, "self")
 const GENERATED_RUNTIME_PACKAGE_JSON = {
@@ -16,12 +12,6 @@ const GENERATED_RUNTIME_PACKAGE_JSON = {
     version: "0.0.1",
     private: true,
     type: "module",
-}
-
-export { DOCKERFILE_HASH_LABEL, RUNTIME_IMAGE_ARCH }
-
-export function hashDockerfileContent(content: string): string {
-    return createHash("sha256").update(content).digest("hex")
 }
 
 export function getAgentEndError(event: AgentSessionEvent): string | undefined {
@@ -197,84 +187,29 @@ export async function ensureSolverBinary(onProgress?: (message: string) => void)
     return binPath
 }
 
-async function ensureEmbeddedLinuxSolverBinary(): Promise<string> {
-    const binDir = RUNTIME_SELF_DIR
-    const binPath = resolve(binDir, "tch-agent-linux-x64")
-    await mkdir(binDir, { recursive: true })
-    const embedded = await import("./assets/tch-agent-linux-x64", { with: { type: "file" } })
-    await Bun.write(binPath, Bun.file(embedded.default))
-    await Bun.write(resolve(binDir, "package.json"), JSON.stringify(GENERATED_RUNTIME_PACKAGE_JSON, null, 2))
-    return binPath
-}
-
-async function ensureRuntimePackageManifest(): Promise<string> {
-    const binDir = RUNTIME_SELF_DIR
-    const path = resolve(binDir, "package.json")
-    await mkdir(binDir, { recursive: true })
-    await Bun.write(path, JSON.stringify(GENERATED_RUNTIME_PACKAGE_JSON, null, 2))
-    return path
-}
-
 function resolveProjectRoot(): string {
     return resolve(import.meta.dir, "../../../..")
 }
 
-/** Local-process backend: spawn solver rpc on the host (no Docker). */
-export async function resolveLocalSolverInjection(): Promise<{ binds: string[]; cmd: string[] }> {
+/** Spawn solver rpc on the host as a local child process. */
+export async function resolveLocalSolverInjection(): Promise<{ cmd: string[] }> {
     const execPath = process.execPath
     const bunRuntime = isBunRuntime()
 
     if (bunRuntime) {
         const cliEntry = resolve(resolveProjectRoot(), "apps/cli/src/main.ts")
-        return { binds: [], cmd: [execPath, cliEntry, "solver", "rpc"] }
+        return { cmd: [execPath, cliEntry, "solver", "rpc"] }
     }
 
     if (process.platform === "linux" && process.arch === "x64") {
-        return { binds: [], cmd: [execPath, "solver", "rpc"] }
+        return { cmd: [execPath, "solver", "rpc"] }
     }
 
     const binary = await ensureSolverBinary()
-    return { binds: [], cmd: [binary, "solver", "rpc"] }
-}
-
-export async function resolveSolverInjection(): Promise<{ binds: string[]; cmd: string[] }> {
-    const execPath = process.execPath
-    const bunRuntime = isBunRuntime()
-
-    let binary: string
-    const packageJson = await ensureRuntimePackageManifest()
-
-    if (bunRuntime) {
-        binary = await ensureSolverBinary()
-    } else if (process.platform === "linux" && process.arch === "x64") {
-        binary = execPath
-    } else {
-        binary = await ensureEmbeddedLinuxSolverBinary()
-    }
-
-    return {
-        binds: [`${binary}:/opt/tch-agent/tch-agent:ro`, `${packageJson}:/opt/tch-agent/package.json:ro`],
-        cmd: ["/opt/tch-agent/tch-agent", "solver", "rpc"],
-    }
+    return { cmd: [binary, "solver", "rpc"] }
 }
 
 function isBunRuntime(): boolean {
     const execName = basename(process.execPath).toLowerCase()
     return execName === "bun" || execName === "bun.exe"
-}
-
-export async function resolveDockerfilePath(onProgress?: (message: string) => void): Promise<string> {
-    const targetDockerfile = resolve(RUNTIME_DIR, "Dockerfile")
-    for (const [relativePath, sourcePath] of Object.entries(RUNTIME_ASSET_FILES)) {
-        const targetPath = resolve(RUNTIME_DIR, relativePath)
-        await mkdir(dirname(targetPath), { recursive: true })
-        if (typeof sourcePath === "string") {
-            await Bun.write(targetPath, Bun.file(sourcePath))
-        } else {
-            await Bun.write(targetPath, JSON.stringify(sourcePath, null, 2))
-        }
-    }
-    onProgress?.(`Synced runtime assets to ${RUNTIME_DIR}`)
-
-    return targetDockerfile
 }

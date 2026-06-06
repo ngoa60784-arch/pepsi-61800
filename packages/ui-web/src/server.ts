@@ -23,7 +23,7 @@ import os from "node:os"
 import { cp, mkdir, mkdtemp, rm, stat } from "fs/promises"
 import { tmpdir } from "os"
 import { resolve } from "path"
-import index from "./index.html"
+import { buildUiRoutes } from "./ui-routes"
 
 export interface WebServerOptions {
     hostname?: string
@@ -300,8 +300,7 @@ export async function startWeb(options: WebServerOptions) {
     }
 
     async function buildRuntimeStatusPayload() {
-        const docker = await containers.ping()
-        return { docker, solvers: containers.list().length }
+        return { solvers: containers.list().length }
     }
 
     function encodeSse(event: string, data: unknown) {
@@ -593,12 +592,14 @@ export async function startWeb(options: WebServerOptions) {
         return out as T
     }
 
+    const uiRoutes = await buildUiRoutes()
+
     const server = Bun.serve({
         hostname,
         port,
         idleTimeout: 30,
         routes: withAuth({
-            "/": index,
+            ...uiRoutes,
 
             "/health": {
                 GET() {

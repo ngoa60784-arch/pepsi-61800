@@ -42,18 +42,30 @@ export async function initBuiltinSkills(dir: string) {
     applyBuiltinSkillsEnv(dir)
     const repoDir = getRepoBuiltinSkillsDir()
     if (existsSync(repoDir)) {
-        await mkdir(resolve(dir, "skills"), { recursive: true })
+        try {
+            await mkdir(resolve(dir, "skills"), { recursive: true })
+        } catch {
+            // read-only config mount (e.g. solver container)
+        }
         return
     }
 
     const destBase = resolve(dir, "skills")
-    await mkdir(destBase, { recursive: true })
+    try {
+        await mkdir(destBase, { recursive: true })
+    } catch {
+        return
+    }
     const builtinSkillFiles = BUILTIN_SKILL_FILES as unknown as Record<string, string>
 
     for (const [relativePath, sourcePath] of Object.entries(builtinSkillFiles)) {
         const destPath = resolve(destBase, relativePath)
-        await mkdir(dirname(destPath), { recursive: true })
-        await Bun.write(destPath, Bun.file(sourcePath))
+        try {
+            await mkdir(dirname(destPath), { recursive: true })
+            await Bun.write(destPath, Bun.file(sourcePath))
+        } catch {
+            // skip individual file on read-only filesystem
+        }
     }
 }
 

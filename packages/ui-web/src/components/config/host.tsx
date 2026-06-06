@@ -4,7 +4,6 @@ import { hostCapacity, hostPlannerPrompt, hostSettings, modelPrefs, planner } fr
 import type { HostCapacity } from "../../lib/api"
 import type { HostSettings, PlannerHealth } from "../../lib/api"
 import { useFetch } from "../../hooks/use-fetch"
-import { Badge } from "../ui/badge"
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
 import { Label } from "../ui/label"
@@ -14,7 +13,6 @@ import { Textarea } from "../ui/textarea"
 const DEFAULT_MAX_SOLVERS = 1
 const DEFAULT_PLANNER_TICK_SECONDS = 30
 const DEFAULT_STALE_TIMEOUT_MINUTES = 60
-const DEFAULT_RUNTIME_NETWORK_MODE = "host"
 const NONE_MODEL_VALUE = "__none__"
 
 function formatPlannerModelLabel(model: { provider: string; providerId?: string; modelId: string; name?: string }) {
@@ -31,11 +29,7 @@ export function PlannerPage() {
     const { data: plannerPromptData, reload: reloadPlannerPrompt } = useFetch(hostPlannerPrompt.get)
     const { data: models } = useFetch(modelPrefs.list)
     const [maxSolvers, setMaxSolvers] = useState(String(DEFAULT_MAX_SOLVERS))
-    const [solverHost, setSolverHost] = useState<"docker" | "local">("docker")
     const [execSurface, setExecSurface] = useState<"remote-vps" | "local-host">("remote-vps")
-    const [networkMode, setNetworkMode] = useState<"host" | "bridge">(DEFAULT_RUNTIME_NETWORK_MODE)
-    const [memory, setMemory] = useState("")
-    const [cpus, setCpus] = useState("")
     const [plannerPromptContent, setPlannerPromptContent] = useState("")
     const [plannerModelId, setPlannerModelId] = useState("")
     const [defaultModelId, setDefaultModelId] = useState("")
@@ -81,11 +75,7 @@ export function PlannerPage() {
 
     useEffect(() => {
         setMaxSolvers(String(data?.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS))
-        setSolverHost(data?.runtime.solverHost === "local" ? "local" : "docker")
         setExecSurface(data?.runtime.execSurface === "local-host" ? "local-host" : "remote-vps")
-        setNetworkMode(data?.runtime.networkMode === "bridge" ? "bridge" : DEFAULT_RUNTIME_NETWORK_MODE)
-        setMemory(data?.runtime.memory ?? "")
-        setCpus(data?.runtime.cpus != null ? String(data.runtime.cpus) : "")
         setPlannerTickSeconds(String(Math.max(5, Math.round((data?.planner.tickIntervalMs ?? DEFAULT_PLANNER_TICK_SECONDS * 1000) / 1000))))
         setStaleTimeoutMinutes(String(Math.max(1, Math.round((data?.planner.staleTimeoutMs ?? DEFAULT_STALE_TIMEOUT_MINUTES * 60 * 1000) / 60000))))
         setDefaultModelId(normalizeModelPrefId(data?.defaultModelPrefId))
@@ -103,11 +93,7 @@ export function PlannerPage() {
         try {
             const runtime: HostSettings["runtime"] = {
                 maxSolvers: Math.max(0, Number(maxSolvers) || DEFAULT_MAX_SOLVERS),
-                solverHost,
                 execSurface,
-                networkMode: networkMode === "bridge" ? "bridge" : "host",
-                memory: memory.trim() || undefined,
-                cpus: cpus.trim() && Number(cpus) > 0 ? Number(cpus) : undefined,
             }
             const planner = {
                 enabled: true,
@@ -159,42 +145,25 @@ export function PlannerPage() {
                 <div className="space-y-1">
                     <div className="text-sm font-medium">调度器运行时</div>
                     <div className="text-sm text-muted-foreground">
-                        调度器自动调度始终开启。Solver 宿主可选本机进程或 Docker；打靶命令默认经 kali-arsenal 远程 Kali，也可配置为本机执行。
+                        调度器自动调度始终开启。Solver 以本机进程运行；打靶命令默认经 kali-arsenal 远程 Kali，也可配置为本机执行。
                     </div>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                        <Label>Solver 宿主</Label>
-                        <Select value={solverHost} onValueChange={(value) => setSolverHost(value === "local" ? "local" : "docker")}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="选择 Solver 宿主" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="local">本机进程（无 Docker）</SelectItem>
-                                <SelectItem value="docker">Docker 容器（兼容）</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <div className="text-sm text-muted-foreground">
-                            `本机进程` 直接 `Bun.spawn solver rpc`；`Docker` 为原有容器模式。
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        <Label>命令执行位置</Label>
-                        <Select
-                            value={execSurface}
-                            onValueChange={(value) => setExecSurface(value === "local-host" ? "local-host" : "remote-vps")}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="选择执行面" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="remote-vps">远程 VPS（kali-arsenal）</SelectItem>
-                                <SelectItem value="local-host">本机（bash）</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <div className="text-sm text-muted-foreground">
-                            注入 `TCH_EXEC_SURFACE` 到 Solver；`本机` 时 Prompt 允许本地 bash 扫打授权目标。
-                        </div>
+                <div className="space-y-2">
+                    <Label>命令执行位置</Label>
+                    <Select
+                        value={execSurface}
+                        onValueChange={(value) => setExecSurface(value === "local-host" ? "local-host" : "remote-vps")}
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder="选择执行面" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="remote-vps">远程 VPS（kali-arsenal）</SelectItem>
+                            <SelectItem value="local-host">本机（bash）</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <div className="text-sm text-muted-foreground">
+                        注入 `TCH_EXEC_SURFACE` 到 Solver；`本机` 时 Prompt 允许本地 bash 扫打授权目标。
                     </div>
                 </div>
                 <div className="space-y-2">
@@ -208,61 +177,11 @@ export function PlannerPage() {
                     />
                     <div className="text-sm text-muted-foreground">调度器最多同时保留多少个 solver。`0` 等价于暂停自动调度。</div>
                 </div>
-                {solverHost === "docker" && (
-                    <div className="space-y-2">
-                        <Label>Docker 网络模式</Label>
-                        <Select value={networkMode} onValueChange={(value) => setNetworkMode(value === "bridge" ? "bridge" : "host")}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="选择容器网络模式" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="host">host</SelectItem>
-                                <SelectItem value="bridge">bridge</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <div className="text-sm text-muted-foreground">solver 容器启动时使用的 Docker 网络模式。</div>
-                    </div>
-                )}
                 {capacity && (
                     <div className="rounded-lg border border-border/85 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                         宿主机约 {capacity.total_memory_mb} MB 内存、{capacity.cpu_count} 核。
-                        推荐每 Solver：内存 {capacity.recommended_memory}、CPU {capacity.recommended_cpus}（多容器并行时请自行估算总占用）。
+                        推荐每 Solver：内存 {capacity.recommended_memory}、CPU {capacity.recommended_cpus}（多 Solver 并行时请自行估算总占用）。
                     </div>
-                )}
-                {solverHost === "docker" && (
-                <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                            <Label htmlFor="runtime-memory">内存上限 / Solver</Label>
-                            {!memory.trim() ? <Badge variant="outline">无限制</Badge> : null}
-                        </div>
-                        <Input
-                            id="runtime-memory"
-                            placeholder={capacity?.recommended_memory ?? "如 4g、2g（留空 = 不限制）"}
-                            value={memory}
-                            onChange={(event) => setMemory(event.target.value)}
-                        />
-                        <div className="text-sm text-muted-foreground">
-                            单个 solver 容器内存上限（Docker `--memory`）。留空时无上限，多 Solver 易 OOM。
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                            <Label htmlFor="runtime-cpus">CPU 上限 / Solver</Label>
-                            {!cpus.trim() ? <Badge variant="outline">无限制</Badge> : null}
-                        </div>
-                        <Input
-                            id="runtime-cpus"
-                            type="number"
-                            min="0"
-                            step="0.5"
-                            placeholder={capacity ? String(capacity.recommended_cpus) : "如 2（留空 = 不限制）"}
-                            value={cpus}
-                            onChange={(event) => setCpus(event.target.value)}
-                        />
-                        <div className="text-sm text-muted-foreground">单个 solver 容器 CPU 核数上限（Docker `--cpus`）。</div>
-                    </div>
-                </div>
                 )}
                 <div className="space-y-2">
                     <Label>默认 Agent 模型（所有 AI 统一使用）</Label>

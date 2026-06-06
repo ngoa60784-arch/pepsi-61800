@@ -36,6 +36,7 @@ import { auth, planner } from "./lib/api"
 import type { PlannerHealth } from "./lib/api"
 import { Badge } from "./components/ui/badge"
 import { configTabs, mainNavItems } from "./data/app-nav"
+import { ConfirmDialogProvider } from "./components/confirm-dialog-provider"
 import { DesktopExitDialog } from "./components/desktop-exit-dialog"
 import { ThemeAppearanceButton } from "./components/theme-appearance-button"
 import { ThemeCycleButton } from "./components/theme-cycle-button"
@@ -198,10 +199,25 @@ type AuthState = "loading" | "need-login" | "ok"
 function useAuthGate(): [AuthState, () => void] {
     const [state, setState] = useState<AuthState>("loading")
     useEffect(() => {
+        let cancelled = false
+        const timeout = setTimeout(() => {
+            if (!cancelled) setState("ok")
+        }, 5000)
+
         auth.status()
-            .then((s) => setState(!s.authRequired || s.authed ? "ok" : "need-login"))
+            .then((s) => {
+                if (!cancelled) setState(!s.authRequired || s.authed ? "ok" : "need-login")
+            })
             // status 端点本身不鉴权；查询失败时放行，避免把人锁在门外。
-            .catch(() => setState("ok"))
+            .catch(() => {
+                if (!cancelled) setState("ok")
+            })
+            .finally(() => clearTimeout(timeout))
+
+        return () => {
+            cancelled = true
+            clearTimeout(timeout)
+        }
     }, [])
     return [state, () => setState("ok")]
 }
@@ -270,14 +286,14 @@ export function App() {
         if (!isOnConfigRoute) location.hash = "#/config/providers"
     }
 
-    if (authState === "loading") {
-        return <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">加载中…</div>
-    }
-    if (authState === "need-login") {
-        return <LoginScreen onSuccess={markAuthed} />
-    }
-
     return (
+        <ConfirmDialogProvider>
+            <DesktopExitDialog />
+            {authState === "loading" ? (
+                <div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">加载中…</div>
+            ) : authState === "need-login" ? (
+                <LoginScreen onSuccess={markAuthed} />
+            ) : (
         <SidebarProvider className="bg-background">
             {error && (
                 <div className="fixed top-4 left-1/2 z-50 flex w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 items-start justify-between gap-3 rounded-2xl bg-card/95 px-4 py-3 text-sm text-destructive ring-1 ring-border backdrop-blur-xl backdrop-saturate-150">
@@ -377,7 +393,6 @@ export function App() {
                     </div>
                 </SidebarFooter>
             </Sidebar>
-            <DesktopExitDialog />
             <SidebarInset className="h-screen min-h-0 min-w-0 overflow-hidden bg-background">
                 <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border/80 bg-background px-4">
                     <SidebarTrigger className="rounded-lg" />
@@ -398,5 +413,7 @@ export function App() {
                 </div>
             </SidebarInset>
         </SidebarProvider>
+            )}
+        </ConfirmDialogProvider>
     )
 }

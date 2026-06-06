@@ -38,7 +38,6 @@ export type {
     HostChallengeSettings,
     HostPlannerSettings,
     HostSettings,
-    SolverHostMode,
 } from "./types"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { isEngagementMode } from "../challenge/engagement"

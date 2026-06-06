@@ -571,7 +571,6 @@ export const builtIn = {
 // ── Runtime (Container Management) ──
 
 export interface RuntimeStatus {
-    docker: boolean
     solvers: number
 }
 

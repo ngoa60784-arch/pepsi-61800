@@ -63,7 +63,7 @@ import {
 import type { RuntimeManager } from "../runtime/runtime"
 import type { SolverInstance } from "../runtime/types"
 import { solverSessionDir } from "../runtime/types"
-import { readSolverBoardSnapshot, seedSolverBoardSnapshot } from "../solver/board-store"
+import { readSolverBoardSnapshot, readSolverSteerFocus, recordSolverSteerFocus, resolveSolverFocusSignal, seedSolverBoardSnapshot } from "../solver/board-store"
 import {
     type StateAsset,
     type AddStateAssetInput,
@@ -2802,6 +2802,7 @@ export class ChallengeManager {
                     }
                     const message = clipTaskText(requireText(params.message, "message"), SOLVER_HANDOFF_MAX_CHARS)
                     this.log("challenge:planner-tool", "steer solver requested", { solverId: params.solverId, challengeId: solver.challengeId })
+                    await recordSolverSteerFocus({ message, source: "planner:steer" }, solverSessionDir(params.solverId))
                     runtime.sendCommand(params.solverId, { type: "steer", message })
                     return {
                         content: [{ type: "text", text: `steered solver ${params.solverId}` }],
@@ -3058,14 +3059,12 @@ export class ChallengeManager {
      */
     private async deriveSolverFocus(solver: SolverInstance): Promise<string> {
         if (solver.status !== "running") return `(${solver.status})`
-        const board = await readSolverBoardSnapshot(solverSessionDir(solver.id)).catch(() => ({ memory: [], ideas: [] }))
-        const testing = board.ideas.find((idea) => idea.status === "testing")
-        if (testing) return `testing: ${clipTaskText(testing.content, 120)}`
-        const pending = board.ideas.find((idea) => idea.status === "pending")
-        if (pending) return `pending: ${clipTaskText(pending.content, 120)}`
-        const latestMemory = [...board.memory].sort((a, b) => (parseTimestamp(b.updated_at) ?? 0) - (parseTimestamp(a.updated_at) ?? 0))[0]
-        if (latestMemory) return `latest note [${latestMemory.kind}]: ${clipTaskText(latestMemory.content, 120)}`
-        return "(no board signal yet — just started or spinning)"
+        const sessionDir = solverSessionDir(solver.id)
+        const [board, steer] = await Promise.all([
+            readSolverBoardSnapshot(sessionDir).catch(() => ({ memory: [], ideas: [] })),
+            readSolverSteerFocus(sessionDir).catch(() => undefined),
+        ])
+        return resolveSolverFocusSignal({ steer, ideas: board.ideas, memory: board.memory, maxChars: 140 })
     }
 
     /**

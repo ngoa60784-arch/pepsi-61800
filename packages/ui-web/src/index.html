@@ -18,10 +18,6 @@
                 } catch (_) {}
             })()
         </script>
-        <meta
-            http-equiv="Content-Security-Policy"
-            content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-        />
         <script>
             window.__TCH_DESKTOP_RUNTIME__ =
                 window.location.hostname === "127.0.0.1" && window.location.port === "38472"
@@ -31,6 +27,49 @@
         <link rel="stylesheet" href="./app.css" />
     </head>
     <body>
+        <script>
+            ;(function () {
+                // Bun 编译产物在 head 注入 crossorigin；WebKitGTK（Tauri）会拒绝加载模块。
+                document.querySelectorAll("script[type=module][crossorigin]").forEach(function (node) {
+                    var src = node.getAttribute("src")
+                    if (!src) return
+                    var next = document.createElement("script")
+                    next.type = "module"
+                    next.src = src
+                    node.replaceWith(next)
+                })
+                document.querySelectorAll('link[rel="stylesheet"][crossorigin]').forEach(function (node) {
+                    node.removeAttribute("crossorigin")
+                })
+            })()
+        </script>
+        <script>
+            ;(function () {
+                function showBootError(message) {
+                    var root = document.getElementById("root")
+                    if (!root) return
+                    root.innerHTML =
+                        '<pre style="margin:1rem;padding:1rem;border-radius:0.75rem;background:rgba(127,29,29,0.35);color:#fecaca;white-space:pre-wrap;font:13px/1.5 ui-monospace,monospace"></pre>'
+                    root.firstChild.textContent = message
+                }
+                window.addEventListener(
+                    "error",
+                    function (event) {
+                        var detail = event.error ? event.error.stack || event.error.message : event.message
+                        showBootError("页面脚本加载失败：\n" + detail)
+                    },
+                    true,
+                )
+                window.addEventListener(
+                    "unhandledrejection",
+                    function (event) {
+                        var reason = event.reason
+                        var detail = reason && reason.stack ? reason.stack : reason && reason.message ? reason.message : String(reason)
+                        showBootError("页面初始化失败：\n" + detail)
+                    },
+                )
+            })()
+        </script>
         <div id="root"></div>
         <script type="module" src="./main.tsx"></script>
     </body>

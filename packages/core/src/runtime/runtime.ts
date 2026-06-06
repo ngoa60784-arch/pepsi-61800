@@ -1,5 +1,4 @@
-import Dockerode from "dockerode"
-import { basename, dirname, resolve } from "node:path"
+import { resolve } from "node:path"
 import { appendFile, mkdir, readdir, rename } from "node:fs/promises"
 import type {
     ContainerConfig,
@@ -12,9 +11,7 @@ import type {
 import { ARCHIVE_SOLVERS_DIR, SOLVERS_DIR, solverDir, solverSessionDir, solverStartupPath, solverWorkspaceDir } from "./types"
 import { ConfigManager, DEFAULT_CONFIG_DIR } from "../config/index"
 import type { HostRuntimeSettings } from "../config/types"
-import { resolveMcpDir, SOLVER_MCP_MOUNT } from "../config/mcp/paths"
 import { resolveBuiltinSkillsDir, TCH_BUILTIN_SKILLS_ENV } from "../config/skills/index"
-import { existsSync } from "node:fs"
 import { CHALLENGE_ENV_CHALLENGE_ID, ENGAGEMENT_ENV_SCOPE } from "../challenge/env"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 import type { Message } from "@mariozechner/pi-ai"
@@ -23,26 +20,19 @@ import type { RpcCommand, SolverInitPayload } from "../solver/rpc/rpc-types"
 import type { Subprocess } from "bun"
 import { createExecutionBackend, type ExecutionBackend } from "./execution-backend"
 import {
-    DOCKERFILE_HASH_LABEL,
-    RUNTIME_IMAGE_ARCH,
-    ensureSolverBinary,
     getAgentEndError,
     getAssistantError,
     getStableSolverCreatedAt,
-    hashDockerfileContent,
     pathExists,
     readMessagesFromSessionDir,
     readStartup,
-    resolveDockerfilePath,
     resolveLocalSolverInjection,
-    resolveSolverInjection,
 } from "./helpers"
 import { recordRpcStdoutPollution, tryParseStdoutJsonlLine } from "../observability/metrics"
 const SOLVER_NAME_PREFIX = "tch-solver"
 const RPC_STRICT_POLLUTION_LIMIT = 5
-const DOCKER_PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"] as const
 
-export { getAgentEndError, hashDockerfileContent } from "./helpers"
+export { getAgentEndError } from "./helpers"
 
 function isHostBridgeRequestEvent(value: unknown): value is HostBridgeRequestEvent {
     if (!value || typeof value !== "object") return false
@@ -190,16 +180,6 @@ function splitObserverThreads(
     })
 }
 
-function readDockerBuildProxyArgs(): string[] {
-    const args: string[] = []
-    for (const key of DOCKER_PROXY_ENV_KEYS) {
-        const value = process.env[key]?.trim()
-        if (!value) continue
-        args.push("--build-arg", `${key}=${value}`)
-    }
-    return args
-}
-
 function formatError(error: unknown): string {
     return error instanceof Error ? error.stack || error.message : String(error)
 }
@@ -208,18 +188,16 @@ function solverStartupLogPath(solverId: string): string {
     return resolve(solverDir(solverId), "startup.log")
 }
 
-/** Desktop shell (Tauri) forces local solver host — no Docker / compile-on-start required. */
+/** Desktop shell (Tauri) defaults exec surface to local-host when unset. */
 export function applyDesktopRuntimeOverrides(runtime: HostRuntimeSettings): HostRuntimeSettings {
     if (process.env.TCH_DESKTOP !== "1") return runtime
     return {
         ...runtime,
-        solverHost: "local",
         execSurface: runtime.execSurface ?? "local-host",
     }
 }
 
 export class RuntimeManager {
-    private docker: Dockerode
     private config: ContainerConfig
     private solvers = new Map<string, SolverInstance>()
     private procs = new Map<string, Subprocess<"pipe", "pipe", "pipe">>()
@@ -232,19 +210,8 @@ export class RuntimeManager {
     private backend: ExecutionBackend
 
     constructor(config: ConfigManager, hostBridgeHandlers: HostBridgeHandler[]) {
-        this.docker = new Dockerode()
-        const binds = [`${DEFAULT_CONFIG_DIR}:/root/.tch-agent/config:ro`]
-        const mcpDir = resolveMcpDir(DEFAULT_CONFIG_DIR)
-        if (existsSync(resolve(mcpDir, "ssh_mcp.py"))) {
-            binds.push(`${mcpDir}:${SOLVER_MCP_MOUNT}:ro`)
-        }
         const builtinSkillsDir = resolveBuiltinSkillsDir(DEFAULT_CONFIG_DIR)
-        if (existsSync(builtinSkillsDir) && builtinSkillsDir !== resolve(DEFAULT_CONFIG_DIR, "skills")) {
-            binds.push(`${builtinSkillsDir}:${builtinSkillsDir}:ro`)
-        }
         this.config = {
-            image: "tch-agent:latest",
-            binds,
             env: { [TCH_BUILTIN_SKILLS_ENV]: builtinSkillsDir },
         }
         this.hostConfig = config
@@ -264,20 +231,8 @@ export class RuntimeManager {
         this.backend = createExecutionBackend(this.config)
     }
 
-    private usesDockerBackend(): boolean {
-        return this.backend.kind === "docker"
-    }
-
-    async init(onProgress?: (message: string) => void) {
+    async init(_onProgress?: (message: string) => void) {
         await this.ensureReady()
-        if (this.usesDockerBackend()) {
-            await this.ensureImage(onProgress)
-        }
-        if (!this.usesDockerBackend()) return
-        const execName = basename(process.execPath).toLowerCase()
-        if (execName === "bun" || execName === "bun.exe") {
-            await ensureSolverBinary(onProgress)
-        }
     }
 
     onEvent(handler: SolverEventHandler) {
@@ -394,142 +349,9 @@ export class RuntimeManager {
         }
     }
 
-    /** Check if Docker daemon is accessible */
-    async ping(): Promise<boolean> {
-        try {
-            await this.docker.ping()
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    /** Check if the configured image exists locally */
-    async hasImage(image?: string): Promise<boolean> {
-        try {
-            const img = this.docker.getImage(image ?? this.config.image)
-            await img.inspect()
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private async getDockerfileHash(dockerfilePath: string): Promise<string> {
-        const content = await Bun.file(dockerfilePath).text()
-        return hashDockerfileContent(content)
-    }
-
-    private async getImageDockerfileHash(image?: string): Promise<string | undefined> {
-        try {
-            const img = this.docker.getImage(image ?? this.config.image)
-            const inspect = await img.inspect()
-            return inspect.Config?.Labels?.[DOCKERFILE_HASH_LABEL]
-        } catch {
-            return
-        }
-    }
-
-    private async getImageArchitecture(image?: string): Promise<string | undefined> {
-        try {
-            const img = this.docker.getImage(image ?? this.config.image)
-            const inspect = await img.inspect()
-            return inspect.Architecture
-        } catch {
-            return
-        }
-    }
-
-    /**
-     * Ensure the solver image exists. If not, build it from the Dockerfile.
-     *
-     * Dockerfile resolution order:
-     *   1. ~/.tch-agent/config/Dockerfile  (user-customizable)
-     *   2. Built-in Dockerfile bundled with the package
-     *
-     * If the user copy doesn't exist, the built-in one is copied there first.
-     */
-    async ensureImage(onProgress?: (message: string) => void): Promise<void> {
-        if (!this.usesDockerBackend()) return
-        const dockerfilePath = await resolveDockerfilePath(onProgress)
-        const imageExists = await this.hasImage()
-
-        if (imageExists) {
-            const actualArchitecture = await this.getImageArchitecture()
-            if (actualArchitecture === RUNTIME_IMAGE_ARCH) return
-            onProgress?.(`Image ${this.config.image} has wrong architecture (${actualArchitecture ?? "unknown"}); rebuilding...`)
-        }
-
-        const expectedDockerfileHash = await this.getDockerfileHash(dockerfilePath)
-        onProgress?.(`Building image ${this.config.image} from ${dockerfilePath}...`)
-
-        const contextDir = dirname(dockerfilePath)
-        const proxyArgs = readDockerBuildProxyArgs()
-        const proc = Bun.spawn(
-            [
-                "docker",
-                "buildx",
-                "build",
-                "--platform",
-                "linux/amd64",
-                "--load",
-                "-t",
-                this.config.image,
-                "-f",
-                dockerfilePath,
-                "--label",
-                `${DOCKERFILE_HASH_LABEL}=${expectedDockerfileHash}`,
-                ...proxyArgs,
-                contextDir,
-            ],
-            {
-                stdout: "pipe",
-                stderr: "pipe",
-            },
-        )
-
-        const readProgress = async (stream: ReadableStream<Uint8Array> | null) => {
-            if (!stream) return
-            // Per-stream streaming decoder: concurrent stdout/stderr reads must not share one decoder,
-            // and non-streaming decode truncates multibyte chars across chunks.
-            const decoder = new TextDecoder()
-            const reader = stream.getReader()
-            let buffer = ""
-            while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
-                buffer += decoder.decode(value, { stream: true })
-                const lines = buffer.split("\n")
-                buffer = lines.pop() ?? ""
-                for (const line of lines) {
-                    const text = line.trim()
-                    if (text) onProgress?.(text)
-                }
-            }
-            const tail = buffer.trim()
-            if (tail) onProgress?.(tail)
-        }
-
-        await Promise.all([readProgress(proc.stdout), readProgress(proc.stderr)])
-        const exitCode = await proc.exited
-        if (exitCode !== 0) {
-            throw new Error(`Failed to build image ${this.config.image} (exit ${exitCode})`)
-        }
-
-        const builtArchitecture = await this.getImageArchitecture()
-        if (builtArchitecture !== RUNTIME_IMAGE_ARCH) {
-            throw new Error(`Image ${this.config.image} built with wrong architecture: ${builtArchitecture ?? "unknown"} (expected ${RUNTIME_IMAGE_ARCH})`)
-        }
-
-        onProgress?.(`Image ${this.config.image} built successfully`)
-    }
-
-    /** Start a new solver (Docker container or local process per runtime.solverHost). */
+    /** Start a new solver as a local `tch-agent solver rpc` child process. */
     async launch(promptName: string, task: string, solverEnv?: Record<string, string>, options?: { solverId?: string; resume?: boolean }): Promise<SolverInstance> {
         await this.ensureReady()
-        if (this.usesDockerBackend()) {
-            await this.ensureImage()
-        }
 
         const id = options?.solverId?.trim() || crypto.randomUUID().slice(0, 8)
         const name = `${SOLVER_NAME_PREFIX}-${id}`
@@ -562,7 +384,7 @@ export class RuntimeManager {
         await mkdir(sessionDir, { recursive: true })
         await mkdir(workspaceDir, { recursive: true })
 
-        const injection = this.usesDockerBackend() ? await resolveSolverInjection() : await resolveLocalSolverInjection()
+        const injection = await resolveLocalSolverInjection()
         const hostScopePath = normalizedSolverEnv[ENGAGEMENT_ENV_SCOPE]?.trim() || undefined
 
         try {
@@ -571,7 +393,6 @@ export class RuntimeManager {
                 containerName: name,
                 solverEnv: normalizedSolverEnv,
                 injectionCmd: injection.cmd,
-                extraBinds: injection.binds,
                 hostScopePath,
                 hostBaseDir: baseDir,
                 hostSessionDir: sessionDir,
@@ -609,7 +430,7 @@ export class RuntimeManager {
         proc.stdin.write(JSON.stringify(command) + "\n")
     }
 
-    /** Stop a solver container */
+    /** Stop a solver process */
     async stopSolver(solverId: string) {
         const solver = this.solvers.get(solverId)
         if (!solver) throw new Error(`Solver ${solverId} not found`)
@@ -620,10 +441,9 @@ export class RuntimeManager {
             await this.backend.stop({ solverId, containerName: solver.containerId })
         } catch (error) {
             console.error(
-                `[runtime] docker stop failed for solver ${solverId}: ${error instanceof Error ? error.message : String(error)}`,
+                `[runtime] stop failed for solver ${solverId}: ${error instanceof Error ? error.message : String(error)}`,
             )
         } finally {
-            // Explicitly kill local `docker run -i` client; --rm usually cleans the container.
             this.procs.get(solverId)?.kill()
             solver.status = "stopped"
             this.clearSolverRuntimeState(solverId)

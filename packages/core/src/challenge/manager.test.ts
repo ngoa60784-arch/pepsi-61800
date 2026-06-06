@@ -6,8 +6,8 @@ import type { ConfigManager } from "../config/index"
 import { CHALLENGE_ENV_DIR } from "./env"
 import { ChallengeManager, MaxActiveChallengesError } from "./manager"
 import { appendChallengeAttemptLog, appendChallengeSubmissionLog, saveChallengeRecord } from "./store"
-import { readSolverBoardSnapshot } from "../solver/board-store"
-import { solverSessionDir } from "../runtime/types"
+import { readSolverBoardSnapshot, readSolverSteerFocus } from "../solver/board-store"
+import { solverDir, solverSessionDir } from "../runtime/types"
 
 let challengeDir: string
 let manager: ChallengeManager
@@ -781,6 +781,12 @@ describe("challenge-manager local api", () => {
         expect(sendCommand).toHaveBeenCalledTimes(1)
         expect(sendCommand.mock.calls[0]?.[0]).toBe("solver-live")
         expect(sendCommand.mock.calls[0]?.[1]).toMatchObject({ type: "steer" })
+
+        const recorded = await readSolverSteerFocus(solverSessionDir("solver-live"))
+        expect(recorded?.message).toContain("pivot from recon to privilege escalation")
+        expect(recorded?.source).toBe("planner:steer")
+
+        await rm(solverDir("solver-live"), { recursive: true, force: true })
     })
 
     test("planner_set_plan persists a battle plan that carries into the next round", async () => {

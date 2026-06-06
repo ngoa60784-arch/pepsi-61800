@@ -10,6 +10,7 @@ import {
     Trash2Icon,
     XIcon,
 } from "lucide-react"
+import { useConfirm } from "../../hooks/use-confirm"
 import { commander, type CommanderSessionItem } from "../../lib/api"
 import { cn } from "../../lib/utils"
 import { Button } from "../ui/button"
@@ -61,6 +62,7 @@ function userBubbleText(note: string, doc: PendingDoc | null): string {
 }
 
 export function CommanderPage() {
+    const confirmDialog = useConfirm()
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [input, setInput] = useState("")
     const [pendingDoc, setPendingDoc] = useState<PendingDoc | null>(null)
@@ -260,7 +262,16 @@ export function CommanderPage() {
     // 开一轮全新的干净对话（不影响已派出的 solver）。
     async function handleNewSession() {
         if (busy) return
-        if (!confirm("开始新对话？当前界面会清空；旧对话仍保留在对话列表中，可随时切换回来（已派出的 solver 不受影响）。")) return
+        if (
+            !(await confirmDialog({
+                title: "开始新对话",
+                description:
+                    "当前界面会清空；旧对话仍保留在对话列表中，可随时切换回来（已派出的 solver 不受影响）。",
+                confirmLabel: "开始",
+            }))
+        ) {
+            return
+        }
         setError("")
         try {
             await commander.newSession()
@@ -294,7 +305,16 @@ export function CommanderPage() {
     async function handleDeleteSession(item: CommanderSessionItem, event: React.MouseEvent) {
         event.stopPropagation()
         if (busy) return
-        if (!confirm(`删除这条对话？\n\n${item.preview}\n\n删除后无法恢复。`)) return
+        if (
+            !(await confirmDialog({
+                title: "删除对话",
+                description: `${item.preview}\n\n删除后无法恢复。`,
+                confirmLabel: "删除",
+                variant: "destructive",
+            }))
+        ) {
+            return
+        }
         setError("")
         try {
             const res = await commander.deleteSession(item.path)

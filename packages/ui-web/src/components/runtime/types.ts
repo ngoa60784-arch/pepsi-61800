@@ -38,7 +38,6 @@ export interface RuntimeDetailsView {
 }
 
 export interface RuntimeStatusView {
-    docker: boolean
     solvers: number
 }
 

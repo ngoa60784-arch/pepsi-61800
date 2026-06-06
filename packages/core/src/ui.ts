@@ -1,6 +1,6 @@
 /**
  * Browser-safe @tch/core surface for the Web UI.
- * Import from `@tch/core/ui` in client code — never the root barrel (pulls dockerode/grpc).
+ * Import from `@tch/core/ui` in client code — never the root barrel (pulls heavy server-only deps).
  */
 export type { ActivateModelResult, AddResult, HostSettings } from "./config/index"
 export type { ToolEntry } from "./config/tools/index"
