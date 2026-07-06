@@ -344,4 +344,127 @@ describe("engagement host bridge notifications", () => {
         expect((result.data as { recorded: boolean }).recorded).toBe(false)
         expect(upsertStateAsset).not.toHaveBeenCalled()
     })
+
+    test("report_finding threads evidence_refs into the submission record (keeps plaintext creds out of proof)", async () => {
+        const recordEngagementObjective = mock(async (_id: string, _proof: string, _meta?: { evidenceRefs?: string[] }) => ({ id: "rec-ev" }))
+        const promoteFindingFactsToChallenge = mock(async () => ({ promoted: 0, duplicate: 0, skipped: 0 }))
+        const handler = createChallengeHostBridgeHandler({
+            recordEngagementObjective,
+            promoteFindingFactsToChallenge,
+            listMemory: async () => [],
+            listIdeas: async () => [],
+        } as unknown as ChallengeManager)
+
+        const result = await handler.handle(
+            createContext({
+                action: "challenge_submit_flag",
+                params: {
+                    flag: "dumped domain admin credential (see loot)",
+                    writeup: "kerberoast -> cracked -> DA",
+                    // mix of valid refs plus junk that must be filtered out
+                    evidence_refs: ["loot/creds.txt", "mem_9f2", "   ", 42],
+                },
+            }),
+        )
+
+        expect(result.handled).toBe(true)
+        expect(recordEngagementObjective).toHaveBeenCalledTimes(1)
+        const meta = recordEngagementObjective.mock.calls[0]?.[2] as { evidenceRefs?: string[] } | undefined
+        expect(meta?.evidenceRefs).toEqual(["loot/creds.txt", "mem_9f2"])
+    })
+
+    test("report_finding omits evidence_refs when none are provided", async () => {
+        const recordEngagementObjective = mock(async (_id: string, _proof: string, _meta?: { evidenceRefs?: string[] }) => ({ id: "rec-noev" }))
+        const promoteFindingFactsToChallenge = mock(async () => ({ promoted: 0, duplicate: 0, skipped: 0 }))
+        const handler = createChallengeHostBridgeHandler({
+            recordEngagementObjective,
+            promoteFindingFactsToChallenge,
+            listMemory: async () => [],
+            listIdeas: async () => [],
+        } as unknown as ChallengeManager)
+
+        await handler.handle(
+            createContext({ action: "challenge_submit_flag", params: { flag: "finding without secrets" } }),
+        )
+
+        const meta = recordEngagementObjective.mock.calls[0]?.[2] as { evidenceRefs?: string[] } | undefined
+        expect(meta?.evidenceRefs).toBeUndefined()
+    })
+
+    test("relation_upsert delegates to appendRelation and returns the edge id", async () => {
+        const appendRelation = mock(async (_input: { challengeId: string; source: string; relation: string; target: string }) => ({ id: "rel-1" }))
+        const handler = createChallengeHostBridgeHandler({ appendRelation } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({
+                action: "relation_upsert" as never,
+                params: { source: "Cred:admin@web01", relation: "grants_access_to", target: "Host:10.0.0.9", note: "reused password", source_ref: "finding:rec-1" },
+            }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { relation_id: string }).relation_id).toBe("rel-1")
+        expect(appendRelation).toHaveBeenCalledTimes(1)
+        expect(appendRelation.mock.calls[0]?.[0]).toMatchObject({
+            challengeId: "chal-1",
+            source: "Cred:admin@web01",
+            relation: "grants_access_to",
+            target: "Host:10.0.0.9",
+            note: "reused password",
+            source_ref: "finding:rec-1",
+        })
+    })
+
+    test("relation_query delegates to queryRelations with the given filter", async () => {
+        const queryRelations = mock(async (_id: string, _filter: { source?: string }) => [
+            { id: "rel-a", source: "Host:10.0.0.5", relation: "exposes_service", target: "Service:10.0.0.5:8080", note: "nginx" },
+        ])
+        const handler = createChallengeHostBridgeHandler({ queryRelations } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({ action: "relation_query" as never, params: { source: "Host:10.0.0.5" } }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { count: number }).count).toBe(1)
+        expect(queryRelations).toHaveBeenCalledTimes(1)
+        expect(queryRelations.mock.calls[0]?.[0]).toBe("chal-1")
+        expect(queryRelations.mock.calls[0]?.[1]).toMatchObject({ source: "Host:10.0.0.5" })
+    })
+
+    test("relation_path delegates to findRelationShortestPath and returns the path", async () => {
+        const findRelationShortestPath = mock(async (_id: string, _start: string, _end: string) => ({
+            found: true,
+            path: [
+                { source: "Host:10.0.0.5", relation: "exposes_service", target: "Service:10.0.0.5:8080", note: "" },
+                { source: "Service:10.0.0.5:8080", relation: "exploitable_via", target: "Shell:root@10.0.0.5", note: "" },
+            ],
+        }))
+        const handler = createChallengeHostBridgeHandler({ findRelationShortestPath } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({ action: "relation_path" as never, params: { start: "Host:10.0.0.5", end: "Shell:root@10.0.0.5" } }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { found: boolean; hops: number }).found).toBe(true)
+        expect((result.data as { hops: number }).hops).toBe(2)
+        expect(findRelationShortestPath).toHaveBeenCalledWith("chal-1", "Host:10.0.0.5", "Shell:root@10.0.0.5")
+    })
+
+    test("state_upsert auto-derives an attack-graph edge from a structured asset", async () => {
+        const upsertStateAsset = mock(async (_id: string, _input: { kind: string }) => ({ created: true, asset: { id: "asset_svc" } }))
+        const appendRelation = mock(async (_input: { source: string; relation: string; target: string }) => ({ id: "rel-auto" }))
+        const handler = createChallengeHostBridgeHandler({ upsertStateAsset, appendRelation } as unknown as ChallengeManager)
+        const result = await handler.handle(
+            createContext({
+                action: "state_upsert" as never,
+                params: { kind: "service", label: "nginx 1.25", host: "10.0.0.5", port: 8080, service: "nginx" },
+            }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { recorded: boolean }).recorded).toBe(true)
+        // A service asset on a host should auto-create a Host --exposes_service--> Service edge.
+        expect(appendRelation).toHaveBeenCalledTimes(1)
+        expect(appendRelation.mock.calls[0]?.[0]).toMatchObject({
+            challengeId: "chal-1",
+            source: "Host:10.0.0.5",
+            relation: "exposes_service",
+            target: "Service:10.0.0.5:8080",
+        })
+    })
 })

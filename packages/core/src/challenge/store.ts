@@ -52,6 +52,11 @@ export interface ChallengeSubmissionLogRecord {
     correct: boolean
     message?: string
     writeup?: string
+    /**
+     * References to where the real evidence lives (loot file path, memory id, asset secretRef), instead of
+     * pasting secrets/credentials inline into `flag`/`writeup`. Keeps plaintext creds out of the shared log.
+     */
+    evidence_refs?: string[]
     created_at: string
     /**
      * The independent verifier's re-run verdict status (dual validation).
@@ -223,11 +228,15 @@ export async function appendChallengeSubmissionLog(
         correct: boolean
         message?: string
         writeup?: string
+        evidenceRefs?: string[]
         verificationStatus?: ChallengeSubmissionLogRecord["verification_status"]
     },
 ): Promise<ChallengeSubmissionLogRecord> {
     const challengeId = requireText(input.challengeId, "challengeId")
     await ensureChallengeDirs(rootDir, challengeId)
+    const evidenceRefs = Array.isArray(input.evidenceRefs)
+        ? input.evidenceRefs.map((ref) => (typeof ref === "string" ? ref.trim() : "")).filter((ref) => ref.length > 0)
+        : []
     const record: ChallengeSubmissionLogRecord = {
         id: createLogId("submission"),
         challenge_id: challengeId,
@@ -238,6 +247,7 @@ export async function appendChallengeSubmissionLog(
         correct: input.correct,
         message: typeof input.message === "string" && input.message.trim() ? input.message.trim() : undefined,
         writeup: typeof input.writeup === "string" && input.writeup.trim() ? input.writeup.trim() : undefined,
+        evidence_refs: evidenceRefs.length > 0 ? evidenceRefs : undefined,
         verification_status: input.verificationStatus,
         created_at: nowIso(),
     }

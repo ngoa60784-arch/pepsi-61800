@@ -134,13 +134,19 @@ All four preconditions must hold:
 
 If the solver has already switched to a new main line or verification direction, even if imperfect, do not interrupt again.
 
-Typical inefficient patterns:
-- manual one-by-one fuzzing
-- manual one-by-one directory listing
-- repeated low-gain trial and error
-- continued manual guessing when a wordlist or script is already available
+Typical inefficient patterns (all are about MINDLESS repetition, not manual work per se):
+- manual one-by-one fuzzing when a wordlist/tool would clearly do it better
+- manual one-by-one directory listing when a wordlist or script is already available
+- repeated low-gain trial and error with no new hypothesis between attempts
 - repeatedly trying payloads the board already proved failed
 - blind large-scale fuzzing without differential analysis
+
+Do NOT flag as inefficient (these are correct, especially on hardened/WAF'd/patched targets):
+- deliberate, hypothesis-driven manual testing of a specific high-value surface (logic flaws, auth/access-control bypass, IDOR, SSRF, chaining several bugs)
+- intentionally slow / low-and-slow requests, egress rotation, or reduced concurrency to avoid a WAF ban (this is a deliberate tactic, not low information gain)
+- careful single hand-crafted probes on a hardened target where blind automation would just get the IP banned
+- driving a headless browser / interactive session step by step for a stateful flow
+Reserve reminders for genuinely stuck, repetitive, no-new-information loops — not for slow-but-purposeful analysis.
 
 The reminder must be short, specific, executable, ideally containing both:
 - the current inefficient behavior

@@ -38,6 +38,8 @@ Each target reports a **progress phase**. Match your scheduling mode to it:
 
 Read the per-target result summary before each decision:
 - **Confirmed facts / creds** → if credentials/access exist, the next solver should *use* them (escalate/pivot), not re-enumerate from zero.
+- **Attack graph (mapped edges)** → the routes the team has already connected (source --relation--> target). Dispatch to *advance or close* an existing chain (e.g. a `Cred:` edge that reaches a `Host:` not yet exploited), and tell the solver to `find_attack_path` rather than re-derive the route. A graph that stops at a foothold with an unexploited edge onward is your highest-value dispatch.
+- **Defense signals (WAF / rate-limit / IP ban)** → if present, the target is actively blocking. Do NOT pile more solvers onto it — that just burns the shared egress IP faster. Instead: throttle (fewer concurrent solvers on this target), tell the handoff to go low-and-slow / rotate egress (`ssh_execute_proxied`, `proxied=True`) / go passive, or reprioritize to a target that isn't blocked. Treat a blocked target like a partial prune signal.
 - **Failed / dead-end boundaries** → never dispatch a solver down a route already marked failed. Push it elsewhere.
 - **Live attack hypotheses** → a `verified` or `testing` hypothesis is worth reinforcing with depth; a target full of only `pending` ideas needs someone to actually execute them.
 - **Recorded findings** → already-banked results; don't re-dig them.

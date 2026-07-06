@@ -47,3 +47,11 @@ packages/core/src/runtime/assets/tch-agent-linux-x64
 engagement-scope.json
 *.engagement-scope.json
 **/engagement-scope.json
+
+# captured loot / credentials — solver workspaces normally live under ~/.tch-agent,
+# but guard against secrets ever landing in the repo if a workspace is placed here
+loot/
+**/loot/
+creds.txt
+**/creds.txt
+*.loot

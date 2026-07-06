@@ -10,7 +10,9 @@ description: |
 
 # Remote CMD Execution
 
-You handle the problem of "how to run commands reliably on a controlled host (Windows/Linux) via NPS execcmd". When execution fails, the first cause is usually wrong command format, path conventions, or execution style — not missing privileges.
+> **Scope of this skill.** This covers running commands on a **compromised/controlled host you have pivoted to via a C2 bridge** (NPS `exec_cmd`/`upload_file` style). It is NOT how you drive the remote Kali attack box — for that, always use the `kali-arsenal` MCP (`ssh_execute` / `ssh_exec_bg` / `ssh_job_poll`, and `ssh_session_*` for interactive shells). Use the conventions below once you are executing *on a victim host through a C2*; if you have an interactive foothold shell instead, prefer the session tools (`ssh_session_new`/`ssh_session_send`/`ssh_session_read`) and the `privilege-escalation` / `lateral-movement` skills.
+
+You handle the problem of "how to run commands reliably on a controlled host (Windows/Linux)". When execution fails, the first cause is usually wrong command format, path conventions, or execution style — not missing privileges. The `exec_cmd(cid, ...)` examples below are C2-bridge syntax; translate them to plain shell when you are inside an SSH/interactive foothold shell.
 
 ---
 

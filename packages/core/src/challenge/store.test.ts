@@ -131,6 +131,29 @@ describe("challenge-store", () => {
         expect(result).toBeUndefined()
     })
 
+    test("appendChallengeSubmissionLog persists evidence_refs and trims/filters blanks", async () => {
+        const record = await appendChallengeSubmissionLog(challengeDir, {
+            challengeId: "ev-1",
+            flag: "finding references loot, no plaintext",
+            correct: false,
+            evidenceRefs: ["  loot/creds.txt  ", "mem_abc", "", "   "],
+        })
+        // blanks dropped, remaining trimmed
+        expect(record.evidence_refs).toEqual(["loot/creds.txt", "mem_abc"])
+
+        const submissions = await listChallengeSubmissionLogs(challengeDir, "ev-1")
+        expect(submissions).toHaveLength(1)
+        expect(submissions[0].evidence_refs).toEqual(["loot/creds.txt", "mem_abc"])
+    })
+
+    test("appendChallengeSubmissionLog leaves evidence_refs undefined when only blanks/none given", async () => {
+        const none = await appendChallengeSubmissionLog(challengeDir, { challengeId: "ev-2", flag: "x", correct: false })
+        expect(none.evidence_refs).toBeUndefined()
+
+        const blanks = await appendChallengeSubmissionLog(challengeDir, { challengeId: "ev-2", flag: "y", correct: false, evidenceRefs: ["", "  "] })
+        expect(blanks.evidence_refs).toBeUndefined()
+    })
+
     test("deleteChallengeDirectory removes target data", async () => {
         await saveChallengeRecord(challengeDir, {
             id: "to-delete",

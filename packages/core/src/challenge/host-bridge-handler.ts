@@ -13,6 +13,39 @@ function getObjectValue(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>
 }
 
+/**
+ * Derive obvious attack-graph edges from a structured asset, so the graph is populated even when the
+ * model never calls record_relation. Only emits edges that follow deterministically from the asset's
+ * own fields (service-on-host, credential-owns-account, session-grants-access). De-dup is handled by
+ * the relation store's unique triple index, so re-recording is safe.
+ */
+async function autoDeriveEdgesFromAsset(
+    challengeManager: ChallengeManager,
+    challengeId: string,
+    asset: { kind: string; label: string; host: string; port?: number; service: string; account: string; privilege: string; assetId: string },
+): Promise<void> {
+    const edges: Array<{ source: string; relation: string; target: string; note?: string }> = []
+    const hostNode = asset.host ? `Host:${asset.host}` : ""
+    const ref = `asset:${asset.assetId}`
+    if (asset.kind === "service" && hostNode) {
+        const svcLabel = asset.port ? `Service:${asset.host}:${asset.port}` : `Service:${asset.label}`
+        edges.push({ source: hostNode, relation: "exposes_service", target: svcLabel, note: asset.service || undefined })
+    }
+    if (asset.kind === "credential" && asset.account) {
+        const credNode = `Cred:${asset.account}${asset.host ? `@${asset.host}` : ""}`
+        if (hostNode) edges.push({ source: credNode, relation: "authenticates_to", target: hostNode, note: asset.privilege || undefined })
+    }
+    if (asset.kind === "session" && asset.account && hostNode) {
+        const shellNode = `Shell:${asset.privilege || asset.account}@${asset.host}`
+        edges.push({ source: hostNode, relation: "has_session", target: shellNode })
+    }
+    for (const edge of edges) {
+        await challengeManager
+            .appendRelation({ challengeId, source: edge.source, relation: edge.relation, target: edge.target, note: edge.note, source_ref: ref })
+            .catch(() => {})
+    }
+}
+
 function getRequiredString(data: Record<string, unknown>, key: string): string {
     const value = data[key]
     if (typeof value !== "string" || !value.trim()) {
@@ -192,6 +225,9 @@ async function handleEngagementAction(
         case "challenge_submit_flag": {
             const proof = getRequiredString(data, "flag")
             const writeup = typeof data.writeup === "string" && data.writeup.trim() ? data.writeup.trim() : undefined
+            const evidenceRefs = Array.isArray(data.evidence_refs)
+                ? data.evidence_refs.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+                : undefined
             const objectiveClaimed = data.objective_achieved === true
             // Assertive evidence gate (deterministic first pass): solver reporting primary objective can stop the line,
             // but models sometimes claim victory without proof. Insufficient evidence downgrades to plain finding (still logged, no verification),
@@ -211,6 +247,7 @@ async function handleEngagementAction(
                 promptName: getSolverPromptName(getSolver?.()),
                 modelName: getSolverModelName((await getSolverStartup?.()) ?? undefined),
                 writeup,
+                evidenceRefs,
                 verificationStatus: enterVerification ? "pending" : undefined,
             })
             await challengeManager
@@ -369,6 +406,18 @@ async function handleEngagementAction(
                 note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
                 sourceRefs: Array.isArray(data.source_refs) ? data.source_refs.filter((item): item is string => typeof item === "string") : undefined,
             })
+            // Auto-derive attack-graph edges from the structured asset so the graph fills up even when the
+            // model forgets to call record_relation. Best-effort: never let graph errors break asset recording.
+            await autoDeriveEdgesFromAsset(challengeManager, storeKey, {
+                kind: kindRaw,
+                label: getRequiredString(data, "label"),
+                host: typeof data.host === "string" ? data.host.trim() : "",
+                port: typeof data.port === "number" && Number.isFinite(data.port) ? data.port : undefined,
+                service: typeof data.service === "string" ? data.service.trim() : "",
+                account: typeof data.account === "string" ? data.account.trim() : "",
+                privilege: typeof data.privilege === "string" ? data.privilege.trim() : "",
+                assetId: result.asset.id,
+            }).catch(() => {})
             return {
                 handled: true,
                 data: {
@@ -379,6 +428,46 @@ async function handleEngagementAction(
                     message: result.created ? "asset recorded to shared state" : "asset merged into existing shared-state entry",
                     ...(result.vulnLookup ? { vuln_lookup: result.vulnLookup } : {}),
                 },
+            }
+        }
+        case "relation_upsert": {
+            // Attack-graph edge from solver record_relation. (Previously unhandled — the tool threw
+            // "unsupported host bridge action", leaving the graph permanently empty.)
+            const source = getRequiredString(data, "source")
+            const relation = getRequiredString(data, "relation")
+            const target = getRequiredString(data, "target")
+            const rel = await challengeManager.appendRelation({
+                challengeId: storeKey,
+                source,
+                relation,
+                target,
+                note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
+                source_ref: typeof data.source_ref === "string" && data.source_ref.trim() ? data.source_ref.trim() : undefined,
+            })
+            return { handled: true, data: { challenge_id: storeKey, relation_id: rel.id, message: "attack-graph edge recorded" } }
+        }
+        case "relation_query": {
+            const relations = await challengeManager.queryRelations(storeKey, {
+                source: typeof data.source === "string" && data.source.trim() ? data.source.trim() : undefined,
+                relation: typeof data.relation === "string" && data.relation.trim() ? data.relation.trim() : undefined,
+                target: typeof data.target === "string" && data.target.trim() ? data.target.trim() : undefined,
+            })
+            return {
+                handled: true,
+                data: {
+                    challenge_id: storeKey,
+                    count: relations.length,
+                    relations: relations.map((rel) => ({ id: rel.id, source: rel.source, relation: rel.relation, target: rel.target, note: rel.note })),
+                },
+            }
+        }
+        case "relation_path": {
+            const start = getRequiredString(data, "start")
+            const end = getRequiredString(data, "end")
+            const result = await challengeManager.findRelationShortestPath(storeKey, start, end)
+            return {
+                handled: true,
+                data: { challenge_id: storeKey, found: result.found, hops: result.path.length, path: result.path },
             }
         }
         default:

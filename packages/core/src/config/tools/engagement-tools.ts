@@ -9,6 +9,12 @@ const ReportFindingParams = Type.Object({
         description: "Proof of a verified finding: e.g. a captured credential, shell/RCE evidence reference, or other concrete validation artifact",
     }),
     writeup: Type.Optional(Type.String({ description: "Concise route summary of how this finding was obtained and validated" })),
+    evidence_refs: Type.Optional(
+        Type.Array(Type.String(), {
+            description:
+                "References to where sensitive evidence actually lives, INSTEAD of pasting secrets inline. Use for credentials/tokens/hashes/keys: a loot file path (e.g. 'loot/creds.txt'), a memory id, or a state-asset secretRef. Put the reference here and keep the raw secret out of `proof`/`writeup` so plaintext credentials don't end up in the shared findings log.",
+        }),
+    ),
     objective_achieved: Type.Optional(
         Type.Boolean({
             description:
@@ -32,8 +38,8 @@ export const reportFindingTool = defineTool({
     name: "report_finding",
     label: "Report Finding",
     description:
-        "Record a verified penetration finding (credential, shell/RCE proof, sensitive data access) into the local findings log. Include a concise writeup so other solvers avoid repeating the route. Set objective_achieved=true ONLY when this finding fully achieves the primary engagement objective — that stops this target's solvers and halts the planner for it.",
-    promptSnippet: "report_finding: record one verified finding (proof + writeup); set objective_achieved=true only when the primary goal is fully met",
+        "Record a verified penetration finding (credential, shell/RCE proof, sensitive data access) into the local findings log. Include a concise writeup so other solvers avoid repeating the route. For secrets (credentials/tokens/hashes/keys), pass a pointer in evidence_refs (loot file path / memory id / asset secretRef) instead of pasting the raw secret into proof/writeup. Set objective_achieved=true ONLY when this finding fully achieves the primary engagement objective — that stops this target's solvers and halts the planner for it.",
+    promptSnippet: "report_finding: record one verified finding (proof + writeup, secrets via evidence_refs); set objective_achieved=true only when the primary goal is fully met",
     parameters: ReportFindingParams,
     async execute(_toolCallId, params: ReportFindingInput) {
         const details = await requestHostBridge<{
@@ -46,6 +52,9 @@ export const reportFindingTool = defineTool({
         }>("challenge_submit_flag", {
             flag: params.proof,
             ...(params.writeup?.trim() ? { writeup: params.writeup.trim() } : {}),
+            ...(Array.isArray(params.evidence_refs) && params.evidence_refs.length > 0
+                ? { evidence_refs: params.evidence_refs.map((ref) => ref.trim()).filter((ref) => ref.length > 0) }
+                : {}),
             ...(params.objective_achieved === true ? { objective_achieved: true } : {}),
         })
         const recordRef = details.record_id ? ` (id: ${details.record_id})` : ""

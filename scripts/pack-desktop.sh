@@ -39,6 +39,14 @@ if [[ ! -f src-tauri/icons/icon.png ]]; then
     bunx tauri icon "$ROOT/deploy/icons/breachweave.png" -o src-tauri/icons
 fi
 
+# frontendDist (../dist) is only the pre-sidecar loading/error shell — the real UI is served
+# by the sidecar at runtime over http://127.0.0.1:38472. Stage the tracked loading page so
+# `tauri build` finds web assets (dist/ itself is gitignored).
+echo "==> stage desktop loading shell into dist/"
+rm -rf dist
+mkdir -p dist
+cp -r loading/. dist/
+
 echo "==> tauri build (deb + rpm)"
 bun run tauri build
 

@@ -145,281 +145,285 @@ import skill_137 from "./skills/builtin/fuzz-dicts-skills/userNameDict/top500.tx
 import skill_138 from "./skills/builtin/fuzz-dicts-skills/userNameDict/user.txt" with { type: "file" }
 import skill_139 from "./skills/builtin/fuzz-dicts-skills/userNameDict/中文姓名(简写、全拼).txt" with { type: "file" }
 import skill_140 from "./skills/builtin/fuzz-dicts-skills/userNameDict/常用用户名.txt" with { type: "file" }
-import skill_141 from "./skills/builtin/known-product-exploit/SKILL.md" with { type: "file" }
-import skill_142 from "./skills/builtin/nuclei-skill/SKILL.md" with { type: "file" }
-import skill_143 from "./skills/builtin/nuclei-skill/evals/evals.json" with { type: "file" }
-import skill_144 from "./skills/builtin/payload-research/SKILL.md" with { type: "file" }
-import skill_145 from "./skills/builtin/payloads-everything/SKILL.md" with { type: "file" }
-import skill_146 from "./skills/builtin/payloads-everything/references/API Key Leaks/Files/MachineKeys.txt" with { type: "file" }
-import skill_147 from "./skills/builtin/payloads-everything/references/API Key Leaks/IIS-Machine-Keys.md" with { type: "file" }
-import skill_148 from "./skills/builtin/payloads-everything/references/API Key Leaks/README.md" with { type: "file" }
-import skill_149 from "./skills/builtin/payloads-everything/references/Account Takeover/README.md" with { type: "file" }
-import skill_150 from "./skills/builtin/payloads-everything/references/Account Takeover/mfa-bypass.md" with { type: "file" }
-import skill_151 from "./skills/builtin/payloads-everything/references/Brute Force Rate Limit/README.md" with { type: "file" }
-import skill_152 from "./skills/builtin/payloads-everything/references/Business Logic Errors/README.md" with { type: "file" }
-import skill_153 from "./skills/builtin/payloads-everything/references/CORS Misconfiguration/README.md" with { type: "file" }
-import skill_154 from "./skills/builtin/payloads-everything/references/CRLF Injection/Files/crlfinjection.txt" with { type: "file" }
-import skill_155 from "./skills/builtin/payloads-everything/references/CRLF Injection/README.md" with { type: "file" }
-import skill_156 from "./skills/builtin/payloads-everything/references/CSS Injection/README.md" with { type: "file" }
-import skill_157 from "./skills/builtin/payloads-everything/references/CSV Injection/README.md" with { type: "file" }
-import skill_158 from "./skills/builtin/payloads-everything/references/CVE Exploits/Log4Shell.md" with { type: "file" }
-import skill_159 from "./skills/builtin/payloads-everything/references/CVE Exploits/README.md" with { type: "file" }
-import skill_160 from "./skills/builtin/payloads-everything/references/Clickjacking/README.md" with { type: "file" }
-import skill_161 from "./skills/builtin/payloads-everything/references/Client Side Path Traversal/README.md" with { type: "file" }
-import skill_162 from "./skills/builtin/payloads-everything/references/Command Injection/Intruder/command-execution-unix.txt" with { type: "file" }
-import skill_163 from "./skills/builtin/payloads-everything/references/Command Injection/Intruder/command_exec.txt" with { type: "file" }
-import skill_164 from "./skills/builtin/payloads-everything/references/Command Injection/README.md" with { type: "file" }
-import skill_165 from "./skills/builtin/payloads-everything/references/Cross-Site Request Forgery/README.md" with { type: "file" }
-import skill_166 from "./skills/builtin/payloads-everything/references/DNS Rebinding/README.md" with { type: "file" }
-import skill_167 from "./skills/builtin/payloads-everything/references/DOM Clobbering/README.md" with { type: "file" }
-import skill_168 from "./skills/builtin/payloads-everything/references/Denial of Service/README.md" with { type: "file" }
-import skill_169 from "./skills/builtin/payloads-everything/references/Dependency Confusion/README.md" with { type: "file" }
-import skill_170 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/deep_traversal.txt" with { type: "file" }
-import skill_171 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/directory_traversal.txt" with { type: "file" }
-import skill_172 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/dotdotpwn.txt" with { type: "file" }
-import skill_173 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/traversals-8-deep-exotic-encoding.txt" with { type: "file" }
-import skill_174 from "./skills/builtin/payloads-everything/references/Directory Traversal/README.md" with { type: "file" }
-import skill_175 from "./skills/builtin/payloads-everything/references/Encoding Transformations/README.md" with { type: "file" }
-import skill_176 from "./skills/builtin/payloads-everything/references/External Variable Modification/README.md" with { type: "file" }
-import skill_177 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/BSD-files.txt" with { type: "file" }
-import skill_178 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/JHADDIX_LFI.txt" with { type: "file" }
-import skill_179 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/LFI-FD-check.txt" with { type: "file" }
-import skill_180 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/LFI-WindowsFileCheck.txt" with { type: "file" }
-import skill_181 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Linux-files.txt" with { type: "file" }
-import skill_182 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include.txt" with { type: "file" }
-import skill_183 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include_NullByteAdded.txt" with { type: "file" }
-import skill_184 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Mac-files.txt" with { type: "file" }
-import skill_185 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Traversal.txt" with { type: "file" }
-import skill_186 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Web-files.txt" with { type: "file" }
-import skill_187 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Windows-files.txt" with { type: "file" }
-import skill_188 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/dot-slash-PathTraversal_and_LFI_pairing.txt" with { type: "file" }
-import skill_189 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/php-filter-iconv.txt" with { type: "file" }
-import skill_190 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/simple-check.txt" with { type: "file" }
-import skill_191 from "./skills/builtin/payloads-everything/references/File Inclusion/LFI-to-RCE.md" with { type: "file" }
-import skill_192 from "./skills/builtin/payloads-everything/references/File Inclusion/README.md" with { type: "file" }
-import skill_193 from "./skills/builtin/payloads-everything/references/File Inclusion/Wrappers.md" with { type: "file" }
-import skill_194 from "./skills/builtin/payloads-everything/references/Google Web Toolkit/README.md" with { type: "file" }
-import skill_195 from "./skills/builtin/payloads-everything/references/GraphQL Injection/README.md" with { type: "file" }
-import skill_196 from "./skills/builtin/payloads-everything/references/HTTP Parameter Pollution/README.md" with { type: "file" }
-import skill_197 from "./skills/builtin/payloads-everything/references/Hidden Parameters/README.md" with { type: "file" }
-import skill_198 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/DotNET.md" with { type: "file" }
-import skill_199 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Files/ruby-serialize.yaml" with { type: "file" }
-import skill_200 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Java.md" with { type: "file" }
-import skill_201 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Node.md" with { type: "file" }
-import skill_202 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/PHP.md" with { type: "file" }
-import skill_203 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Python.md" with { type: "file" }
-import skill_204 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/README.md" with { type: "file" }
-import skill_205 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Ruby.md" with { type: "file" }
-import skill_206 from "./skills/builtin/payloads-everything/references/Insecure Direct Object References/README.md" with { type: "file" }
-import skill_207 from "./skills/builtin/payloads-everything/references/Insecure Management Interface/Intruder/springboot_actuator.txt" with { type: "file" }
-import skill_208 from "./skills/builtin/payloads-everything/references/Insecure Management Interface/README.md" with { type: "file" }
-import skill_209 from "./skills/builtin/payloads-everything/references/Insecure Randomness/README.md" with { type: "file" }
-import skill_210 from "./skills/builtin/payloads-everything/references/JSON Web Token/README.md" with { type: "file" }
-import skill_211 from "./skills/builtin/payloads-everything/references/Java RMI/README.md" with { type: "file" }
-import skill_212 from "./skills/builtin/payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ.txt" with { type: "file" }
-import skill_213 from "./skills/builtin/payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ_SMALL.txt" with { type: "file" }
-import skill_214 from "./skills/builtin/payloads-everything/references/LDAP Injection/Intruder/LDAP_attributes.txt" with { type: "file" }
-import skill_215 from "./skills/builtin/payloads-everything/references/LDAP Injection/README.md" with { type: "file" }
-import skill_216 from "./skills/builtin/payloads-everything/references/LaTeX Injection/README.md" with { type: "file" }
-import skill_217 from "./skills/builtin/payloads-everything/references/Mass Assignment/README.md" with { type: "file" }
-import skill_218 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Active Directory Attack.md" with { type: "file" }
-import skill_219 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Bind Shell Cheatsheet.md" with { type: "file" }
-import skill_220 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Cloud - AWS Pentest.md" with { type: "file" }
-import skill_221 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Cloud - Azure Pentest.md" with { type: "file" }
-import skill_222 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Cobalt Strike - Cheatsheet.md" with { type: "file" }
-import skill_223 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Container - Docker Pentest.md" with { type: "file" }
-import skill_224 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Container - Kubernetes Pentest.md" with { type: "file" }
-import skill_225 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Escape Breakout.md" with { type: "file" }
-import skill_226 from "./skills/builtin/payloads-everything/references/Methodology and Resources/HTML Smuggling.md" with { type: "file" }
-import skill_227 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Hash Cracking.md" with { type: "file" }
-import skill_228 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Initial Access.md" with { type: "file" }
-import skill_229 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Linux - Evasion.md" with { type: "file" }
-import skill_230 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Linux - Persistence.md" with { type: "file" }
-import skill_231 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Linux - Privilege Escalation.md" with { type: "file" }
-import skill_232 from "./skills/builtin/payloads-everything/references/Methodology and Resources/MSSQL Server - Cheatsheet.md" with { type: "file" }
-import skill_233 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Metasploit - Cheatsheet.md" with { type: "file" }
-import skill_234 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Methodology and enumeration.md" with { type: "file" }
-import skill_235 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Network Discovery.md" with { type: "file" }
-import skill_236 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Network Pivoting Techniques.md" with { type: "file" }
-import skill_237 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Office - Attacks.md" with { type: "file" }
-import skill_238 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Powershell - Cheatsheet.md" with { type: "file" }
-import skill_239 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Reverse Shell Cheatsheet.md" with { type: "file" }
-import skill_240 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Source Code Management.md" with { type: "file" }
-import skill_241 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Vulnerability Reports.md" with { type: "file" }
-import skill_242 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Web Attack Surface.md" with { type: "file" }
-import skill_243 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - AMSI Bypass.md" with { type: "file" }
-import skill_244 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - DPAPI.md" with { type: "file" }
-import skill_245 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Defenses.md" with { type: "file" }
-import skill_246 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Download and Execute.md" with { type: "file" }
-import skill_247 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Mimikatz.md" with { type: "file" }
-import skill_248 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Persistence.md" with { type: "file" }
-import skill_249 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Privilege Escalation.md" with { type: "file" }
-import skill_250 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Using credentials.md" with { type: "file" }
-import skill_251 from "./skills/builtin/payloads-everything/references/NoSQL Injection/Intruder/MongoDB.txt" with { type: "file" }
-import skill_252 from "./skills/builtin/payloads-everything/references/NoSQL Injection/Intruder/NoSQL.txt" with { type: "file" }
-import skill_253 from "./skills/builtin/payloads-everything/references/NoSQL Injection/README.md" with { type: "file" }
-import skill_254 from "./skills/builtin/payloads-everything/references/OAuth Misconfiguration/README.md" with { type: "file" }
-import skill_255 from "./skills/builtin/payloads-everything/references/ORM Leak/README.md" with { type: "file" }
-import skill_256 from "./skills/builtin/payloads-everything/references/Open Redirect/Intruder/Open-Redirect-payloads.txt" with { type: "file" }
-import skill_257 from "./skills/builtin/payloads-everything/references/Open Redirect/Intruder/open_redirect_wordlist.txt" with { type: "file" }
-import skill_258 from "./skills/builtin/payloads-everything/references/Open Redirect/Intruder/openredirects.txt" with { type: "file" }
-import skill_259 from "./skills/builtin/payloads-everything/references/Open Redirect/README.md" with { type: "file" }
-import skill_260 from "./skills/builtin/payloads-everything/references/Prototype Pollution/README.md" with { type: "file" }
-import skill_261 from "./skills/builtin/payloads-everything/references/Race Condition/README.md" with { type: "file" }
-import skill_262 from "./skills/builtin/payloads-everything/references/Regular Expression/README.md" with { type: "file" }
-import skill_263 from "./skills/builtin/payloads-everything/references/Request Smuggling/README.md" with { type: "file" }
-import skill_264 from "./skills/builtin/payloads-everything/references/Reverse Proxy Misconfigurations/README.md" with { type: "file" }
-import skill_265 from "./skills/builtin/payloads-everything/references/SAML Injection/README.md" with { type: "file" }
-import skill_266 from "./skills/builtin/payloads-everything/references/SQL Injection/BigQuery Injection.md" with { type: "file" }
-import skill_267 from "./skills/builtin/payloads-everything/references/SQL Injection/Cassandra Injection.md" with { type: "file" }
-import skill_268 from "./skills/builtin/payloads-everything/references/SQL Injection/DB2 Injection.md" with { type: "file" }
-import skill_269 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Auth_Bypass.txt" with { type: "file" }
-import skill_270 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Auth_Bypass2.txt" with { type: "file" }
-import skill_271 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL-WHERE_Time.txt" with { type: "file" }
-import skill_272 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL.txt" with { type: "file" }
-import skill_273 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL_Enumeration.txt" with { type: "file" }
-import skill_274 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MYSQL.txt" with { type: "file" }
-import skill_275 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL-WHERE_Time.txt" with { type: "file" }
-import skill_276 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL_ReadLocalFiles.txt" with { type: "file" }
-import skill_277 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_Oracle.txt" with { type: "file" }
-import skill_278 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_Postgres_Enumeration.txt" with { type: "file" }
-import skill_279 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_ErrorBased.txt" with { type: "file" }
-import skill_280 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_Fuzz.txt" with { type: "file" }
-import skill_281 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_TimeBased.txt" with { type: "file" }
-import skill_282 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_UnionSelect.txt" with { type: "file" }
-import skill_283 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/SQLi_Polyglots.txt" with { type: "file" }
-import skill_284 from "./skills/builtin/payloads-everything/references/SQL Injection/MSSQL Injection.md" with { type: "file" }
-import skill_285 from "./skills/builtin/payloads-everything/references/SQL Injection/MySQL Injection.md" with { type: "file" }
-import skill_286 from "./skills/builtin/payloads-everything/references/SQL Injection/OracleSQL Injection.md" with { type: "file" }
-import skill_287 from "./skills/builtin/payloads-everything/references/SQL Injection/PostgreSQL Injection.md" with { type: "file" }
-import skill_288 from "./skills/builtin/payloads-everything/references/SQL Injection/README.md" with { type: "file" }
-import skill_289 from "./skills/builtin/payloads-everything/references/SQL Injection/SQLite Injection.md" with { type: "file" }
-import skill_290 from "./skills/builtin/payloads-everything/references/SQL Injection/SQLmap.md" with { type: "file" }
-import skill_291 from "./skills/builtin/payloads-everything/references/Server Side Include Injection/Files/ssi_esi.txt" with { type: "file" }
-import skill_292 from "./skills/builtin/payloads-everything/references/Server Side Include Injection/README.md" with { type: "file" }
-import skill_293 from "./skills/builtin/payloads-everything/references/Server Side Request Forgery/README.md" with { type: "file" }
-import skill_294 from "./skills/builtin/payloads-everything/references/Server Side Request Forgery/SSRF-Advanced-Exploitation.md" with { type: "file" }
-import skill_295 from "./skills/builtin/payloads-everything/references/Server Side Request Forgery/SSRF-Cloud-Instances.md" with { type: "file" }
-import skill_296 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/ASP.md" with { type: "file" }
-import skill_297 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Elixir.md" with { type: "file" }
-import skill_298 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Java.md" with { type: "file" }
-import skill_299 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/JavaScript.md" with { type: "file" }
-import skill_300 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/PHP.md" with { type: "file" }
-import skill_301 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Python.md" with { type: "file" }
-import skill_302 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/README.md" with { type: "file" }
-import skill_303 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Ruby.md" with { type: "file" }
-import skill_304 from "./skills/builtin/payloads-everything/references/Tabnabbing/README.md" with { type: "file" }
-import skill_305 from "./skills/builtin/payloads-everything/references/Type Juggling/README.md" with { type: "file" }
-import skill_306 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/CVE ZIP Symbolic Link/generate.sh" with { type: "file" }
-import skill_307 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/Configuration Apache .htaccess/README.md" with { type: "file" }
-import skill_308 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/EICAR/eicar.txt" with { type: "file" }
-import skill_309 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/README.md" with { type: "file" }
-import skill_310 from "./skills/builtin/payloads-everything/references/Virtual Hosts/README.md" with { type: "file" }
-import skill_311 from "./skills/builtin/payloads-everything/references/Web Cache Deception/Intruders/param_miner_lowercase_headers.txt" with { type: "file" }
-import skill_312 from "./skills/builtin/payloads-everything/references/Web Cache Deception/README.md" with { type: "file" }
-import skill_313 from "./skills/builtin/payloads-everything/references/Web Sockets/README.md" with { type: "file" }
-import skill_314 from "./skills/builtin/payloads-everything/references/XPATH Injection/README.md" with { type: "file" }
-import skill_315 from "./skills/builtin/payloads-everything/references/XS-Leak/README.md" with { type: "file" }
-import skill_316 from "./skills/builtin/payloads-everything/references/XSLT Injection/README.md" with { type: "file" }
-import skill_317 from "./skills/builtin/payloads-everything/references/XSS Injection/1 - XSS Filter Bypass.md" with { type: "file" }
-import skill_318 from "./skills/builtin/payloads-everything/references/XSS Injection/2 - XSS Polyglot.md" with { type: "file" }
-import skill_319 from "./skills/builtin/payloads-everything/references/XSS Injection/3 - XSS Common WAF Bypass.md" with { type: "file" }
-import skill_320 from "./skills/builtin/payloads-everything/references/XSS Injection/4 - CSP Bypass.md" with { type: "file" }
-import skill_321 from "./skills/builtin/payloads-everything/references/XSS Injection/5 - XSS in Angular.md" with { type: "file" }
-import skill_322 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/0xcela_event_handlers.txt" with { type: "file" }
-import skill_323 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-JS.txt" with { type: "file" }
-import skill_324 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-STRINGS.txt" with { type: "file" }
-import skill_325 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/IntrudersXSS.txt" with { type: "file" }
-import skill_326 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/JHADDIX_XSS.txt" with { type: "file" }
-import skill_327 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/MarioXSSVectors.txt" with { type: "file" }
-import skill_328 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/RSNAKE_XSS.txt" with { type: "file" }
-import skill_329 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/XSSDetection.txt" with { type: "file" }
-import skill_330 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/XSS_Polyglots.txt" with { type: "file" }
-import skill_331 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/jsonp_endpoint.txt" with { type: "file" }
-import skill_332 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/port_swigger_xss_cheatsheet_event_handlers.txt" with { type: "file" }
-import skill_333 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_alert.txt" with { type: "file" }
-import skill_334 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_alert_identifiable.txt" with { type: "file" }
-import skill_335 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_payloads_quick.txt" with { type: "file" }
-import skill_336 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_swf_fuzz.txt" with { type: "file" }
-import skill_337 from "./skills/builtin/payloads-everything/references/XSS Injection/README.md" with { type: "file" }
-import skill_338 from "./skills/builtin/payloads-everything/references/XXE Injection/Intruders/XXE_Fuzzing.txt" with { type: "file" }
-import skill_339 from "./skills/builtin/payloads-everything/references/XXE Injection/Intruders/xml-attacks.txt" with { type: "file" }
-import skill_340 from "./skills/builtin/payloads-everything/references/XXE Injection/README.md" with { type: "file" }
-import skill_341 from "./skills/builtin/payloads-everything/references/Zip Slip/README.md" with { type: "file" }
-import skill_342 from "./skills/builtin/pentest-fuzz-skill/README.md" with { type: "file" }
-import skill_343 from "./skills/builtin/pentest-fuzz-skill/SKILL.md" with { type: "file" }
-import skill_344 from "./skills/builtin/pentest-fuzz-skill/deserialization/README.md" with { type: "file" }
-import skill_345 from "./skills/builtin/pentest-fuzz-skill/deserialization/fuzz.txt" with { type: "file" }
-import skill_346 from "./skills/builtin/pentest-fuzz-skill/deserialization/fuzzing.md" with { type: "file" }
-import skill_347 from "./skills/builtin/pentest-fuzz-skill/deserialization/overview.md" with { type: "file" }
-import skill_348 from "./skills/builtin/pentest-fuzz-skill/evals/evals.json" with { type: "file" }
-import skill_349 from "./skills/builtin/pentest-fuzz-skill/idor/README.md" with { type: "file" }
-import skill_350 from "./skills/builtin/pentest-fuzz-skill/idor/fuzz.txt" with { type: "file" }
-import skill_351 from "./skills/builtin/pentest-fuzz-skill/idor/fuzzing.md" with { type: "file" }
-import skill_352 from "./skills/builtin/pentest-fuzz-skill/idor/overview.md" with { type: "file" }
-import skill_353 from "./skills/builtin/pentest-fuzz-skill/jwt/README.md" with { type: "file" }
-import skill_354 from "./skills/builtin/pentest-fuzz-skill/jwt/fuzz.txt" with { type: "file" }
-import skill_355 from "./skills/builtin/pentest-fuzz-skill/jwt/fuzzing.md" with { type: "file" }
-import skill_356 from "./skills/builtin/pentest-fuzz-skill/jwt/overview.md" with { type: "file" }
-import skill_357 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/README.md" with { type: "file" }
-import skill_358 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/fuzz.txt" with { type: "file" }
-import skill_359 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/fuzzing.md" with { type: "file" }
-import skill_360 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/overview.md" with { type: "file" }
-import skill_361 from "./skills/builtin/pentest-fuzz-skill/rce/README.md" with { type: "file" }
-import skill_362 from "./skills/builtin/pentest-fuzz-skill/rce/fuzz.txt" with { type: "file" }
-import skill_363 from "./skills/builtin/pentest-fuzz-skill/rce/fuzzing.md" with { type: "file" }
-import skill_364 from "./skills/builtin/pentest-fuzz-skill/rce/overview.md" with { type: "file" }
-import skill_365 from "./skills/builtin/pentest-fuzz-skill/sqli/README.md" with { type: "file" }
-import skill_366 from "./skills/builtin/pentest-fuzz-skill/sqli/fuzz.txt" with { type: "file" }
-import skill_367 from "./skills/builtin/pentest-fuzz-skill/sqli/fuzzing.md" with { type: "file" }
-import skill_368 from "./skills/builtin/pentest-fuzz-skill/sqli/overview.md" with { type: "file" }
-import skill_369 from "./skills/builtin/pentest-fuzz-skill/ssrf/README.md" with { type: "file" }
-import skill_370 from "./skills/builtin/pentest-fuzz-skill/ssrf/fuzz.txt" with { type: "file" }
-import skill_371 from "./skills/builtin/pentest-fuzz-skill/ssrf/fuzzing.md" with { type: "file" }
-import skill_372 from "./skills/builtin/pentest-fuzz-skill/ssrf/overview.md" with { type: "file" }
-import skill_373 from "./skills/builtin/pentest-fuzz-skill/ssti/README.md" with { type: "file" }
-import skill_374 from "./skills/builtin/pentest-fuzz-skill/ssti/fuzz.txt" with { type: "file" }
-import skill_375 from "./skills/builtin/pentest-fuzz-skill/ssti/fuzzing.md" with { type: "file" }
-import skill_376 from "./skills/builtin/pentest-fuzz-skill/ssti/overview.md" with { type: "file" }
-import skill_377 from "./skills/builtin/pentest-fuzz-skill/xss/README.md" with { type: "file" }
-import skill_378 from "./skills/builtin/pentest-fuzz-skill/xss/fuzz.txt" with { type: "file" }
-import skill_379 from "./skills/builtin/pentest-fuzz-skill/xss/fuzzing.md" with { type: "file" }
-import skill_380 from "./skills/builtin/pentest-fuzz-skill/xss/overview.md" with { type: "file" }
-import skill_381 from "./skills/builtin/pentest-fuzz-skill/xxe/README.md" with { type: "file" }
-import skill_382 from "./skills/builtin/pentest-fuzz-skill/xxe/fuzz.txt" with { type: "file" }
-import skill_383 from "./skills/builtin/pentest-fuzz-skill/xxe/fuzzing.md" with { type: "file" }
-import skill_384 from "./skills/builtin/pentest-fuzz-skill/xxe/overview.md" with { type: "file" }
-import skill_385 from "./skills/builtin/pentest/SKILL.md" with { type: "file" }
-import skill_386 from "./skills/builtin/pentest/references/automation.md" with { type: "file" }
-import skill_387 from "./skills/builtin/pentest/references/binary-audit.md" with { type: "file" }
-import skill_388 from "./skills/builtin/pentest/references/custom-rules.md" with { type: "file" }
-import skill_389 from "./skills/builtin/pentest/references/disclosure.md" with { type: "file" }
-import skill_390 from "./skills/builtin/pentest/references/external-platforms.md" with { type: "file" }
-import skill_391 from "./skills/builtin/pentest/references/fuzzing.md" with { type: "file" }
-import skill_392 from "./skills/builtin/pentest/references/hack-skills.md" with { type: "file" }
-import skill_393 from "./skills/builtin/pentest/references/mobile-pentest.md" with { type: "file" }
-import skill_394 from "./skills/builtin/pentest/references/pentest-self-audit.md" with { type: "file" }
-import skill_395 from "./skills/builtin/pentest/references/source-audit.md" with { type: "file" }
-import skill_396 from "./skills/builtin/pentest/references/target-selection.md" with { type: "file" }
-import skill_397 from "./skills/builtin/recon/SKILL.md" with { type: "file" }
-import skill_398 from "./skills/builtin/recon/references/vuln-class-matrix.md" with { type: "file" }
-import skill_399 from "./skills/builtin/remote-cmd-execution/SKILL.md" with { type: "file" }
-import skill_400 from "./skills/builtin/targeted-pentest/SKILL.md" with { type: "file" }
-import skill_401 from "./skills/builtin/targeted-pentest/references/auth-and-access.md" with { type: "file" }
-import skill_402 from "./skills/builtin/targeted-pentest/references/auth-infra.md" with { type: "file" }
-import skill_403 from "./skills/builtin/targeted-pentest/references/auth-jwt.md" with { type: "file" }
-import skill_404 from "./skills/builtin/targeted-pentest/references/client-side-advanced.md" with { type: "file" }
-import skill_405 from "./skills/builtin/targeted-pentest/references/client-side.md" with { type: "file" }
-import skill_406 from "./skills/builtin/targeted-pentest/references/cves.md" with { type: "file" }
-import skill_407 from "./skills/builtin/targeted-pentest/references/field-notes.md" with { type: "file" }
-import skill_408 from "./skills/builtin/targeted-pentest/references/node-and-prototype.md" with { type: "file" }
-import skill_409 from "./skills/builtin/targeted-pentest/references/server-side-advanced-2.md" with { type: "file" }
-import skill_410 from "./skills/builtin/targeted-pentest/references/server-side-advanced.md" with { type: "file" }
-import skill_411 from "./skills/builtin/targeted-pentest/references/server-side-deser.md" with { type: "file" }
-import skill_412 from "./skills/builtin/targeted-pentest/references/server-side-exec-2.md" with { type: "file" }
-import skill_413 from "./skills/builtin/targeted-pentest/references/server-side-exec.md" with { type: "file" }
-import skill_414 from "./skills/builtin/targeted-pentest/references/server-side.md" with { type: "file" }
-import skill_415 from "./skills/builtin/targeted-pentest/references/sql-injection.md" with { type: "file" }
+import skill_141 from "./skills/builtin/headless-browser/SKILL.md" with { type: "file" }
+import skill_142 from "./skills/builtin/known-product-exploit/SKILL.md" with { type: "file" }
+import skill_143 from "./skills/builtin/lateral-movement/SKILL.md" with { type: "file" }
+import skill_144 from "./skills/builtin/nuclei-skill/SKILL.md" with { type: "file" }
+import skill_145 from "./skills/builtin/nuclei-skill/evals/evals.json" with { type: "file" }
+import skill_146 from "./skills/builtin/payload-research/SKILL.md" with { type: "file" }
+import skill_147 from "./skills/builtin/payloads-everything/SKILL.md" with { type: "file" }
+import skill_148 from "./skills/builtin/payloads-everything/references/API Key Leaks/Files/MachineKeys.txt" with { type: "file" }
+import skill_149 from "./skills/builtin/payloads-everything/references/API Key Leaks/IIS-Machine-Keys.md" with { type: "file" }
+import skill_150 from "./skills/builtin/payloads-everything/references/API Key Leaks/README.md" with { type: "file" }
+import skill_151 from "./skills/builtin/payloads-everything/references/Account Takeover/README.md" with { type: "file" }
+import skill_152 from "./skills/builtin/payloads-everything/references/Account Takeover/mfa-bypass.md" with { type: "file" }
+import skill_153 from "./skills/builtin/payloads-everything/references/Brute Force Rate Limit/README.md" with { type: "file" }
+import skill_154 from "./skills/builtin/payloads-everything/references/Business Logic Errors/README.md" with { type: "file" }
+import skill_155 from "./skills/builtin/payloads-everything/references/CORS Misconfiguration/README.md" with { type: "file" }
+import skill_156 from "./skills/builtin/payloads-everything/references/CRLF Injection/Files/crlfinjection.txt" with { type: "file" }
+import skill_157 from "./skills/builtin/payloads-everything/references/CRLF Injection/README.md" with { type: "file" }
+import skill_158 from "./skills/builtin/payloads-everything/references/CSS Injection/README.md" with { type: "file" }
+import skill_159 from "./skills/builtin/payloads-everything/references/CSV Injection/README.md" with { type: "file" }
+import skill_160 from "./skills/builtin/payloads-everything/references/CVE Exploits/Log4Shell.md" with { type: "file" }
+import skill_161 from "./skills/builtin/payloads-everything/references/CVE Exploits/README.md" with { type: "file" }
+import skill_162 from "./skills/builtin/payloads-everything/references/Clickjacking/README.md" with { type: "file" }
+import skill_163 from "./skills/builtin/payloads-everything/references/Client Side Path Traversal/README.md" with { type: "file" }
+import skill_164 from "./skills/builtin/payloads-everything/references/Command Injection/Intruder/command-execution-unix.txt" with { type: "file" }
+import skill_165 from "./skills/builtin/payloads-everything/references/Command Injection/Intruder/command_exec.txt" with { type: "file" }
+import skill_166 from "./skills/builtin/payloads-everything/references/Command Injection/README.md" with { type: "file" }
+import skill_167 from "./skills/builtin/payloads-everything/references/Cross-Site Request Forgery/README.md" with { type: "file" }
+import skill_168 from "./skills/builtin/payloads-everything/references/DNS Rebinding/README.md" with { type: "file" }
+import skill_169 from "./skills/builtin/payloads-everything/references/DOM Clobbering/README.md" with { type: "file" }
+import skill_170 from "./skills/builtin/payloads-everything/references/Denial of Service/README.md" with { type: "file" }
+import skill_171 from "./skills/builtin/payloads-everything/references/Dependency Confusion/README.md" with { type: "file" }
+import skill_172 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/deep_traversal.txt" with { type: "file" }
+import skill_173 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/directory_traversal.txt" with { type: "file" }
+import skill_174 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/dotdotpwn.txt" with { type: "file" }
+import skill_175 from "./skills/builtin/payloads-everything/references/Directory Traversal/Intruder/traversals-8-deep-exotic-encoding.txt" with { type: "file" }
+import skill_176 from "./skills/builtin/payloads-everything/references/Directory Traversal/README.md" with { type: "file" }
+import skill_177 from "./skills/builtin/payloads-everything/references/Encoding Transformations/README.md" with { type: "file" }
+import skill_178 from "./skills/builtin/payloads-everything/references/External Variable Modification/README.md" with { type: "file" }
+import skill_179 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/BSD-files.txt" with { type: "file" }
+import skill_180 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/JHADDIX_LFI.txt" with { type: "file" }
+import skill_181 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/LFI-FD-check.txt" with { type: "file" }
+import skill_182 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/LFI-WindowsFileCheck.txt" with { type: "file" }
+import skill_183 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Linux-files.txt" with { type: "file" }
+import skill_184 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include.txt" with { type: "file" }
+import skill_185 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include_NullByteAdded.txt" with { type: "file" }
+import skill_186 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Mac-files.txt" with { type: "file" }
+import skill_187 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Traversal.txt" with { type: "file" }
+import skill_188 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Web-files.txt" with { type: "file" }
+import skill_189 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/Windows-files.txt" with { type: "file" }
+import skill_190 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/dot-slash-PathTraversal_and_LFI_pairing.txt" with { type: "file" }
+import skill_191 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/php-filter-iconv.txt" with { type: "file" }
+import skill_192 from "./skills/builtin/payloads-everything/references/File Inclusion/Intruders/simple-check.txt" with { type: "file" }
+import skill_193 from "./skills/builtin/payloads-everything/references/File Inclusion/LFI-to-RCE.md" with { type: "file" }
+import skill_194 from "./skills/builtin/payloads-everything/references/File Inclusion/README.md" with { type: "file" }
+import skill_195 from "./skills/builtin/payloads-everything/references/File Inclusion/Wrappers.md" with { type: "file" }
+import skill_196 from "./skills/builtin/payloads-everything/references/Google Web Toolkit/README.md" with { type: "file" }
+import skill_197 from "./skills/builtin/payloads-everything/references/GraphQL Injection/README.md" with { type: "file" }
+import skill_198 from "./skills/builtin/payloads-everything/references/HTTP Parameter Pollution/README.md" with { type: "file" }
+import skill_199 from "./skills/builtin/payloads-everything/references/Hidden Parameters/README.md" with { type: "file" }
+import skill_200 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/DotNET.md" with { type: "file" }
+import skill_201 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Files/ruby-serialize.yaml" with { type: "file" }
+import skill_202 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Java.md" with { type: "file" }
+import skill_203 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Node.md" with { type: "file" }
+import skill_204 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/PHP.md" with { type: "file" }
+import skill_205 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Python.md" with { type: "file" }
+import skill_206 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/README.md" with { type: "file" }
+import skill_207 from "./skills/builtin/payloads-everything/references/Insecure Deserialization/Ruby.md" with { type: "file" }
+import skill_208 from "./skills/builtin/payloads-everything/references/Insecure Direct Object References/README.md" with { type: "file" }
+import skill_209 from "./skills/builtin/payloads-everything/references/Insecure Management Interface/Intruder/springboot_actuator.txt" with { type: "file" }
+import skill_210 from "./skills/builtin/payloads-everything/references/Insecure Management Interface/README.md" with { type: "file" }
+import skill_211 from "./skills/builtin/payloads-everything/references/Insecure Randomness/README.md" with { type: "file" }
+import skill_212 from "./skills/builtin/payloads-everything/references/JSON Web Token/README.md" with { type: "file" }
+import skill_213 from "./skills/builtin/payloads-everything/references/Java RMI/README.md" with { type: "file" }
+import skill_214 from "./skills/builtin/payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ.txt" with { type: "file" }
+import skill_215 from "./skills/builtin/payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ_SMALL.txt" with { type: "file" }
+import skill_216 from "./skills/builtin/payloads-everything/references/LDAP Injection/Intruder/LDAP_attributes.txt" with { type: "file" }
+import skill_217 from "./skills/builtin/payloads-everything/references/LDAP Injection/README.md" with { type: "file" }
+import skill_218 from "./skills/builtin/payloads-everything/references/LaTeX Injection/README.md" with { type: "file" }
+import skill_219 from "./skills/builtin/payloads-everything/references/Mass Assignment/README.md" with { type: "file" }
+import skill_220 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Active Directory Attack.md" with { type: "file" }
+import skill_221 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Bind Shell Cheatsheet.md" with { type: "file" }
+import skill_222 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Cloud - AWS Pentest.md" with { type: "file" }
+import skill_223 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Cloud - Azure Pentest.md" with { type: "file" }
+import skill_224 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Cobalt Strike - Cheatsheet.md" with { type: "file" }
+import skill_225 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Container - Docker Pentest.md" with { type: "file" }
+import skill_226 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Container - Kubernetes Pentest.md" with { type: "file" }
+import skill_227 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Escape Breakout.md" with { type: "file" }
+import skill_228 from "./skills/builtin/payloads-everything/references/Methodology and Resources/HTML Smuggling.md" with { type: "file" }
+import skill_229 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Hash Cracking.md" with { type: "file" }
+import skill_230 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Initial Access.md" with { type: "file" }
+import skill_231 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Linux - Evasion.md" with { type: "file" }
+import skill_232 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Linux - Persistence.md" with { type: "file" }
+import skill_233 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Linux - Privilege Escalation.md" with { type: "file" }
+import skill_234 from "./skills/builtin/payloads-everything/references/Methodology and Resources/MSSQL Server - Cheatsheet.md" with { type: "file" }
+import skill_235 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Metasploit - Cheatsheet.md" with { type: "file" }
+import skill_236 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Methodology and enumeration.md" with { type: "file" }
+import skill_237 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Network Discovery.md" with { type: "file" }
+import skill_238 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Network Pivoting Techniques.md" with { type: "file" }
+import skill_239 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Office - Attacks.md" with { type: "file" }
+import skill_240 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Powershell - Cheatsheet.md" with { type: "file" }
+import skill_241 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Reverse Shell Cheatsheet.md" with { type: "file" }
+import skill_242 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Source Code Management.md" with { type: "file" }
+import skill_243 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Vulnerability Reports.md" with { type: "file" }
+import skill_244 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Web Attack Surface.md" with { type: "file" }
+import skill_245 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - AMSI Bypass.md" with { type: "file" }
+import skill_246 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - DPAPI.md" with { type: "file" }
+import skill_247 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Defenses.md" with { type: "file" }
+import skill_248 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Download and Execute.md" with { type: "file" }
+import skill_249 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Mimikatz.md" with { type: "file" }
+import skill_250 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Persistence.md" with { type: "file" }
+import skill_251 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Privilege Escalation.md" with { type: "file" }
+import skill_252 from "./skills/builtin/payloads-everything/references/Methodology and Resources/Windows - Using credentials.md" with { type: "file" }
+import skill_253 from "./skills/builtin/payloads-everything/references/NoSQL Injection/Intruder/MongoDB.txt" with { type: "file" }
+import skill_254 from "./skills/builtin/payloads-everything/references/NoSQL Injection/Intruder/NoSQL.txt" with { type: "file" }
+import skill_255 from "./skills/builtin/payloads-everything/references/NoSQL Injection/README.md" with { type: "file" }
+import skill_256 from "./skills/builtin/payloads-everything/references/OAuth Misconfiguration/README.md" with { type: "file" }
+import skill_257 from "./skills/builtin/payloads-everything/references/ORM Leak/README.md" with { type: "file" }
+import skill_258 from "./skills/builtin/payloads-everything/references/Open Redirect/Intruder/Open-Redirect-payloads.txt" with { type: "file" }
+import skill_259 from "./skills/builtin/payloads-everything/references/Open Redirect/Intruder/open_redirect_wordlist.txt" with { type: "file" }
+import skill_260 from "./skills/builtin/payloads-everything/references/Open Redirect/Intruder/openredirects.txt" with { type: "file" }
+import skill_261 from "./skills/builtin/payloads-everything/references/Open Redirect/README.md" with { type: "file" }
+import skill_262 from "./skills/builtin/payloads-everything/references/Prototype Pollution/README.md" with { type: "file" }
+import skill_263 from "./skills/builtin/payloads-everything/references/Race Condition/README.md" with { type: "file" }
+import skill_264 from "./skills/builtin/payloads-everything/references/Regular Expression/README.md" with { type: "file" }
+import skill_265 from "./skills/builtin/payloads-everything/references/Request Smuggling/README.md" with { type: "file" }
+import skill_266 from "./skills/builtin/payloads-everything/references/Reverse Proxy Misconfigurations/README.md" with { type: "file" }
+import skill_267 from "./skills/builtin/payloads-everything/references/SAML Injection/README.md" with { type: "file" }
+import skill_268 from "./skills/builtin/payloads-everything/references/SQL Injection/BigQuery Injection.md" with { type: "file" }
+import skill_269 from "./skills/builtin/payloads-everything/references/SQL Injection/Cassandra Injection.md" with { type: "file" }
+import skill_270 from "./skills/builtin/payloads-everything/references/SQL Injection/DB2 Injection.md" with { type: "file" }
+import skill_271 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Auth_Bypass.txt" with { type: "file" }
+import skill_272 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Auth_Bypass2.txt" with { type: "file" }
+import skill_273 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL-WHERE_Time.txt" with { type: "file" }
+import skill_274 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL.txt" with { type: "file" }
+import skill_275 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL_Enumeration.txt" with { type: "file" }
+import skill_276 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MYSQL.txt" with { type: "file" }
+import skill_277 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL-WHERE_Time.txt" with { type: "file" }
+import skill_278 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL_ReadLocalFiles.txt" with { type: "file" }
+import skill_279 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_Oracle.txt" with { type: "file" }
+import skill_280 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/FUZZDB_Postgres_Enumeration.txt" with { type: "file" }
+import skill_281 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_ErrorBased.txt" with { type: "file" }
+import skill_282 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_Fuzz.txt" with { type: "file" }
+import skill_283 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_TimeBased.txt" with { type: "file" }
+import skill_284 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/Generic_UnionSelect.txt" with { type: "file" }
+import skill_285 from "./skills/builtin/payloads-everything/references/SQL Injection/Intruder/SQLi_Polyglots.txt" with { type: "file" }
+import skill_286 from "./skills/builtin/payloads-everything/references/SQL Injection/MSSQL Injection.md" with { type: "file" }
+import skill_287 from "./skills/builtin/payloads-everything/references/SQL Injection/MySQL Injection.md" with { type: "file" }
+import skill_288 from "./skills/builtin/payloads-everything/references/SQL Injection/OracleSQL Injection.md" with { type: "file" }
+import skill_289 from "./skills/builtin/payloads-everything/references/SQL Injection/PostgreSQL Injection.md" with { type: "file" }
+import skill_290 from "./skills/builtin/payloads-everything/references/SQL Injection/README.md" with { type: "file" }
+import skill_291 from "./skills/builtin/payloads-everything/references/SQL Injection/SQLite Injection.md" with { type: "file" }
+import skill_292 from "./skills/builtin/payloads-everything/references/SQL Injection/SQLmap.md" with { type: "file" }
+import skill_293 from "./skills/builtin/payloads-everything/references/Server Side Include Injection/Files/ssi_esi.txt" with { type: "file" }
+import skill_294 from "./skills/builtin/payloads-everything/references/Server Side Include Injection/README.md" with { type: "file" }
+import skill_295 from "./skills/builtin/payloads-everything/references/Server Side Request Forgery/README.md" with { type: "file" }
+import skill_296 from "./skills/builtin/payloads-everything/references/Server Side Request Forgery/SSRF-Advanced-Exploitation.md" with { type: "file" }
+import skill_297 from "./skills/builtin/payloads-everything/references/Server Side Request Forgery/SSRF-Cloud-Instances.md" with { type: "file" }
+import skill_298 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/ASP.md" with { type: "file" }
+import skill_299 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Elixir.md" with { type: "file" }
+import skill_300 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Java.md" with { type: "file" }
+import skill_301 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/JavaScript.md" with { type: "file" }
+import skill_302 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/PHP.md" with { type: "file" }
+import skill_303 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Python.md" with { type: "file" }
+import skill_304 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/README.md" with { type: "file" }
+import skill_305 from "./skills/builtin/payloads-everything/references/Server Side Template Injection/Ruby.md" with { type: "file" }
+import skill_306 from "./skills/builtin/payloads-everything/references/Tabnabbing/README.md" with { type: "file" }
+import skill_307 from "./skills/builtin/payloads-everything/references/Type Juggling/README.md" with { type: "file" }
+import skill_308 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/CVE ZIP Symbolic Link/generate.sh" with { type: "file" }
+import skill_309 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/Configuration Apache .htaccess/README.md" with { type: "file" }
+import skill_310 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/EICAR/eicar.txt" with { type: "file" }
+import skill_311 from "./skills/builtin/payloads-everything/references/Upload Insecure Files/README.md" with { type: "file" }
+import skill_312 from "./skills/builtin/payloads-everything/references/Virtual Hosts/README.md" with { type: "file" }
+import skill_313 from "./skills/builtin/payloads-everything/references/Web Cache Deception/Intruders/param_miner_lowercase_headers.txt" with { type: "file" }
+import skill_314 from "./skills/builtin/payloads-everything/references/Web Cache Deception/README.md" with { type: "file" }
+import skill_315 from "./skills/builtin/payloads-everything/references/Web Sockets/README.md" with { type: "file" }
+import skill_316 from "./skills/builtin/payloads-everything/references/XPATH Injection/README.md" with { type: "file" }
+import skill_317 from "./skills/builtin/payloads-everything/references/XS-Leak/README.md" with { type: "file" }
+import skill_318 from "./skills/builtin/payloads-everything/references/XSLT Injection/README.md" with { type: "file" }
+import skill_319 from "./skills/builtin/payloads-everything/references/XSS Injection/1 - XSS Filter Bypass.md" with { type: "file" }
+import skill_320 from "./skills/builtin/payloads-everything/references/XSS Injection/2 - XSS Polyglot.md" with { type: "file" }
+import skill_321 from "./skills/builtin/payloads-everything/references/XSS Injection/3 - XSS Common WAF Bypass.md" with { type: "file" }
+import skill_322 from "./skills/builtin/payloads-everything/references/XSS Injection/4 - CSP Bypass.md" with { type: "file" }
+import skill_323 from "./skills/builtin/payloads-everything/references/XSS Injection/5 - XSS in Angular.md" with { type: "file" }
+import skill_324 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/0xcela_event_handlers.txt" with { type: "file" }
+import skill_325 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-JS.txt" with { type: "file" }
+import skill_326 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-STRINGS.txt" with { type: "file" }
+import skill_327 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/IntrudersXSS.txt" with { type: "file" }
+import skill_328 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/JHADDIX_XSS.txt" with { type: "file" }
+import skill_329 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/MarioXSSVectors.txt" with { type: "file" }
+import skill_330 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/RSNAKE_XSS.txt" with { type: "file" }
+import skill_331 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/XSSDetection.txt" with { type: "file" }
+import skill_332 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/XSS_Polyglots.txt" with { type: "file" }
+import skill_333 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/jsonp_endpoint.txt" with { type: "file" }
+import skill_334 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/port_swigger_xss_cheatsheet_event_handlers.txt" with { type: "file" }
+import skill_335 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_alert.txt" with { type: "file" }
+import skill_336 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_alert_identifiable.txt" with { type: "file" }
+import skill_337 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_payloads_quick.txt" with { type: "file" }
+import skill_338 from "./skills/builtin/payloads-everything/references/XSS Injection/Intruders/xss_swf_fuzz.txt" with { type: "file" }
+import skill_339 from "./skills/builtin/payloads-everything/references/XSS Injection/README.md" with { type: "file" }
+import skill_340 from "./skills/builtin/payloads-everything/references/XXE Injection/Intruders/XXE_Fuzzing.txt" with { type: "file" }
+import skill_341 from "./skills/builtin/payloads-everything/references/XXE Injection/Intruders/xml-attacks.txt" with { type: "file" }
+import skill_342 from "./skills/builtin/payloads-everything/references/XXE Injection/README.md" with { type: "file" }
+import skill_343 from "./skills/builtin/payloads-everything/references/Zip Slip/README.md" with { type: "file" }
+import skill_344 from "./skills/builtin/pentest-fuzz-skill/README.md" with { type: "file" }
+import skill_345 from "./skills/builtin/pentest-fuzz-skill/SKILL.md" with { type: "file" }
+import skill_346 from "./skills/builtin/pentest-fuzz-skill/deserialization/README.md" with { type: "file" }
+import skill_347 from "./skills/builtin/pentest-fuzz-skill/deserialization/fuzz.txt" with { type: "file" }
+import skill_348 from "./skills/builtin/pentest-fuzz-skill/deserialization/fuzzing.md" with { type: "file" }
+import skill_349 from "./skills/builtin/pentest-fuzz-skill/deserialization/overview.md" with { type: "file" }
+import skill_350 from "./skills/builtin/pentest-fuzz-skill/evals/evals.json" with { type: "file" }
+import skill_351 from "./skills/builtin/pentest-fuzz-skill/idor/README.md" with { type: "file" }
+import skill_352 from "./skills/builtin/pentest-fuzz-skill/idor/fuzz.txt" with { type: "file" }
+import skill_353 from "./skills/builtin/pentest-fuzz-skill/idor/fuzzing.md" with { type: "file" }
+import skill_354 from "./skills/builtin/pentest-fuzz-skill/idor/overview.md" with { type: "file" }
+import skill_355 from "./skills/builtin/pentest-fuzz-skill/jwt/README.md" with { type: "file" }
+import skill_356 from "./skills/builtin/pentest-fuzz-skill/jwt/fuzz.txt" with { type: "file" }
+import skill_357 from "./skills/builtin/pentest-fuzz-skill/jwt/fuzzing.md" with { type: "file" }
+import skill_358 from "./skills/builtin/pentest-fuzz-skill/jwt/overview.md" with { type: "file" }
+import skill_359 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/README.md" with { type: "file" }
+import skill_360 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/fuzz.txt" with { type: "file" }
+import skill_361 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/fuzzing.md" with { type: "file" }
+import skill_362 from "./skills/builtin/pentest-fuzz-skill/lfi-rfi/overview.md" with { type: "file" }
+import skill_363 from "./skills/builtin/pentest-fuzz-skill/rce/README.md" with { type: "file" }
+import skill_364 from "./skills/builtin/pentest-fuzz-skill/rce/fuzz.txt" with { type: "file" }
+import skill_365 from "./skills/builtin/pentest-fuzz-skill/rce/fuzzing.md" with { type: "file" }
+import skill_366 from "./skills/builtin/pentest-fuzz-skill/rce/overview.md" with { type: "file" }
+import skill_367 from "./skills/builtin/pentest-fuzz-skill/sqli/README.md" with { type: "file" }
+import skill_368 from "./skills/builtin/pentest-fuzz-skill/sqli/fuzz.txt" with { type: "file" }
+import skill_369 from "./skills/builtin/pentest-fuzz-skill/sqli/fuzzing.md" with { type: "file" }
+import skill_370 from "./skills/builtin/pentest-fuzz-skill/sqli/overview.md" with { type: "file" }
+import skill_371 from "./skills/builtin/pentest-fuzz-skill/ssrf/README.md" with { type: "file" }
+import skill_372 from "./skills/builtin/pentest-fuzz-skill/ssrf/fuzz.txt" with { type: "file" }
+import skill_373 from "./skills/builtin/pentest-fuzz-skill/ssrf/fuzzing.md" with { type: "file" }
+import skill_374 from "./skills/builtin/pentest-fuzz-skill/ssrf/overview.md" with { type: "file" }
+import skill_375 from "./skills/builtin/pentest-fuzz-skill/ssti/README.md" with { type: "file" }
+import skill_376 from "./skills/builtin/pentest-fuzz-skill/ssti/fuzz.txt" with { type: "file" }
+import skill_377 from "./skills/builtin/pentest-fuzz-skill/ssti/fuzzing.md" with { type: "file" }
+import skill_378 from "./skills/builtin/pentest-fuzz-skill/ssti/overview.md" with { type: "file" }
+import skill_379 from "./skills/builtin/pentest-fuzz-skill/xss/README.md" with { type: "file" }
+import skill_380 from "./skills/builtin/pentest-fuzz-skill/xss/fuzz.txt" with { type: "file" }
+import skill_381 from "./skills/builtin/pentest-fuzz-skill/xss/fuzzing.md" with { type: "file" }
+import skill_382 from "./skills/builtin/pentest-fuzz-skill/xss/overview.md" with { type: "file" }
+import skill_383 from "./skills/builtin/pentest-fuzz-skill/xxe/README.md" with { type: "file" }
+import skill_384 from "./skills/builtin/pentest-fuzz-skill/xxe/fuzz.txt" with { type: "file" }
+import skill_385 from "./skills/builtin/pentest-fuzz-skill/xxe/fuzzing.md" with { type: "file" }
+import skill_386 from "./skills/builtin/pentest-fuzz-skill/xxe/overview.md" with { type: "file" }
+import skill_387 from "./skills/builtin/pentest/SKILL.md" with { type: "file" }
+import skill_388 from "./skills/builtin/pentest/references/automation.md" with { type: "file" }
+import skill_389 from "./skills/builtin/pentest/references/binary-audit.md" with { type: "file" }
+import skill_390 from "./skills/builtin/pentest/references/custom-rules.md" with { type: "file" }
+import skill_391 from "./skills/builtin/pentest/references/disclosure.md" with { type: "file" }
+import skill_392 from "./skills/builtin/pentest/references/external-platforms.md" with { type: "file" }
+import skill_393 from "./skills/builtin/pentest/references/fuzzing.md" with { type: "file" }
+import skill_394 from "./skills/builtin/pentest/references/hack-skills.md" with { type: "file" }
+import skill_395 from "./skills/builtin/pentest/references/mobile-pentest.md" with { type: "file" }
+import skill_396 from "./skills/builtin/pentest/references/pentest-self-audit.md" with { type: "file" }
+import skill_397 from "./skills/builtin/pentest/references/source-audit.md" with { type: "file" }
+import skill_398 from "./skills/builtin/pentest/references/target-selection.md" with { type: "file" }
+import skill_399 from "./skills/builtin/privilege-escalation/SKILL.md" with { type: "file" }
+import skill_400 from "./skills/builtin/recon/SKILL.md" with { type: "file" }
+import skill_401 from "./skills/builtin/recon/references/vuln-class-matrix.md" with { type: "file" }
+import skill_402 from "./skills/builtin/remote-cmd-execution/SKILL.md" with { type: "file" }
+import skill_403 from "./skills/builtin/targeted-pentest/SKILL.md" with { type: "file" }
+import skill_404 from "./skills/builtin/targeted-pentest/references/auth-and-access.md" with { type: "file" }
+import skill_405 from "./skills/builtin/targeted-pentest/references/auth-infra.md" with { type: "file" }
+import skill_406 from "./skills/builtin/targeted-pentest/references/auth-jwt.md" with { type: "file" }
+import skill_407 from "./skills/builtin/targeted-pentest/references/client-side-advanced.md" with { type: "file" }
+import skill_408 from "./skills/builtin/targeted-pentest/references/client-side.md" with { type: "file" }
+import skill_409 from "./skills/builtin/targeted-pentest/references/cves.md" with { type: "file" }
+import skill_410 from "./skills/builtin/targeted-pentest/references/field-notes.md" with { type: "file" }
+import skill_411 from "./skills/builtin/targeted-pentest/references/node-and-prototype.md" with { type: "file" }
+import skill_412 from "./skills/builtin/targeted-pentest/references/server-side-advanced-2.md" with { type: "file" }
+import skill_413 from "./skills/builtin/targeted-pentest/references/server-side-advanced.md" with { type: "file" }
+import skill_414 from "./skills/builtin/targeted-pentest/references/server-side-deser.md" with { type: "file" }
+import skill_415 from "./skills/builtin/targeted-pentest/references/server-side-exec-2.md" with { type: "file" }
+import skill_416 from "./skills/builtin/targeted-pentest/references/server-side-exec.md" with { type: "file" }
+import skill_417 from "./skills/builtin/targeted-pentest/references/server-side.md" with { type: "file" }
+import skill_418 from "./skills/builtin/targeted-pentest/references/sql-injection.md" with { type: "file" }
+import skill_419 from "./skills/builtin/waf-evasion/SKILL.md" with { type: "file" }
 import mcp_0 from "./mcp/builtin/ssh_mcp.py" with { type: "file" }
 import mcp_1 from "./mcp/builtin/vuln_intel_mcp.py" with { type: "file" }
 import runtime_0 from "../runtime/assets/Dockerfile" with { type: "file" }
@@ -576,281 +580,285 @@ export const BUILTIN_SKILL_FILES = {
     "fuzz-dicts-skills/userNameDict/user.txt": skill_138,
     "fuzz-dicts-skills/userNameDict/中文姓名(简写、全拼).txt": skill_139,
     "fuzz-dicts-skills/userNameDict/常用用户名.txt": skill_140,
-    "known-product-exploit/SKILL.md": skill_141,
-    "nuclei-skill/SKILL.md": skill_142,
-    "nuclei-skill/evals/evals.json": skill_143,
-    "payload-research/SKILL.md": skill_144,
-    "payloads-everything/SKILL.md": skill_145,
-    "payloads-everything/references/API Key Leaks/Files/MachineKeys.txt": skill_146,
-    "payloads-everything/references/API Key Leaks/IIS-Machine-Keys.md": skill_147,
-    "payloads-everything/references/API Key Leaks/README.md": skill_148,
-    "payloads-everything/references/Account Takeover/README.md": skill_149,
-    "payloads-everything/references/Account Takeover/mfa-bypass.md": skill_150,
-    "payloads-everything/references/Brute Force Rate Limit/README.md": skill_151,
-    "payloads-everything/references/Business Logic Errors/README.md": skill_152,
-    "payloads-everything/references/CORS Misconfiguration/README.md": skill_153,
-    "payloads-everything/references/CRLF Injection/Files/crlfinjection.txt": skill_154,
-    "payloads-everything/references/CRLF Injection/README.md": skill_155,
-    "payloads-everything/references/CSS Injection/README.md": skill_156,
-    "payloads-everything/references/CSV Injection/README.md": skill_157,
-    "payloads-everything/references/CVE Exploits/Log4Shell.md": skill_158,
-    "payloads-everything/references/CVE Exploits/README.md": skill_159,
-    "payloads-everything/references/Clickjacking/README.md": skill_160,
-    "payloads-everything/references/Client Side Path Traversal/README.md": skill_161,
-    "payloads-everything/references/Command Injection/Intruder/command-execution-unix.txt": skill_162,
-    "payloads-everything/references/Command Injection/Intruder/command_exec.txt": skill_163,
-    "payloads-everything/references/Command Injection/README.md": skill_164,
-    "payloads-everything/references/Cross-Site Request Forgery/README.md": skill_165,
-    "payloads-everything/references/DNS Rebinding/README.md": skill_166,
-    "payloads-everything/references/DOM Clobbering/README.md": skill_167,
-    "payloads-everything/references/Denial of Service/README.md": skill_168,
-    "payloads-everything/references/Dependency Confusion/README.md": skill_169,
-    "payloads-everything/references/Directory Traversal/Intruder/deep_traversal.txt": skill_170,
-    "payloads-everything/references/Directory Traversal/Intruder/directory_traversal.txt": skill_171,
-    "payloads-everything/references/Directory Traversal/Intruder/dotdotpwn.txt": skill_172,
-    "payloads-everything/references/Directory Traversal/Intruder/traversals-8-deep-exotic-encoding.txt": skill_173,
-    "payloads-everything/references/Directory Traversal/README.md": skill_174,
-    "payloads-everything/references/Encoding Transformations/README.md": skill_175,
-    "payloads-everything/references/External Variable Modification/README.md": skill_176,
-    "payloads-everything/references/File Inclusion/Intruders/BSD-files.txt": skill_177,
-    "payloads-everything/references/File Inclusion/Intruders/JHADDIX_LFI.txt": skill_178,
-    "payloads-everything/references/File Inclusion/Intruders/LFI-FD-check.txt": skill_179,
-    "payloads-everything/references/File Inclusion/Intruders/LFI-WindowsFileCheck.txt": skill_180,
-    "payloads-everything/references/File Inclusion/Intruders/Linux-files.txt": skill_181,
-    "payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include.txt": skill_182,
-    "payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include_NullByteAdded.txt": skill_183,
-    "payloads-everything/references/File Inclusion/Intruders/Mac-files.txt": skill_184,
-    "payloads-everything/references/File Inclusion/Intruders/Traversal.txt": skill_185,
-    "payloads-everything/references/File Inclusion/Intruders/Web-files.txt": skill_186,
-    "payloads-everything/references/File Inclusion/Intruders/Windows-files.txt": skill_187,
-    "payloads-everything/references/File Inclusion/Intruders/dot-slash-PathTraversal_and_LFI_pairing.txt": skill_188,
-    "payloads-everything/references/File Inclusion/Intruders/php-filter-iconv.txt": skill_189,
-    "payloads-everything/references/File Inclusion/Intruders/simple-check.txt": skill_190,
-    "payloads-everything/references/File Inclusion/LFI-to-RCE.md": skill_191,
-    "payloads-everything/references/File Inclusion/README.md": skill_192,
-    "payloads-everything/references/File Inclusion/Wrappers.md": skill_193,
-    "payloads-everything/references/Google Web Toolkit/README.md": skill_194,
-    "payloads-everything/references/GraphQL Injection/README.md": skill_195,
-    "payloads-everything/references/HTTP Parameter Pollution/README.md": skill_196,
-    "payloads-everything/references/Hidden Parameters/README.md": skill_197,
-    "payloads-everything/references/Insecure Deserialization/DotNET.md": skill_198,
-    "payloads-everything/references/Insecure Deserialization/Files/ruby-serialize.yaml": skill_199,
-    "payloads-everything/references/Insecure Deserialization/Java.md": skill_200,
-    "payloads-everything/references/Insecure Deserialization/Node.md": skill_201,
-    "payloads-everything/references/Insecure Deserialization/PHP.md": skill_202,
-    "payloads-everything/references/Insecure Deserialization/Python.md": skill_203,
-    "payloads-everything/references/Insecure Deserialization/README.md": skill_204,
-    "payloads-everything/references/Insecure Deserialization/Ruby.md": skill_205,
-    "payloads-everything/references/Insecure Direct Object References/README.md": skill_206,
-    "payloads-everything/references/Insecure Management Interface/Intruder/springboot_actuator.txt": skill_207,
-    "payloads-everything/references/Insecure Management Interface/README.md": skill_208,
-    "payloads-everything/references/Insecure Randomness/README.md": skill_209,
-    "payloads-everything/references/JSON Web Token/README.md": skill_210,
-    "payloads-everything/references/Java RMI/README.md": skill_211,
-    "payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ.txt": skill_212,
-    "payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ_SMALL.txt": skill_213,
-    "payloads-everything/references/LDAP Injection/Intruder/LDAP_attributes.txt": skill_214,
-    "payloads-everything/references/LDAP Injection/README.md": skill_215,
-    "payloads-everything/references/LaTeX Injection/README.md": skill_216,
-    "payloads-everything/references/Mass Assignment/README.md": skill_217,
-    "payloads-everything/references/Methodology and Resources/Active Directory Attack.md": skill_218,
-    "payloads-everything/references/Methodology and Resources/Bind Shell Cheatsheet.md": skill_219,
-    "payloads-everything/references/Methodology and Resources/Cloud - AWS Pentest.md": skill_220,
-    "payloads-everything/references/Methodology and Resources/Cloud - Azure Pentest.md": skill_221,
-    "payloads-everything/references/Methodology and Resources/Cobalt Strike - Cheatsheet.md": skill_222,
-    "payloads-everything/references/Methodology and Resources/Container - Docker Pentest.md": skill_223,
-    "payloads-everything/references/Methodology and Resources/Container - Kubernetes Pentest.md": skill_224,
-    "payloads-everything/references/Methodology and Resources/Escape Breakout.md": skill_225,
-    "payloads-everything/references/Methodology and Resources/HTML Smuggling.md": skill_226,
-    "payloads-everything/references/Methodology and Resources/Hash Cracking.md": skill_227,
-    "payloads-everything/references/Methodology and Resources/Initial Access.md": skill_228,
-    "payloads-everything/references/Methodology and Resources/Linux - Evasion.md": skill_229,
-    "payloads-everything/references/Methodology and Resources/Linux - Persistence.md": skill_230,
-    "payloads-everything/references/Methodology and Resources/Linux - Privilege Escalation.md": skill_231,
-    "payloads-everything/references/Methodology and Resources/MSSQL Server - Cheatsheet.md": skill_232,
-    "payloads-everything/references/Methodology and Resources/Metasploit - Cheatsheet.md": skill_233,
-    "payloads-everything/references/Methodology and Resources/Methodology and enumeration.md": skill_234,
-    "payloads-everything/references/Methodology and Resources/Network Discovery.md": skill_235,
-    "payloads-everything/references/Methodology and Resources/Network Pivoting Techniques.md": skill_236,
-    "payloads-everything/references/Methodology and Resources/Office - Attacks.md": skill_237,
-    "payloads-everything/references/Methodology and Resources/Powershell - Cheatsheet.md": skill_238,
-    "payloads-everything/references/Methodology and Resources/Reverse Shell Cheatsheet.md": skill_239,
-    "payloads-everything/references/Methodology and Resources/Source Code Management.md": skill_240,
-    "payloads-everything/references/Methodology and Resources/Vulnerability Reports.md": skill_241,
-    "payloads-everything/references/Methodology and Resources/Web Attack Surface.md": skill_242,
-    "payloads-everything/references/Methodology and Resources/Windows - AMSI Bypass.md": skill_243,
-    "payloads-everything/references/Methodology and Resources/Windows - DPAPI.md": skill_244,
-    "payloads-everything/references/Methodology and Resources/Windows - Defenses.md": skill_245,
-    "payloads-everything/references/Methodology and Resources/Windows - Download and Execute.md": skill_246,
-    "payloads-everything/references/Methodology and Resources/Windows - Mimikatz.md": skill_247,
-    "payloads-everything/references/Methodology and Resources/Windows - Persistence.md": skill_248,
-    "payloads-everything/references/Methodology and Resources/Windows - Privilege Escalation.md": skill_249,
-    "payloads-everything/references/Methodology and Resources/Windows - Using credentials.md": skill_250,
-    "payloads-everything/references/NoSQL Injection/Intruder/MongoDB.txt": skill_251,
-    "payloads-everything/references/NoSQL Injection/Intruder/NoSQL.txt": skill_252,
-    "payloads-everything/references/NoSQL Injection/README.md": skill_253,
-    "payloads-everything/references/OAuth Misconfiguration/README.md": skill_254,
-    "payloads-everything/references/ORM Leak/README.md": skill_255,
-    "payloads-everything/references/Open Redirect/Intruder/Open-Redirect-payloads.txt": skill_256,
-    "payloads-everything/references/Open Redirect/Intruder/open_redirect_wordlist.txt": skill_257,
-    "payloads-everything/references/Open Redirect/Intruder/openredirects.txt": skill_258,
-    "payloads-everything/references/Open Redirect/README.md": skill_259,
-    "payloads-everything/references/Prototype Pollution/README.md": skill_260,
-    "payloads-everything/references/Race Condition/README.md": skill_261,
-    "payloads-everything/references/Regular Expression/README.md": skill_262,
-    "payloads-everything/references/Request Smuggling/README.md": skill_263,
-    "payloads-everything/references/Reverse Proxy Misconfigurations/README.md": skill_264,
-    "payloads-everything/references/SAML Injection/README.md": skill_265,
-    "payloads-everything/references/SQL Injection/BigQuery Injection.md": skill_266,
-    "payloads-everything/references/SQL Injection/Cassandra Injection.md": skill_267,
-    "payloads-everything/references/SQL Injection/DB2 Injection.md": skill_268,
-    "payloads-everything/references/SQL Injection/Intruder/Auth_Bypass.txt": skill_269,
-    "payloads-everything/references/SQL Injection/Intruder/Auth_Bypass2.txt": skill_270,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL-WHERE_Time.txt": skill_271,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL.txt": skill_272,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL_Enumeration.txt": skill_273,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MYSQL.txt": skill_274,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL-WHERE_Time.txt": skill_275,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL_ReadLocalFiles.txt": skill_276,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_Oracle.txt": skill_277,
-    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_Postgres_Enumeration.txt": skill_278,
-    "payloads-everything/references/SQL Injection/Intruder/Generic_ErrorBased.txt": skill_279,
-    "payloads-everything/references/SQL Injection/Intruder/Generic_Fuzz.txt": skill_280,
-    "payloads-everything/references/SQL Injection/Intruder/Generic_TimeBased.txt": skill_281,
-    "payloads-everything/references/SQL Injection/Intruder/Generic_UnionSelect.txt": skill_282,
-    "payloads-everything/references/SQL Injection/Intruder/SQLi_Polyglots.txt": skill_283,
-    "payloads-everything/references/SQL Injection/MSSQL Injection.md": skill_284,
-    "payloads-everything/references/SQL Injection/MySQL Injection.md": skill_285,
-    "payloads-everything/references/SQL Injection/OracleSQL Injection.md": skill_286,
-    "payloads-everything/references/SQL Injection/PostgreSQL Injection.md": skill_287,
-    "payloads-everything/references/SQL Injection/README.md": skill_288,
-    "payloads-everything/references/SQL Injection/SQLite Injection.md": skill_289,
-    "payloads-everything/references/SQL Injection/SQLmap.md": skill_290,
-    "payloads-everything/references/Server Side Include Injection/Files/ssi_esi.txt": skill_291,
-    "payloads-everything/references/Server Side Include Injection/README.md": skill_292,
-    "payloads-everything/references/Server Side Request Forgery/README.md": skill_293,
-    "payloads-everything/references/Server Side Request Forgery/SSRF-Advanced-Exploitation.md": skill_294,
-    "payloads-everything/references/Server Side Request Forgery/SSRF-Cloud-Instances.md": skill_295,
-    "payloads-everything/references/Server Side Template Injection/ASP.md": skill_296,
-    "payloads-everything/references/Server Side Template Injection/Elixir.md": skill_297,
-    "payloads-everything/references/Server Side Template Injection/Java.md": skill_298,
-    "payloads-everything/references/Server Side Template Injection/JavaScript.md": skill_299,
-    "payloads-everything/references/Server Side Template Injection/PHP.md": skill_300,
-    "payloads-everything/references/Server Side Template Injection/Python.md": skill_301,
-    "payloads-everything/references/Server Side Template Injection/README.md": skill_302,
-    "payloads-everything/references/Server Side Template Injection/Ruby.md": skill_303,
-    "payloads-everything/references/Tabnabbing/README.md": skill_304,
-    "payloads-everything/references/Type Juggling/README.md": skill_305,
-    "payloads-everything/references/Upload Insecure Files/CVE ZIP Symbolic Link/generate.sh": skill_306,
-    "payloads-everything/references/Upload Insecure Files/Configuration Apache .htaccess/README.md": skill_307,
-    "payloads-everything/references/Upload Insecure Files/EICAR/eicar.txt": skill_308,
-    "payloads-everything/references/Upload Insecure Files/README.md": skill_309,
-    "payloads-everything/references/Virtual Hosts/README.md": skill_310,
-    "payloads-everything/references/Web Cache Deception/Intruders/param_miner_lowercase_headers.txt": skill_311,
-    "payloads-everything/references/Web Cache Deception/README.md": skill_312,
-    "payloads-everything/references/Web Sockets/README.md": skill_313,
-    "payloads-everything/references/XPATH Injection/README.md": skill_314,
-    "payloads-everything/references/XS-Leak/README.md": skill_315,
-    "payloads-everything/references/XSLT Injection/README.md": skill_316,
-    "payloads-everything/references/XSS Injection/1 - XSS Filter Bypass.md": skill_317,
-    "payloads-everything/references/XSS Injection/2 - XSS Polyglot.md": skill_318,
-    "payloads-everything/references/XSS Injection/3 - XSS Common WAF Bypass.md": skill_319,
-    "payloads-everything/references/XSS Injection/4 - CSP Bypass.md": skill_320,
-    "payloads-everything/references/XSS Injection/5 - XSS in Angular.md": skill_321,
-    "payloads-everything/references/XSS Injection/Intruders/0xcela_event_handlers.txt": skill_322,
-    "payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-JS.txt": skill_323,
-    "payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-STRINGS.txt": skill_324,
-    "payloads-everything/references/XSS Injection/Intruders/IntrudersXSS.txt": skill_325,
-    "payloads-everything/references/XSS Injection/Intruders/JHADDIX_XSS.txt": skill_326,
-    "payloads-everything/references/XSS Injection/Intruders/MarioXSSVectors.txt": skill_327,
-    "payloads-everything/references/XSS Injection/Intruders/RSNAKE_XSS.txt": skill_328,
-    "payloads-everything/references/XSS Injection/Intruders/XSSDetection.txt": skill_329,
-    "payloads-everything/references/XSS Injection/Intruders/XSS_Polyglots.txt": skill_330,
-    "payloads-everything/references/XSS Injection/Intruders/jsonp_endpoint.txt": skill_331,
-    "payloads-everything/references/XSS Injection/Intruders/port_swigger_xss_cheatsheet_event_handlers.txt": skill_332,
-    "payloads-everything/references/XSS Injection/Intruders/xss_alert.txt": skill_333,
-    "payloads-everything/references/XSS Injection/Intruders/xss_alert_identifiable.txt": skill_334,
-    "payloads-everything/references/XSS Injection/Intruders/xss_payloads_quick.txt": skill_335,
-    "payloads-everything/references/XSS Injection/Intruders/xss_swf_fuzz.txt": skill_336,
-    "payloads-everything/references/XSS Injection/README.md": skill_337,
-    "payloads-everything/references/XXE Injection/Intruders/XXE_Fuzzing.txt": skill_338,
-    "payloads-everything/references/XXE Injection/Intruders/xml-attacks.txt": skill_339,
-    "payloads-everything/references/XXE Injection/README.md": skill_340,
-    "payloads-everything/references/Zip Slip/README.md": skill_341,
-    "pentest-fuzz-skill/README.md": skill_342,
-    "pentest-fuzz-skill/SKILL.md": skill_343,
-    "pentest-fuzz-skill/deserialization/README.md": skill_344,
-    "pentest-fuzz-skill/deserialization/fuzz.txt": skill_345,
-    "pentest-fuzz-skill/deserialization/fuzzing.md": skill_346,
-    "pentest-fuzz-skill/deserialization/overview.md": skill_347,
-    "pentest-fuzz-skill/evals/evals.json": skill_348,
-    "pentest-fuzz-skill/idor/README.md": skill_349,
-    "pentest-fuzz-skill/idor/fuzz.txt": skill_350,
-    "pentest-fuzz-skill/idor/fuzzing.md": skill_351,
-    "pentest-fuzz-skill/idor/overview.md": skill_352,
-    "pentest-fuzz-skill/jwt/README.md": skill_353,
-    "pentest-fuzz-skill/jwt/fuzz.txt": skill_354,
-    "pentest-fuzz-skill/jwt/fuzzing.md": skill_355,
-    "pentest-fuzz-skill/jwt/overview.md": skill_356,
-    "pentest-fuzz-skill/lfi-rfi/README.md": skill_357,
-    "pentest-fuzz-skill/lfi-rfi/fuzz.txt": skill_358,
-    "pentest-fuzz-skill/lfi-rfi/fuzzing.md": skill_359,
-    "pentest-fuzz-skill/lfi-rfi/overview.md": skill_360,
-    "pentest-fuzz-skill/rce/README.md": skill_361,
-    "pentest-fuzz-skill/rce/fuzz.txt": skill_362,
-    "pentest-fuzz-skill/rce/fuzzing.md": skill_363,
-    "pentest-fuzz-skill/rce/overview.md": skill_364,
-    "pentest-fuzz-skill/sqli/README.md": skill_365,
-    "pentest-fuzz-skill/sqli/fuzz.txt": skill_366,
-    "pentest-fuzz-skill/sqli/fuzzing.md": skill_367,
-    "pentest-fuzz-skill/sqli/overview.md": skill_368,
-    "pentest-fuzz-skill/ssrf/README.md": skill_369,
-    "pentest-fuzz-skill/ssrf/fuzz.txt": skill_370,
-    "pentest-fuzz-skill/ssrf/fuzzing.md": skill_371,
-    "pentest-fuzz-skill/ssrf/overview.md": skill_372,
-    "pentest-fuzz-skill/ssti/README.md": skill_373,
-    "pentest-fuzz-skill/ssti/fuzz.txt": skill_374,
-    "pentest-fuzz-skill/ssti/fuzzing.md": skill_375,
-    "pentest-fuzz-skill/ssti/overview.md": skill_376,
-    "pentest-fuzz-skill/xss/README.md": skill_377,
-    "pentest-fuzz-skill/xss/fuzz.txt": skill_378,
-    "pentest-fuzz-skill/xss/fuzzing.md": skill_379,
-    "pentest-fuzz-skill/xss/overview.md": skill_380,
-    "pentest-fuzz-skill/xxe/README.md": skill_381,
-    "pentest-fuzz-skill/xxe/fuzz.txt": skill_382,
-    "pentest-fuzz-skill/xxe/fuzzing.md": skill_383,
-    "pentest-fuzz-skill/xxe/overview.md": skill_384,
-    "pentest/SKILL.md": skill_385,
-    "pentest/references/automation.md": skill_386,
-    "pentest/references/binary-audit.md": skill_387,
-    "pentest/references/custom-rules.md": skill_388,
-    "pentest/references/disclosure.md": skill_389,
-    "pentest/references/external-platforms.md": skill_390,
-    "pentest/references/fuzzing.md": skill_391,
-    "pentest/references/hack-skills.md": skill_392,
-    "pentest/references/mobile-pentest.md": skill_393,
-    "pentest/references/pentest-self-audit.md": skill_394,
-    "pentest/references/source-audit.md": skill_395,
-    "pentest/references/target-selection.md": skill_396,
-    "recon/SKILL.md": skill_397,
-    "recon/references/vuln-class-matrix.md": skill_398,
-    "remote-cmd-execution/SKILL.md": skill_399,
-    "targeted-pentest/SKILL.md": skill_400,
-    "targeted-pentest/references/auth-and-access.md": skill_401,
-    "targeted-pentest/references/auth-infra.md": skill_402,
-    "targeted-pentest/references/auth-jwt.md": skill_403,
-    "targeted-pentest/references/client-side-advanced.md": skill_404,
-    "targeted-pentest/references/client-side.md": skill_405,
-    "targeted-pentest/references/cves.md": skill_406,
-    "targeted-pentest/references/field-notes.md": skill_407,
-    "targeted-pentest/references/node-and-prototype.md": skill_408,
-    "targeted-pentest/references/server-side-advanced-2.md": skill_409,
-    "targeted-pentest/references/server-side-advanced.md": skill_410,
-    "targeted-pentest/references/server-side-deser.md": skill_411,
-    "targeted-pentest/references/server-side-exec-2.md": skill_412,
-    "targeted-pentest/references/server-side-exec.md": skill_413,
-    "targeted-pentest/references/server-side.md": skill_414,
-    "targeted-pentest/references/sql-injection.md": skill_415,
+    "headless-browser/SKILL.md": skill_141,
+    "known-product-exploit/SKILL.md": skill_142,
+    "lateral-movement/SKILL.md": skill_143,
+    "nuclei-skill/SKILL.md": skill_144,
+    "nuclei-skill/evals/evals.json": skill_145,
+    "payload-research/SKILL.md": skill_146,
+    "payloads-everything/SKILL.md": skill_147,
+    "payloads-everything/references/API Key Leaks/Files/MachineKeys.txt": skill_148,
+    "payloads-everything/references/API Key Leaks/IIS-Machine-Keys.md": skill_149,
+    "payloads-everything/references/API Key Leaks/README.md": skill_150,
+    "payloads-everything/references/Account Takeover/README.md": skill_151,
+    "payloads-everything/references/Account Takeover/mfa-bypass.md": skill_152,
+    "payloads-everything/references/Brute Force Rate Limit/README.md": skill_153,
+    "payloads-everything/references/Business Logic Errors/README.md": skill_154,
+    "payloads-everything/references/CORS Misconfiguration/README.md": skill_155,
+    "payloads-everything/references/CRLF Injection/Files/crlfinjection.txt": skill_156,
+    "payloads-everything/references/CRLF Injection/README.md": skill_157,
+    "payloads-everything/references/CSS Injection/README.md": skill_158,
+    "payloads-everything/references/CSV Injection/README.md": skill_159,
+    "payloads-everything/references/CVE Exploits/Log4Shell.md": skill_160,
+    "payloads-everything/references/CVE Exploits/README.md": skill_161,
+    "payloads-everything/references/Clickjacking/README.md": skill_162,
+    "payloads-everything/references/Client Side Path Traversal/README.md": skill_163,
+    "payloads-everything/references/Command Injection/Intruder/command-execution-unix.txt": skill_164,
+    "payloads-everything/references/Command Injection/Intruder/command_exec.txt": skill_165,
+    "payloads-everything/references/Command Injection/README.md": skill_166,
+    "payloads-everything/references/Cross-Site Request Forgery/README.md": skill_167,
+    "payloads-everything/references/DNS Rebinding/README.md": skill_168,
+    "payloads-everything/references/DOM Clobbering/README.md": skill_169,
+    "payloads-everything/references/Denial of Service/README.md": skill_170,
+    "payloads-everything/references/Dependency Confusion/README.md": skill_171,
+    "payloads-everything/references/Directory Traversal/Intruder/deep_traversal.txt": skill_172,
+    "payloads-everything/references/Directory Traversal/Intruder/directory_traversal.txt": skill_173,
+    "payloads-everything/references/Directory Traversal/Intruder/dotdotpwn.txt": skill_174,
+    "payloads-everything/references/Directory Traversal/Intruder/traversals-8-deep-exotic-encoding.txt": skill_175,
+    "payloads-everything/references/Directory Traversal/README.md": skill_176,
+    "payloads-everything/references/Encoding Transformations/README.md": skill_177,
+    "payloads-everything/references/External Variable Modification/README.md": skill_178,
+    "payloads-everything/references/File Inclusion/Intruders/BSD-files.txt": skill_179,
+    "payloads-everything/references/File Inclusion/Intruders/JHADDIX_LFI.txt": skill_180,
+    "payloads-everything/references/File Inclusion/Intruders/LFI-FD-check.txt": skill_181,
+    "payloads-everything/references/File Inclusion/Intruders/LFI-WindowsFileCheck.txt": skill_182,
+    "payloads-everything/references/File Inclusion/Intruders/Linux-files.txt": skill_183,
+    "payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include.txt": skill_184,
+    "payloads-everything/references/File Inclusion/Intruders/List_Of_File_To_Include_NullByteAdded.txt": skill_185,
+    "payloads-everything/references/File Inclusion/Intruders/Mac-files.txt": skill_186,
+    "payloads-everything/references/File Inclusion/Intruders/Traversal.txt": skill_187,
+    "payloads-everything/references/File Inclusion/Intruders/Web-files.txt": skill_188,
+    "payloads-everything/references/File Inclusion/Intruders/Windows-files.txt": skill_189,
+    "payloads-everything/references/File Inclusion/Intruders/dot-slash-PathTraversal_and_LFI_pairing.txt": skill_190,
+    "payloads-everything/references/File Inclusion/Intruders/php-filter-iconv.txt": skill_191,
+    "payloads-everything/references/File Inclusion/Intruders/simple-check.txt": skill_192,
+    "payloads-everything/references/File Inclusion/LFI-to-RCE.md": skill_193,
+    "payloads-everything/references/File Inclusion/README.md": skill_194,
+    "payloads-everything/references/File Inclusion/Wrappers.md": skill_195,
+    "payloads-everything/references/Google Web Toolkit/README.md": skill_196,
+    "payloads-everything/references/GraphQL Injection/README.md": skill_197,
+    "payloads-everything/references/HTTP Parameter Pollution/README.md": skill_198,
+    "payloads-everything/references/Hidden Parameters/README.md": skill_199,
+    "payloads-everything/references/Insecure Deserialization/DotNET.md": skill_200,
+    "payloads-everything/references/Insecure Deserialization/Files/ruby-serialize.yaml": skill_201,
+    "payloads-everything/references/Insecure Deserialization/Java.md": skill_202,
+    "payloads-everything/references/Insecure Deserialization/Node.md": skill_203,
+    "payloads-everything/references/Insecure Deserialization/PHP.md": skill_204,
+    "payloads-everything/references/Insecure Deserialization/Python.md": skill_205,
+    "payloads-everything/references/Insecure Deserialization/README.md": skill_206,
+    "payloads-everything/references/Insecure Deserialization/Ruby.md": skill_207,
+    "payloads-everything/references/Insecure Direct Object References/README.md": skill_208,
+    "payloads-everything/references/Insecure Management Interface/Intruder/springboot_actuator.txt": skill_209,
+    "payloads-everything/references/Insecure Management Interface/README.md": skill_210,
+    "payloads-everything/references/Insecure Randomness/README.md": skill_211,
+    "payloads-everything/references/JSON Web Token/README.md": skill_212,
+    "payloads-everything/references/Java RMI/README.md": skill_213,
+    "payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ.txt": skill_214,
+    "payloads-everything/references/LDAP Injection/Intruder/LDAP_FUZZ_SMALL.txt": skill_215,
+    "payloads-everything/references/LDAP Injection/Intruder/LDAP_attributes.txt": skill_216,
+    "payloads-everything/references/LDAP Injection/README.md": skill_217,
+    "payloads-everything/references/LaTeX Injection/README.md": skill_218,
+    "payloads-everything/references/Mass Assignment/README.md": skill_219,
+    "payloads-everything/references/Methodology and Resources/Active Directory Attack.md": skill_220,
+    "payloads-everything/references/Methodology and Resources/Bind Shell Cheatsheet.md": skill_221,
+    "payloads-everything/references/Methodology and Resources/Cloud - AWS Pentest.md": skill_222,
+    "payloads-everything/references/Methodology and Resources/Cloud - Azure Pentest.md": skill_223,
+    "payloads-everything/references/Methodology and Resources/Cobalt Strike - Cheatsheet.md": skill_224,
+    "payloads-everything/references/Methodology and Resources/Container - Docker Pentest.md": skill_225,
+    "payloads-everything/references/Methodology and Resources/Container - Kubernetes Pentest.md": skill_226,
+    "payloads-everything/references/Methodology and Resources/Escape Breakout.md": skill_227,
+    "payloads-everything/references/Methodology and Resources/HTML Smuggling.md": skill_228,
+    "payloads-everything/references/Methodology and Resources/Hash Cracking.md": skill_229,
+    "payloads-everything/references/Methodology and Resources/Initial Access.md": skill_230,
+    "payloads-everything/references/Methodology and Resources/Linux - Evasion.md": skill_231,
+    "payloads-everything/references/Methodology and Resources/Linux - Persistence.md": skill_232,
+    "payloads-everything/references/Methodology and Resources/Linux - Privilege Escalation.md": skill_233,
+    "payloads-everything/references/Methodology and Resources/MSSQL Server - Cheatsheet.md": skill_234,
+    "payloads-everything/references/Methodology and Resources/Metasploit - Cheatsheet.md": skill_235,
+    "payloads-everything/references/Methodology and Resources/Methodology and enumeration.md": skill_236,
+    "payloads-everything/references/Methodology and Resources/Network Discovery.md": skill_237,
+    "payloads-everything/references/Methodology and Resources/Network Pivoting Techniques.md": skill_238,
+    "payloads-everything/references/Methodology and Resources/Office - Attacks.md": skill_239,
+    "payloads-everything/references/Methodology and Resources/Powershell - Cheatsheet.md": skill_240,
+    "payloads-everything/references/Methodology and Resources/Reverse Shell Cheatsheet.md": skill_241,
+    "payloads-everything/references/Methodology and Resources/Source Code Management.md": skill_242,
+    "payloads-everything/references/Methodology and Resources/Vulnerability Reports.md": skill_243,
+    "payloads-everything/references/Methodology and Resources/Web Attack Surface.md": skill_244,
+    "payloads-everything/references/Methodology and Resources/Windows - AMSI Bypass.md": skill_245,
+    "payloads-everything/references/Methodology and Resources/Windows - DPAPI.md": skill_246,
+    "payloads-everything/references/Methodology and Resources/Windows - Defenses.md": skill_247,
+    "payloads-everything/references/Methodology and Resources/Windows - Download and Execute.md": skill_248,
+    "payloads-everything/references/Methodology and Resources/Windows - Mimikatz.md": skill_249,
+    "payloads-everything/references/Methodology and Resources/Windows - Persistence.md": skill_250,
+    "payloads-everything/references/Methodology and Resources/Windows - Privilege Escalation.md": skill_251,
+    "payloads-everything/references/Methodology and Resources/Windows - Using credentials.md": skill_252,
+    "payloads-everything/references/NoSQL Injection/Intruder/MongoDB.txt": skill_253,
+    "payloads-everything/references/NoSQL Injection/Intruder/NoSQL.txt": skill_254,
+    "payloads-everything/references/NoSQL Injection/README.md": skill_255,
+    "payloads-everything/references/OAuth Misconfiguration/README.md": skill_256,
+    "payloads-everything/references/ORM Leak/README.md": skill_257,
+    "payloads-everything/references/Open Redirect/Intruder/Open-Redirect-payloads.txt": skill_258,
+    "payloads-everything/references/Open Redirect/Intruder/open_redirect_wordlist.txt": skill_259,
+    "payloads-everything/references/Open Redirect/Intruder/openredirects.txt": skill_260,
+    "payloads-everything/references/Open Redirect/README.md": skill_261,
+    "payloads-everything/references/Prototype Pollution/README.md": skill_262,
+    "payloads-everything/references/Race Condition/README.md": skill_263,
+    "payloads-everything/references/Regular Expression/README.md": skill_264,
+    "payloads-everything/references/Request Smuggling/README.md": skill_265,
+    "payloads-everything/references/Reverse Proxy Misconfigurations/README.md": skill_266,
+    "payloads-everything/references/SAML Injection/README.md": skill_267,
+    "payloads-everything/references/SQL Injection/BigQuery Injection.md": skill_268,
+    "payloads-everything/references/SQL Injection/Cassandra Injection.md": skill_269,
+    "payloads-everything/references/SQL Injection/DB2 Injection.md": skill_270,
+    "payloads-everything/references/SQL Injection/Intruder/Auth_Bypass.txt": skill_271,
+    "payloads-everything/references/SQL Injection/Intruder/Auth_Bypass2.txt": skill_272,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL-WHERE_Time.txt": skill_273,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL.txt": skill_274,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MSSQL_Enumeration.txt": skill_275,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MYSQL.txt": skill_276,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL-WHERE_Time.txt": skill_277,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_MySQL_ReadLocalFiles.txt": skill_278,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_Oracle.txt": skill_279,
+    "payloads-everything/references/SQL Injection/Intruder/FUZZDB_Postgres_Enumeration.txt": skill_280,
+    "payloads-everything/references/SQL Injection/Intruder/Generic_ErrorBased.txt": skill_281,
+    "payloads-everything/references/SQL Injection/Intruder/Generic_Fuzz.txt": skill_282,
+    "payloads-everything/references/SQL Injection/Intruder/Generic_TimeBased.txt": skill_283,
+    "payloads-everything/references/SQL Injection/Intruder/Generic_UnionSelect.txt": skill_284,
+    "payloads-everything/references/SQL Injection/Intruder/SQLi_Polyglots.txt": skill_285,
+    "payloads-everything/references/SQL Injection/MSSQL Injection.md": skill_286,
+    "payloads-everything/references/SQL Injection/MySQL Injection.md": skill_287,
+    "payloads-everything/references/SQL Injection/OracleSQL Injection.md": skill_288,
+    "payloads-everything/references/SQL Injection/PostgreSQL Injection.md": skill_289,
+    "payloads-everything/references/SQL Injection/README.md": skill_290,
+    "payloads-everything/references/SQL Injection/SQLite Injection.md": skill_291,
+    "payloads-everything/references/SQL Injection/SQLmap.md": skill_292,
+    "payloads-everything/references/Server Side Include Injection/Files/ssi_esi.txt": skill_293,
+    "payloads-everything/references/Server Side Include Injection/README.md": skill_294,
+    "payloads-everything/references/Server Side Request Forgery/README.md": skill_295,
+    "payloads-everything/references/Server Side Request Forgery/SSRF-Advanced-Exploitation.md": skill_296,
+    "payloads-everything/references/Server Side Request Forgery/SSRF-Cloud-Instances.md": skill_297,
+    "payloads-everything/references/Server Side Template Injection/ASP.md": skill_298,
+    "payloads-everything/references/Server Side Template Injection/Elixir.md": skill_299,
+    "payloads-everything/references/Server Side Template Injection/Java.md": skill_300,
+    "payloads-everything/references/Server Side Template Injection/JavaScript.md": skill_301,
+    "payloads-everything/references/Server Side Template Injection/PHP.md": skill_302,
+    "payloads-everything/references/Server Side Template Injection/Python.md": skill_303,
+    "payloads-everything/references/Server Side Template Injection/README.md": skill_304,
+    "payloads-everything/references/Server Side Template Injection/Ruby.md": skill_305,
+    "payloads-everything/references/Tabnabbing/README.md": skill_306,
+    "payloads-everything/references/Type Juggling/README.md": skill_307,
+    "payloads-everything/references/Upload Insecure Files/CVE ZIP Symbolic Link/generate.sh": skill_308,
+    "payloads-everything/references/Upload Insecure Files/Configuration Apache .htaccess/README.md": skill_309,
+    "payloads-everything/references/Upload Insecure Files/EICAR/eicar.txt": skill_310,
+    "payloads-everything/references/Upload Insecure Files/README.md": skill_311,
+    "payloads-everything/references/Virtual Hosts/README.md": skill_312,
+    "payloads-everything/references/Web Cache Deception/Intruders/param_miner_lowercase_headers.txt": skill_313,
+    "payloads-everything/references/Web Cache Deception/README.md": skill_314,
+    "payloads-everything/references/Web Sockets/README.md": skill_315,
+    "payloads-everything/references/XPATH Injection/README.md": skill_316,
+    "payloads-everything/references/XS-Leak/README.md": skill_317,
+    "payloads-everything/references/XSLT Injection/README.md": skill_318,
+    "payloads-everything/references/XSS Injection/1 - XSS Filter Bypass.md": skill_319,
+    "payloads-everything/references/XSS Injection/2 - XSS Polyglot.md": skill_320,
+    "payloads-everything/references/XSS Injection/3 - XSS Common WAF Bypass.md": skill_321,
+    "payloads-everything/references/XSS Injection/4 - CSP Bypass.md": skill_322,
+    "payloads-everything/references/XSS Injection/5 - XSS in Angular.md": skill_323,
+    "payloads-everything/references/XSS Injection/Intruders/0xcela_event_handlers.txt": skill_324,
+    "payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-JS.txt": skill_325,
+    "payloads-everything/references/XSS Injection/Intruders/BRUTELOGIC-XSS-STRINGS.txt": skill_326,
+    "payloads-everything/references/XSS Injection/Intruders/IntrudersXSS.txt": skill_327,
+    "payloads-everything/references/XSS Injection/Intruders/JHADDIX_XSS.txt": skill_328,
+    "payloads-everything/references/XSS Injection/Intruders/MarioXSSVectors.txt": skill_329,
+    "payloads-everything/references/XSS Injection/Intruders/RSNAKE_XSS.txt": skill_330,
+    "payloads-everything/references/XSS Injection/Intruders/XSSDetection.txt": skill_331,
+    "payloads-everything/references/XSS Injection/Intruders/XSS_Polyglots.txt": skill_332,
+    "payloads-everything/references/XSS Injection/Intruders/jsonp_endpoint.txt": skill_333,
+    "payloads-everything/references/XSS Injection/Intruders/port_swigger_xss_cheatsheet_event_handlers.txt": skill_334,
+    "payloads-everything/references/XSS Injection/Intruders/xss_alert.txt": skill_335,
+    "payloads-everything/references/XSS Injection/Intruders/xss_alert_identifiable.txt": skill_336,
+    "payloads-everything/references/XSS Injection/Intruders/xss_payloads_quick.txt": skill_337,
+    "payloads-everything/references/XSS Injection/Intruders/xss_swf_fuzz.txt": skill_338,
+    "payloads-everything/references/XSS Injection/README.md": skill_339,
+    "payloads-everything/references/XXE Injection/Intruders/XXE_Fuzzing.txt": skill_340,
+    "payloads-everything/references/XXE Injection/Intruders/xml-attacks.txt": skill_341,
+    "payloads-everything/references/XXE Injection/README.md": skill_342,
+    "payloads-everything/references/Zip Slip/README.md": skill_343,
+    "pentest-fuzz-skill/README.md": skill_344,
+    "pentest-fuzz-skill/SKILL.md": skill_345,
+    "pentest-fuzz-skill/deserialization/README.md": skill_346,
+    "pentest-fuzz-skill/deserialization/fuzz.txt": skill_347,
+    "pentest-fuzz-skill/deserialization/fuzzing.md": skill_348,
+    "pentest-fuzz-skill/deserialization/overview.md": skill_349,
+    "pentest-fuzz-skill/evals/evals.json": skill_350,
+    "pentest-fuzz-skill/idor/README.md": skill_351,
+    "pentest-fuzz-skill/idor/fuzz.txt": skill_352,
+    "pentest-fuzz-skill/idor/fuzzing.md": skill_353,
+    "pentest-fuzz-skill/idor/overview.md": skill_354,
+    "pentest-fuzz-skill/jwt/README.md": skill_355,
+    "pentest-fuzz-skill/jwt/fuzz.txt": skill_356,
+    "pentest-fuzz-skill/jwt/fuzzing.md": skill_357,
+    "pentest-fuzz-skill/jwt/overview.md": skill_358,
+    "pentest-fuzz-skill/lfi-rfi/README.md": skill_359,
+    "pentest-fuzz-skill/lfi-rfi/fuzz.txt": skill_360,
+    "pentest-fuzz-skill/lfi-rfi/fuzzing.md": skill_361,
+    "pentest-fuzz-skill/lfi-rfi/overview.md": skill_362,
+    "pentest-fuzz-skill/rce/README.md": skill_363,
+    "pentest-fuzz-skill/rce/fuzz.txt": skill_364,
+    "pentest-fuzz-skill/rce/fuzzing.md": skill_365,
+    "pentest-fuzz-skill/rce/overview.md": skill_366,
+    "pentest-fuzz-skill/sqli/README.md": skill_367,
+    "pentest-fuzz-skill/sqli/fuzz.txt": skill_368,
+    "pentest-fuzz-skill/sqli/fuzzing.md": skill_369,
+    "pentest-fuzz-skill/sqli/overview.md": skill_370,
+    "pentest-fuzz-skill/ssrf/README.md": skill_371,
+    "pentest-fuzz-skill/ssrf/fuzz.txt": skill_372,
+    "pentest-fuzz-skill/ssrf/fuzzing.md": skill_373,
+    "pentest-fuzz-skill/ssrf/overview.md": skill_374,
+    "pentest-fuzz-skill/ssti/README.md": skill_375,
+    "pentest-fuzz-skill/ssti/fuzz.txt": skill_376,
+    "pentest-fuzz-skill/ssti/fuzzing.md": skill_377,
+    "pentest-fuzz-skill/ssti/overview.md": skill_378,
+    "pentest-fuzz-skill/xss/README.md": skill_379,
+    "pentest-fuzz-skill/xss/fuzz.txt": skill_380,
+    "pentest-fuzz-skill/xss/fuzzing.md": skill_381,
+    "pentest-fuzz-skill/xss/overview.md": skill_382,
+    "pentest-fuzz-skill/xxe/README.md": skill_383,
+    "pentest-fuzz-skill/xxe/fuzz.txt": skill_384,
+    "pentest-fuzz-skill/xxe/fuzzing.md": skill_385,
+    "pentest-fuzz-skill/xxe/overview.md": skill_386,
+    "pentest/SKILL.md": skill_387,
+    "pentest/references/automation.md": skill_388,
+    "pentest/references/binary-audit.md": skill_389,
+    "pentest/references/custom-rules.md": skill_390,
+    "pentest/references/disclosure.md": skill_391,
+    "pentest/references/external-platforms.md": skill_392,
+    "pentest/references/fuzzing.md": skill_393,
+    "pentest/references/hack-skills.md": skill_394,
+    "pentest/references/mobile-pentest.md": skill_395,
+    "pentest/references/pentest-self-audit.md": skill_396,
+    "pentest/references/source-audit.md": skill_397,
+    "pentest/references/target-selection.md": skill_398,
+    "privilege-escalation/SKILL.md": skill_399,
+    "recon/SKILL.md": skill_400,
+    "recon/references/vuln-class-matrix.md": skill_401,
+    "remote-cmd-execution/SKILL.md": skill_402,
+    "targeted-pentest/SKILL.md": skill_403,
+    "targeted-pentest/references/auth-and-access.md": skill_404,
+    "targeted-pentest/references/auth-infra.md": skill_405,
+    "targeted-pentest/references/auth-jwt.md": skill_406,
+    "targeted-pentest/references/client-side-advanced.md": skill_407,
+    "targeted-pentest/references/client-side.md": skill_408,
+    "targeted-pentest/references/cves.md": skill_409,
+    "targeted-pentest/references/field-notes.md": skill_410,
+    "targeted-pentest/references/node-and-prototype.md": skill_411,
+    "targeted-pentest/references/server-side-advanced-2.md": skill_412,
+    "targeted-pentest/references/server-side-advanced.md": skill_413,
+    "targeted-pentest/references/server-side-deser.md": skill_414,
+    "targeted-pentest/references/server-side-exec-2.md": skill_415,
+    "targeted-pentest/references/server-side-exec.md": skill_416,
+    "targeted-pentest/references/server-side.md": skill_417,
+    "targeted-pentest/references/sql-injection.md": skill_418,
+    "waf-evasion/SKILL.md": skill_419,
 } as const
 
 export const BUILTIN_MCP_FILES = {

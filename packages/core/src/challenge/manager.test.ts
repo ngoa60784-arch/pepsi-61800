@@ -904,6 +904,66 @@ describe("challenge-manager local api", () => {
         expect((item as unknown as { stateAssets: string[] })?.stateAssets.some((line) => line.includes("[credential]") && line.includes("admin@webapp"))).toBe(true)
     })
 
+    test("planner snapshot surfaces attack-graph relations and distilled defense signals", async () => {
+        await manager.createChallenge({
+            id: "mock-graph",
+            title: "mock-graph",
+            difficulty: "hard",
+            description: "",
+            level: 1,
+            total_score: 100,
+            total_got_score: 0,
+            flag_count: 1,
+            flag_got_count: 0,
+            hint_viewed: false,
+            hint_content: "",
+            instance_status: "running",
+            entrypoint: ["10.0.0.9:443"],
+            flags: ["flag{ok}"],
+        })
+
+        // Attack-graph edges the scheduler should be able to see (mapped paths).
+        await manager.appendRelation({
+            challengeId: "mock-graph",
+            source: "Host:10.0.0.9",
+            relation: "exposes_service",
+            target: "Service:10.0.0.9:8080",
+            note: "nginx reverse proxy",
+        })
+        await manager.appendRelation({
+            challengeId: "mock-graph",
+            source: "Cred:admin@web01",
+            relation: "grants_access_to",
+            target: "Host:10.0.0.9",
+        })
+
+        // Defense-reaction memories: one WAF/403, one rate-limit; one ordinary failure that must NOT be flagged as a defense signal.
+        await manager.appendMemory({ challengeId: "mock-graph", kind: "failure", content: "sqlmap payloads to /search return 403 Forbidden via Cloudflare WAF", source: "observer" })
+        await manager.appendMemory({ challengeId: "mock-graph", kind: "failure", content: "gobuster on /api getting 429 rate-limited after ~40 req; source IP throttled", source: "observer" })
+        await manager.appendMemory({ challengeId: "mock-graph", kind: "failure", content: "login form has no injectable parameter (parameterized query)", source: "observer" })
+        await appendChallengeAttemptLog(challengeDir, { challengeId: "mock-graph", solverId: "solver-z", promptName: "p", task: "recon" })
+
+        const listAll = mock(async () => [])
+        manager.attachRuntime({ listAll } as never)
+
+        const snapshot = (await (
+            manager as unknown as { buildPlannerSnapshot: (reason: string) => Promise<{ challenges: Array<Record<string, unknown>> }> }
+        ).buildPlannerSnapshot("test")) as { challenges: Array<Record<string, unknown>> }
+        const item = snapshot.challenges.find((entry) => entry.id === "mock-graph") as
+            | { relations: string[]; defenseSignals: string[] }
+            | undefined
+        expect(item).toBeDefined()
+
+        // Attack-graph edges are rendered as source --relation--> target lines for the planner.
+        expect(item?.relations.some((line) => line.includes("Host:10.0.0.9 --exposes_service--> Service:10.0.0.9:8080"))).toBe(true)
+        expect(item?.relations.some((line) => line.includes("Cred:admin@web01 --grants_access_to--> Host:10.0.0.9"))).toBe(true)
+
+        // Defense signals distilled from WAF/rate-limit memories, but not from the ordinary "no injectable param" failure.
+        expect(item?.defenseSignals.some((line) => /403|WAF|Cloudflare/i.test(line))).toBe(true)
+        expect(item?.defenseSignals.some((line) => /429|rate-limit|throttl/i.test(line))).toBe(true)
+        expect(item?.defenseSignals.some((line) => line.includes("no injectable parameter"))).toBe(false)
+    })
+
     test("planner snapshot recommends pruning a target with >=3 dead routes, no foothold, no live hypothesis", async () => {
         await manager.createChallenge({
             id: "mock-prune",

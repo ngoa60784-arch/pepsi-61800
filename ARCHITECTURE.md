@@ -291,54 +291,58 @@ Supported actions (`host-bridge-types.ts`):
 
 Files: `packages/core/src/runtime/`.
 
+> **Architecture note (current model):** the solver no longer runs inside a Docker container. It runs as a **local child process** of the control plane (`tch-agent solver rpc` via `Bun.spawn`), following the "**solver = brain on the control plane, MCP = hands on the remote Kali**" model introduced in `228f70c` and made the sole backend in `d671e8e` / `1d88917` (the old `DockerBackend` / `SshBackend` were removed). Isolation of the *attack actions* is provided by running them on a **separate remote Kali host over SSH** (MCP `kali-arsenal`), not by containing the solver process itself. See §7.3 for the `local-host` exception where attacks run directly on the control plane.
+
 ### 7.1 RuntimeManager (`runtime.ts`)
 
-- Manages solver instance state (`Map<id, SolverInstance>`) and subprocess handles.
-- `init()`: wait for config ready → `ensureImage()` ensures image → under bun runtime `ensureSolverBinary()` precompiles solver binary.
-- `launch()`: create directory → resolve binary injection → `backend.spawn()` → `readStream()` reads stdout JSONL → write init payload to stdin → wait for handshake.
+- Manages solver instance state (`Map<id, SolverInstance>`), child process handles (`Map<id, Subprocess>`), and per-solver env.
+- `reloadFromConfig()`: reads host-settings runtime config, applies `applyDesktopRuntimeOverrides` (desktop shell defaults `execSurface` to `local-host`), then `createExecutionBackend()` (always a `LocalProcessBackend`). No image build, no binary precompile step at init.
+- `init()`: simply waits for config to be ready (`ensureReady()`).
+- `launch()`: create solver dirs (`base`/`session`/`workspace`) → `resolveLocalSolverInjection()` resolves the local launch argv → `backend.spawn()` → `readStream()` reads stdout JSONL → write `SolverInitPayload` to stdin → wait for the init handshake.
 - `readStream()`: line-by-line `JSON.parse`, dispatches `host_bridge_request` → handler, init response, `AgentSessionEvent` → emit.
-- `sendCommand()`: writes `RpcCommand` (including `host_bridge_response`) to stdin.
+- `sendCommand()`: writes `RpcCommand` (including `host_bridge_response`) to the child's stdin.
 
-### 7.2 Docker Execution Backend (`execution-backend.ts`)
+### 7.2 Local Execution Backend (`execution-backend.ts`)
 
-**Core invariant**: The solver is a `Bun.spawn` child of `docker run -i` with JSONL RPC on stdin/stdout. Pentest commands inside the container go to **remote Kali** via MCP `kali-arsenal` (`ssh_execute`), not a second solver backend.
+**Core invariant**: The solver is a `Bun.spawn` child of the local `tch-agent solver rpc` process with JSONL RPC on stdin/stdout. Pentest commands are issued from the solver to a **remote Kali** via MCP `kali-arsenal` (`ssh_execute`) — the backend itself does not sandbox the solver.
 
-| Dimension | DockerBackend |
+| Dimension | LocalProcessBackend (`kind = "local"`) |
 |------|---------------|
-| Subprocess | `docker run -i ...` |
-| Isolation | Local Kali container |
-| Binary injection | volume mounts host build artifact to `/opt/tch-agent/tch-agent:ro` |
-| Resource limits | `--memory` / `--cpus` / `networkMode` |
-| Stop | `docker stop <name>` + kill local client |
+| Subprocess | `Bun.spawn([...injectionCmd])` — a plain local child process |
+| Isolation | **None at the process level.** Attack isolation comes from targeting a remote Kali over SSH (default `remote-vps`), or is absent in `local-host` mode |
+| Environment | `buildLocalSolverEnv` copies the **entire host `process.env`** into the child, then overlays `TCH_SOLVER_*_DIR` (real local paths), `TCH_ENGAGEMENT_SCOPE`, `TCH_BUILTIN_SKILLS_DIR`, `TCH_MCP_DIR`, `TCH_SOLVER_MCP_MOUNT` |
+| Working dir | `hostWorkspaceDir` (`~/.tch-agent/solvers/<id>/workspace`) on the control plane |
+| Resource limits | **None** (no `--memory` / `--cpus` / cgroup) |
+| Stop | `proc.kill()` + await exit (no `docker stop`) |
 
-`docker run` form (`buildDockerArgs`):
+> Because the whole host env is inherited, any secret in the control-plane environment (model API keys, `TCH_AUTH_TOKEN`, proxy creds) is visible to the solver process. This is a behavioral change from the container model and should be considered when deploying.
 
-```bash
-docker run -i --platform linux/amd64 \
-  --network <host|bridge> --name tch-solver-<id> -w /root/workspace --rm \
-  [--memory 2g] [--cpus 1.5] \
-  -v <binds...> -e <env...> \
-  <image> /opt/tch-agent/tch-agent solver rpc --env KEY=VAL ...
-```
+### 7.3 Execution Surface (`execSurface`, `extension/exec-surface.ts`)
 
-`--memory` added only when non-empty; `--cpus` only when `>0` (empty = no limit). Configured via UI **Config → Planner** or host-settings (see §10).
+Where the solver's offensive commands actually run is governed by `hostSettings.runtime.execSurface`:
 
-### 7.3 Solver Binary Injection
+| Surface | Default for | Behavior |
+|---------|-------------|----------|
+| `remote-vps` | Web / server deployment (default) | Solver **must** use `kali-arsenal` MCP; local `bash` is only for tiny workspace helpers. Attacks land on the remote Kali. |
+| `local-host` | Desktop shell (`TCH_DESKTOP=1`, via `applyDesktopRuntimeOverrides`) | `execSurfaceExtension` appends a system-prompt block telling the solver it MAY run `nmap`/`ffuf`/`nuclei`/… **directly with local `bash` on the control-plane host**. kali-arsenal remains a fallback. |
 
-The container **does not COPY the binary into the image**; the image only provides the Kali tool environment; the host mounts the compiled `tch-agent` binary read-only via volume. Three sources (`resolveSolverInjection`):
+In `local-host` mode there is no remote boundary between the attack tooling and the control plane — offensive commands execute on the same machine that runs the web UI and holds the config/secrets. The prompt instructs the model to stay in scope and never target localhost / the control plane, but this is a **soft (prompt-level) constraint**, not an enforced one.
 
-- bun runtime → `ensureSolverBinary()` build artifact (`~/.tch-agent/runtime/self/tch-agent-linux-x64`, ~158MB)
-- already-built linux/x64 binary → use `execPath` directly
-- other platforms → extract embedded linux binary
+### 7.4 Solver Launch Command (`helpers.ts` `resolveLocalSolverInjection`)
 
-**Freshness cache** (`helpers.ts` `ensureSolverBinary` + `newestSourceMtime`): reuse if binary mtime ≥ newest source file mtime; otherwise rebuild. `newestSourceMtime` **skips `*.generated.*` files** (rewritten every startup; not skipping would invalidate cache forever). This fixes "recompiling 158MB binary every startup exhausting memory".
+The solver child is the same `tch-agent` codebase, launched locally. Resolution order:
 
-### 7.4 Kali Image (`assets/Dockerfile`)
+- **bun runtime (source/dev)** → `[process.execPath, apps/cli/src/main.ts, "solver", "rpc"]`
+- **compiled linux/x64 binary** → `[process.execPath, "solver", "rpc"]` (reuse the running binary directly)
+- **other platforms** → `ensureSolverBinary()` compiles/caches a linux/x64 binary (`~/.tch-agent/runtime/self/tch-agent-linux-x64`, ~158MB)
 
-- `FROM --platform=linux/amd64 kalilinux/kali-rolling`. **Must be amd64; do not use ARM**.
-- Toolchain: nmap / hydra / sqlmap / gobuster / feroxbuster / masscan / amass / nuclei / ffuf / katana / impacket / NetExec / BloodHound / seclists and hundreds more.
-- Command name alignment symlinks: `/usr/local/bin/httpx → httpx-toolkit`, `/usr/local/bin/testssl.sh → testssl`.
-- Image ~ **10.4GB**; multiple solvers **share the same image** (not 10GB each).
+**Freshness cache** (`ensureSolverBinary` + `newestSourceMtime`): reuse the built binary if its mtime ≥ the newest source file mtime; otherwise rebuild. `newestSourceMtime` **skips `*.generated.*` files** (rewritten every startup; not skipping would invalidate the cache forever). This avoids recompiling the 158MB binary on every startup. Note that in the common bun/linux-x64 case no separate binary is needed at all.
+
+### 7.5 Remote Kali Provisioning (`provision.ts`, `assets/provision-pentest-vps.sh`)
+
+The remote Kali is a **real SSH-reachable host** (VPS or Kali box), not a container built from this repo. `provision.ts` streams `assets/provision-pentest-vps.sh` to the remote via `bash -s` (over the configured `kali-arsenal` SSH) to install the offensive toolchain (nmap / hydra / sqlmap / gobuster / feroxbuster / masscan / amass / nuclei / ffuf / katana / impacket / NetExec / seclists, ProjectDiscovery Go tools, etc.). `kali-ssh.ts` tests connectivity and checks for the expected tools.
+
+> `assets/Dockerfile` (a `kalilinux/kali-rolling` image definition) is **legacy** from the container era and is no longer referenced by the runtime; it remains only as an optional way to stand up a Kali environment.
 
 ---
 

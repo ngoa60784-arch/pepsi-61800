@@ -65,5 +65,5 @@ test("formatProvisionerAgentLog maps ssh_execute", () => {
         args: { command: "apt-get install -y nmap" },
     } as never)
     expect(line).toContain("ssh_execute")
-    expect(KALI_PROVISION_CHECK_TOOLS.length).toBe(20)
+    expect(KALI_PROVISION_CHECK_TOOLS.length).toBe(23)
 })

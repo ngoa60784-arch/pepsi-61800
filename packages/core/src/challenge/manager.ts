@@ -153,6 +153,7 @@ export interface ChallengeSubmissionMeta {
     promptName?: string
     modelName?: string
     writeup?: string
+    evidenceRefs?: string[]
     verificationStatus?: ChallengeSubmissionLogRecord["verification_status"]
 }
 
@@ -244,6 +245,12 @@ interface PlannerSnapshotChallenge {
     progressPhase: PlannerProgressPhase
     // Cross-solver structured battlefield asset summary (hosts/services/credentials/sessions).
     stateAssets: string[]
+    // Shared attack-graph edges (source --relation--> target), so the planner can see mapped routes
+    // and dispatch to advance/close an existing chain instead of re-deriving it per solver.
+    relations: string[]
+    // Defense signals distilled from memory/failure boundaries (WAF / rate-limit / IP ban), so the
+    // planner can react (throttle, rotate egress, or reprioritize) instead of grinding a blocked target.
+    defenseSignals: string[]
     // Difficulty-aware numeric signals (research: difficulty-aware planning, Type B failure 58%→27%).
     successRate: number // Laplace-smoothed per-target success rate (correct/submissions), 0..1
     failedRouteCount: number // Dead-end route count (failed ideas + failure memories)
@@ -507,6 +514,14 @@ function formatSolverStateAssetsSection(items: StateAsset[]): string {
     return sorted.map((asset) => `- ${formatStateAssetLine(asset)}`).join("\n")
 }
 
+function formatSolverRelationsSection(items: MemoryRelation[]): string {
+    if (items.length === 0) return "(none)"
+    return sortByUpdatedAtDesc(items)
+        .slice(0, PLANNER_MEMORY_FACT_LIMIT)
+        .map((relation) => `- ${formatRelationLine(relation)}${relation.note ? `  (${clipTaskText(relation.note, 60)})` : ""}`)
+        .join("\n")
+}
+
 // ── Planner outcome summary (feeds scheduler what solvers gained, not just counts) ──
 
 // Confirmed facts/credentials: scheduler decides privilege-escalation/lateral solvers.
@@ -523,6 +538,20 @@ function buildPlannerMemoryFacts(items: MemoryEntry[]): string[] {
 function buildPlannerFailureBoundaries(items: MemoryEntry[]): string[] {
     return selectRecentItems(
         items.filter((item) => item.kind === "failure"),
+        PLANNER_FAILURE_LIMIT,
+    ).map((item) => clipTaskText(item.content, PLANNER_SUMMARY_CONTENT_MAX_CHARS))
+}
+
+// Defense signals: distill WAF / rate-limit / IP-ban mentions from memory so the planner treats an
+// actively-blocking target as a first-class scheduling input (throttle / rotate egress / reprioritize),
+// rather than only seeing it as generic "failed routes". Solvers record these as failure/fact memories
+// when they hit an [ANTI-BAN WARN] (see kimi-security prompt), which is the only channel from the MCP
+// tool layer into challenge state.
+const PLANNER_DEFENSE_PATTERN =
+    /\b(waf|rate.?limit|rate.?limited|429|403\s*forbidden|ip[\s-]?ban|banned|blocked|captcha|cloudflare|akamai|anti-?ban|throttl)/i
+function buildPlannerDefenseSignals(items: MemoryEntry[]): string[] {
+    return selectRecentItems(
+        items.filter((item) => (item.kind === "failure" || item.kind === "fact") && PLANNER_DEFENSE_PATTERN.test(item.content)),
         PLANNER_FAILURE_LIMIT,
     ).map((item) => clipTaskText(item.content, PLANNER_SUMMARY_CONTENT_MAX_CHARS))
 }
@@ -730,6 +759,10 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
             // Outcome summary: scheduler sees what solvers gained for informed dispatch/hold/handoff.
             `- Shared state assets (hosts/services/credentials/sessions — reusable across solvers):`,
             ...(challenge.stateAssets.length > 0 ? challenge.stateAssets.map((line) => `    - ${line}`) : ["    - (none)"]),
+            `- Attack graph (mapped edges — dispatch to advance/close an existing chain, not re-derive it):`,
+            ...(challenge.relations.length > 0 ? challenge.relations.map((line) => `    - ${line}`) : ["    - (none)"]),
+            `- Defense signals (WAF / rate-limit / IP ban — if present, throttle, rotate egress, or reprioritize; do NOT just pile more solvers on):`,
+            ...(challenge.defenseSignals.length > 0 ? challenge.defenseSignals.map((line) => `    - ${line}`) : ["    - (none)"]),
             `- Confirmed facts / creds:`,
             ...(challenge.memoryFacts.length > 0 ? challenge.memoryFacts.map((line) => `    - ${line}`) : ["    - (none)"]),
             `- Failed / dead-end boundaries (do NOT re-dispatch these routes):`,
@@ -1508,6 +1541,7 @@ export class ChallengeManager {
             correct: false,
             message: "recorded in engagement mode; pending operator confirmation",
             writeup: meta?.writeup,
+            evidenceRefs: meta?.evidenceRefs,
             verificationStatus: meta?.verificationStatus,
         })
     }
@@ -2193,6 +2227,7 @@ export class ChallengeManager {
             stateAssets,
             activeSolvers,
             staleTimeoutMs,
+            relations,
         )
 
         const activeSolverRows = await Promise.all(
@@ -2873,14 +2908,15 @@ export class ChallengeManager {
 
         const challengeItems = await Promise.all(
             unsolved.map(async (challenge) => {
-                const [attempts, submissions, memory, ideas, stateAssets] = await Promise.all([
+                const [attempts, submissions, memory, ideas, stateAssets, relations] = await Promise.all([
                     this.listAttemptLogs(challenge.id),
                     this.listSubmissionLogs(challenge.id),
                     this.listMemory(challenge.id).catch(() => [] as MemoryEntry[]),
                     this.listIdeas(challenge.id).catch(() => [] as IdeaRecord[]),
                     this.listStateAssets(challenge.id).catch(() => [] as StateAsset[]),
+                    this.listRelations(challenge.id).catch(() => [] as MemoryRelation[]),
                 ])
-                return this.buildPlannerSnapshotItem(challenge, attempts, submissions, memory, ideas, stateAssets, activeSolvers, staleTimeoutMs)
+                return this.buildPlannerSnapshotItem(challenge, attempts, submissions, memory, ideas, stateAssets, activeSolvers, staleTimeoutMs, relations)
             }),
         )
         // Backfill cross-target effort rank (horizon proxy): most attempts ranks #1.
@@ -2957,6 +2993,7 @@ export class ChallengeManager {
         stateAssets: StateAsset[],
         activeSolvers: SolverInstance[],
         staleTimeoutMs: number,
+        relations: MemoryRelation[] = [],
     ): PlannerSnapshotChallenge {
         const challengeSolvers = activeSolvers.filter((solver) => solver.challengeId === challenge.id)
         const oldestActiveSolverAt = challengeSolvers.map((solver) => solver.createdAt).sort((a, b) => a - b)[0]
@@ -2982,6 +3019,12 @@ export class ChallengeManager {
             })
             .slice(0, PLANNER_MEMORY_FACT_LIMIT)
             .map((asset) => formatStateAssetLine(asset))
+        const relationLines = sortByUpdatedAtDesc(relations)
+            .slice(0, PLANNER_MEMORY_FACT_LIMIT)
+            .map((item) => formatRelationLine(item))
+        // Distill defense signals (WAF / rate-limit / IP ban) from failure boundaries + memory so the
+        // planner sees "this target is actively blocking" as a first-class scheduling input.
+        const defenseSignals = buildPlannerDefenseSignals(memory)
         // "Real finding" count: CTF uses correct; engagement uses recorded and not verifier-rejected (isRealFinding).
         // Difficulty/phase/pruning depend on it — else engagement stays 0, successRate inverts, findings empty.
         const correctSubmissionCount = submissions.filter(isRealFinding).length
@@ -3036,6 +3079,8 @@ export class ChallengeManager {
             findings,
             progressPhase,
             stateAssets: stateAssetLines,
+            relations: relationLines,
+            defenseSignals,
             successRate,
             failedRouteCount,
             effortRank: undefined, // filled by buildPlannerSnapshot
@@ -3073,11 +3118,12 @@ export class ChallengeManager {
      */
     private async buildEngagementSolverTask(challenge: ChallengeInfoRecord, options?: LaunchSolverOptions): Promise<string> {
         const entrypoint = (challenge.entrypoint ?? []).map((item) => `- ${item}`).join("\n")
-        const [memoryItems, ideaItems, submissionItems, stateAssets] = await Promise.all([
+        const [memoryItems, ideaItems, submissionItems, stateAssets, relations] = await Promise.all([
             this.listMemory(challenge.id),
             this.listIdeas(challenge.id),
             this.listSubmissionLogs(challenge.id),
             this.listStateAssets(challenge.id).catch(() => [] as StateAsset[]),
+            this.listRelations(challenge.id).catch(() => [] as MemoryRelation[]),
         ])
         const plannerHandoff = options?.plannerHandoff?.trim()
 
@@ -3124,6 +3170,9 @@ export class ChallengeManager {
             ``,
             `Shared battlefield state (hosts/services/credentials/sessions already obtained by the team — REUSE, do not re-discover):`,
             formatSolverStateAssetsSection(stateAssets),
+            ``,
+            `Attack graph (edges the team already mapped — build on these with find_attack_path / record_relation, don't re-derive routes):`,
+            formatSolverRelationsSection(relations),
             ``,
             `Requirements:`,
             `- The moment you verify a vuln / obtain control / get high-value evidence, record it with report_finding (proof + route writeup).`,

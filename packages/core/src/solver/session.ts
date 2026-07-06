@@ -124,6 +124,12 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     }
 
     const observerEnabled = prompt.meta.observerEnabled === true
+    // Observer model fallback chain: explicit `observerModel` → the solver's own `model` → (in observer-agent)
+    // the global default Agent model. So by default the observer runs on the SAME model as the solver it
+    // supervises (never silently weaker than the solver). The independent Verifier likewise tracks the global
+    // default (kept in sync by activateModelGlobally). Verifier soundness comes from demanding fresh,
+    // self-generated reproduction evidence — not from being a bigger model — so a capable default is enough;
+    // set a strong global default model and all three (solver-default / observer / verifier) benefit together.
     const promptModel = typeof prompt.meta.model === "string" && prompt.meta.model.trim() ? prompt.meta.model.trim() : undefined
     const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
 
@@ -156,6 +162,20 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
             : SessionManager.create(workspaceDir, sessionDir),
     })
     await session.bindExtensions({})
+
+    // SDK auto-compaction already defaults to enabled (summarizes older turns once context nears the
+    // window limit, keeps recent messages verbatim — see pi-coding-agent's compaction settings). Pin it
+    // explicitly for solvers so long unattended engagements (hours, hundreds of rounds under the Planner,
+    // nobody at the Runtime UI to click "compact") never silently run with it off, regardless of global
+    // settings.json. The durable memory that survives each compaction is the observer board + task.md
+    // (file-backed, read fresh via tools, never part of the summarized transcript) — see the `pentest`
+    // skill's "Burned Paths" discipline. Operators can still flip this per-solver via the existing
+    // `set_auto_compaction` RPC command.
+    try {
+        session.setAutoCompactionEnabled(true)
+    } catch {
+        // Older/alternate SDK builds may not support this — non-fatal, solver still runs.
+    }
 
     return { session, sessionDir, workspaceDir }
 }

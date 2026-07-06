@@ -149,6 +149,10 @@ export const KALI_PROVISION_CHECK_TOOLS = [
     "nikto",
     "nxc",
     "jwt_tool",
+    // interactive sessions (tmux), anti-ban egress rotation (proxychains4), headless browser (node)
+    "tmux",
+    "proxychains4",
+    "node",
 ] as const
 
 export interface KaliToolCheckEntry {
@@ -172,6 +176,10 @@ export const KALI_OPTIONAL_TOOLS = new Set([
     // AD / JWT niche — agent can use other tooling if missing
     "nxc",
     "jwt_tool",
+    // capability add-ons — agent/skill can install at runtime if the provision pass didn't get them
+    "tmux",
+    "proxychains4",
+    "node",
 ])
 
 /** Core checklist items — provision must verify these as OK before finishing. */

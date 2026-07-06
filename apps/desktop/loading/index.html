@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>BreachWeave</title>
+        <style>
+            :root {
+                color-scheme: dark;
+                --bg: #0a0e14;
+                --panel: #0f1520;
+                --accent: #38bdf8;
+                --text: #e2e8f0;
+                --muted: #64748b;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+            }
+            body {
+                background: radial-gradient(1200px 600px at 50% -10%, #13203300, #060910 70%), var(--bg);
+                color: var(--text);
+                font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            main {
+                width: min(520px, 88vw);
+                padding: 40px 44px;
+                text-align: center;
+                background: linear-gradient(180deg, #101827cc, #0b111bcc);
+                border: 1px solid #1e293b;
+                border-radius: 16px;
+                box-shadow: 0 24px 60px -20px #000, inset 0 1px 0 #ffffff0d;
+            }
+            .brand {
+                font-size: 26px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                margin: 0 0 6px;
+            }
+            .brand span {
+                color: var(--accent);
+            }
+            .tagline {
+                margin: 0 0 28px;
+                color: var(--muted);
+                font-size: 13px;
+            }
+            .spinner {
+                width: 46px;
+                height: 46px;
+                margin: 0 auto 22px;
+                border: 3px solid #1e293b;
+                border-top-color: var(--accent);
+                border-radius: 50%;
+                animation: spin 0.9s linear infinite;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            .status {
+                margin: 0;
+                font-size: 14px;
+                line-height: 1.6;
+                color: var(--text);
+            }
+            .hint {
+                margin: 14px 0 0;
+                font-size: 12px;
+                color: var(--muted);
+            }
+            button {
+                margin-top: 22px;
+                padding: 9px 20px;
+                font-size: 13px;
+                color: var(--text);
+                background: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: background 0.15s ease;
+            }
+            button:hover {
+                background: #273449;
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .spinner {
+                    animation-duration: 2.4s;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <div class="spinner" aria-hidden="true"></div>
+            <h1 class="brand">Breach<span>Weave</span></h1>
+            <p class="tagline">Authorized multi-agent penetration testing</p>
+            <p class="status">正在启动本地指挥台服务…</p>
+            <p class="hint">首次启动需初始化运行时，请稍候（最多约 2 分钟）。</p>
+        </main>
+    </body>
+</html>
