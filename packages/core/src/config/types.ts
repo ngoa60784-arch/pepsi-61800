@@ -23,10 +23,14 @@ export interface HostRuntimeSettings {
 }
 
 export interface HostChallengeSettings {
+    /** Optional fleet-wide lightweight model-pref id for Observer sidecars. */
+    observerModel?: string
     /** Max automatic verifier re-runs after inconclusive (default 3). `0` disables auto-retry. */
     verifierAutoRetryMax?: number
     /** Base delay ms before first auto-retry; doubles each attempt (default 60_000). */
     verifierAutoRetryBaseMs?: number
+    /** Hard deadline for one objective-verifier LLM run (default 10 minutes). */
+    verifierTimeoutMs?: number
     /**
      * When `true` (default), objective completion requires verifier `verified` or operator confirm.
      * When `false`, inconclusive submissions may offer skip-verification after grace period.
@@ -41,6 +45,8 @@ export interface HostPlannerSettings {
     strategy?: string
     tickIntervalMs?: number
     staleTimeoutMs?: number
+    /** Hard deadline for one planner LLM round (default 3 minutes). */
+    roundTimeoutMs?: number
 }
 
 export interface HostSettings {

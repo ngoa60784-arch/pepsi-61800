@@ -1138,6 +1138,60 @@ export async function startWeb(options: WebServerOptions) {
                     }
                 },
             },
+            "/api/challenges/:id/campaign-tasks": {
+                async GET(req) {
+                    try {
+                        return Response.json(await daemon.challenge.listCampaignTasks(req.params.id))
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 500)
+                    }
+                },
+                async POST(req) {
+                    try {
+                        const body = (await req.json().catch(() => ({}))) as Omit<Parameters<typeof daemon.challenge.createCampaignTask>[0], "challengeId">
+                        const task = await daemon.challenge.createCampaignTask({ ...body, challengeId: req.params.id })
+                        broadcastChallengeProgressNow(req.params.id)
+                        return Response.json(task)
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 400)
+                    }
+                },
+            },
+            "/api/challenges/:id/campaign-tasks/:taskId": {
+                async PATCH(req) {
+                    try {
+                        const body = (await req.json().catch(() => ({}))) as Parameters<typeof daemon.challenge.updateCampaignTask>[1]
+                        const task = await daemon.challenge.updateCampaignTask(req.params.taskId, body)
+                        if (task.challengeId !== req.params.id) return errorResponse("task belongs to another target", 404)
+                        broadcastChallengeProgressNow(req.params.id)
+                        return Response.json(task)
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 400)
+                    }
+                },
+            },
+            "/api/challenges/:id/artifacts": {
+                async GET(req) {
+                    try {
+                        const taskId = new URL(req.url).searchParams.get("taskId")?.trim() || undefined
+                        return Response.json(await daemon.challenge.listCampaignArtifacts(req.params.id, taskId))
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 500)
+                    }
+                },
+            },
+            "/api/challenges/:id/long-term-memory": {
+                async GET(req) {
+                    try {
+                        const url = new URL(req.url)
+                        const query = url.searchParams.get("q")?.trim() ?? ""
+                        const limit = Number(url.searchParams.get("limit") ?? 10)
+                        return Response.json(await daemon.challenge.searchCampaignMemory(req.params.id, query, limit))
+                    } catch (error) {
+                        return errorResponse(error instanceof Error ? error.message : String(error), 400)
+                    }
+                },
+            },
             "/api/challenges/:id/memory/:entryId": {
                 async PATCH(req) {
                     try {
@@ -1643,7 +1697,7 @@ export async function startWeb(options: WebServerOptions) {
                         const solver = containers.get(req.params.id) ?? (await containers.listAll()).find((item) => item.id === req.params.id)
                         if (!solver) return Response.json({ error: "not found" }, { status: 404 })
 
-                        if (solver.status === "starting" || solver.status === "running" || solver.status === "stopping") {
+                        if (solver.status === "starting" || solver.status === "running" || solver.status === "idle" || solver.status === "stopping") {
                             await containers.stopSolver(req.params.id)
                         } else {
                             await containers.deleteSolver(req.params.id)

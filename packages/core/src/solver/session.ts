@@ -23,6 +23,10 @@ export interface SubagentSession {
     workspaceDir: string
 }
 
+export function resolveObserverModelId(hostModel: string | undefined, promptModel: string | undefined): string | undefined {
+    return hostModel?.trim() || promptModel?.trim() || undefined
+}
+
 export type SolverStartupDebugValue = string | number | boolean | null | undefined | SolverStartupDebugValue[] | { [key: string]: SolverStartupDebugValue }
 
 export interface SolverStartupSnapshot {
@@ -130,8 +134,11 @@ export async function createSolverSession(init: SolverInitPayload): Promise<Solv
     // default (kept in sync by activateModelGlobally). Verifier soundness comes from demanding fresh,
     // self-generated reproduction evidence — not from being a bigger model — so a capable default is enough;
     // set a strong global default model and all three (solver-default / observer / verifier) benefit together.
-    const promptModel = typeof prompt.meta.model === "string" && prompt.meta.model.trim() ? prompt.meta.model.trim() : undefined
-    const observerModel = typeof prompt.meta.observerModel === "string" && prompt.meta.observerModel.trim() ? prompt.meta.observerModel.trim() : promptModel
+    const hostSettings = await config.getHostSettings()
+    const observerModel = resolveObserverModelId(
+        hostSettings.challenge.observerModel,
+        typeof prompt.meta.observerModel === "string" ? prompt.meta.observerModel : undefined,
+    )
 
     const extensions = [
         execSurfaceExtension(),

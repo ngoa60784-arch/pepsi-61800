@@ -1,7 +1,8 @@
 import type { ChallengeManager } from "./manager"
 import { recordSolverSteerFocus } from "../solver/board-store"
 import { solverSessionDir } from "../runtime/types"
-import { CHALLENGE_ENV_CHALLENGE_ID } from "./env"
+import { CAMPAIGN_ENV_TASK_ID, CHALLENGE_ENV_CHALLENGE_ID } from "./env"
+import type { ArtifactKind, CampaignTaskStatus } from "./campaign-store"
 import { loadEngagementScope } from "./engagement"
 import { buildPromoteIdeaInput, buildPromoteMemoryInput } from "./board-promotion"
 import { validateObjectiveEvidence } from "./finding-validation"
@@ -194,9 +195,12 @@ async function handleEngagementAction(
             // previously hardcoded missing challenge + is_completed=false filled observer with placeholders,
             // and review kept running after completion. Matches challenge_is_completed
             // (objective_achieved true after verification); final sign-off remains with operator.
-            const [challenge, completed] = await Promise.all([
+            const [challenge, completed, progressFingerprint] = await Promise.all([
                 challengeManager.getChallenge(storeKey).catch(() => undefined),
                 challengeManager.isChallengeCompleted(storeKey).catch(() => false),
+                typeof challengeManager.getProgressFingerprint === "function"
+                    ? challengeManager.getProgressFingerprint(storeKey).catch(() => "")
+                    : Promise.resolve(""),
             ])
             return {
                 handled: true,
@@ -208,6 +212,7 @@ async function handleEngagementAction(
                     out_of_scope: scope?.out_of_scope ?? [],
                     rules_of_engagement: scope?.rules_of_engagement ?? null,
                     is_completed: completed,
+                    progress_fingerprint: progressFingerprint,
                 },
             }
         }
@@ -250,6 +255,9 @@ async function handleEngagementAction(
                 evidenceRefs,
                 verificationStatus: enterVerification ? "pending" : undefined,
             })
+            if (typeof challengeManager.schedulePlannerEvaluation === "function") {
+                challengeManager.schedulePlannerEvaluation(`finding:${storeKey}`)
+            }
             await challengeManager
                 .promoteFindingFactsToChallenge(storeKey, proof, writeup, `finding:${record.id}`)
                 .catch(() => {})
@@ -469,6 +477,47 @@ async function handleEngagementAction(
                 handled: true,
                 data: { challenge_id: storeKey, found: result.found, hops: result.path.length, path: result.path },
             }
+        }
+        case "artifact_create": {
+            const kind = getRequiredString(data, "kind")
+            const validKinds = new Set<ArtifactKind>(["command-output", "http", "screenshot", "poc", "loot", "report", "file", "note"])
+            if (!validKinds.has(kind as ArtifactKind)) {
+                return { handled: true, data: { recorded: false, message: `invalid artifact kind: ${kind}` } }
+            }
+            const taskId = getSolverEnvValue(CAMPAIGN_ENV_TASK_ID)?.trim() || undefined
+            const artifact = await challengeManager.recordCampaignArtifact({
+                challengeId: storeKey,
+                taskId,
+                solverId,
+                actionId: typeof data.action_id === "string" && data.action_id.trim() ? data.action_id.trim() : undefined,
+                kind: kind as ArtifactKind,
+                name: getRequiredString(data, "name"),
+                uri: getRequiredString(data, "uri"),
+                sha256: typeof data.sha256 === "string" && data.sha256.trim() ? data.sha256.trim() : undefined,
+                mediaType: typeof data.media_type === "string" && data.media_type.trim() ? data.media_type.trim() : undefined,
+                metadata: getObjectValue(data.metadata),
+            })
+            return { handled: true, data: { recorded: true, artifact_id: artifact.id, artifact } }
+        }
+        case "campaign_memory_search": {
+            const matches = await challengeManager.searchCampaignMemory(
+                storeKey,
+                getRequiredString(data, "query"),
+                typeof data.limit === "number" ? data.limit : 10,
+            )
+            return { handled: true, data: { count: matches.length, matches } }
+        }
+        case "campaign_task_update": {
+            const taskId = getSolverEnvValue(CAMPAIGN_ENV_TASK_ID)?.trim()
+            if (!taskId) return { handled: true, data: { updated: false, message: "solver has no assigned DAG task" } }
+            const status = getRequiredString(data, "status") as CampaignTaskStatus
+            const validStatuses = new Set<CampaignTaskStatus>(["running", "blocked", "completed", "failed"])
+            if (!validStatuses.has(status)) return { handled: true, data: { updated: false, message: `invalid task status: ${status}` } }
+            const evidenceRefs = Array.isArray(data.evidence_refs)
+                ? data.evidence_refs.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+                : undefined
+            const task = await challengeManager.updateCampaignTask(taskId, { status, evidenceRefs })
+            return { handled: true, data: { updated: true, task } }
         }
         default:
             return { handled: false }

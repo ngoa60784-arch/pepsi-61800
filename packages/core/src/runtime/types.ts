@@ -31,7 +31,7 @@ export interface SolverInstance {
     /** Bound challenge id when launched in challenge mode */
     challengeId?: string
     /** Current status */
-    status: "starting" | "running" | "stopping" | "stopped" | "error"
+    status: "starting" | "running" | "idle" | "stopping" | "stopped" | "error"
     /** Creation timestamp */
     createdAt: number
     /** Error message if status is "error" */
@@ -58,6 +58,17 @@ export interface RuntimeSolverDetails {
 }
 
 export type SolverEventHandler = (solverId: string, event: AgentSessionEvent) => void
+
+export interface RuntimeLifecycleEvent {
+    solverId: string
+    challengeId?: string
+    status: SolverInstance["status"]
+    previousStatus?: SolverInstance["status"]
+    reason: "launch" | "init-ready" | "init-failed" | "agent-start" | "agent-end" | "process-exit" | "operator-stop"
+    error?: string
+}
+
+export type RuntimeLifecycleHandler = (event: RuntimeLifecycleEvent) => void
 
 export interface HostBridgeHandleContext {
     solverId: string

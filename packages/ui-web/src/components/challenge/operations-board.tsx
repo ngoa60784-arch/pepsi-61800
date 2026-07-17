@@ -203,6 +203,7 @@ export function OperationsBoard({ challengeId }: OperationsBoardProps) {
                     <StatTile label="实例状态" value={digest.instanceStatus} />
                     <StatTile label="活跃 Solver" value={digest.activeSolverCount} />
                     <StatTile label="有效 Findings" value={digest.findingCount} hint={`提交 ${digest.submissionCount} 条`} />
+                    <StatTile label="DAG 任务 / 证据" value={`${digest.taskCounts.completed}/${Object.values(digest.taskCounts).reduce((sum, count) => sum + count, 0)}`} hint={`就绪 ${digest.readyTaskCount} · 证据 ${digest.artifactCount}`} />
                     <StatTile label="成功率 / 死路" value={`${Math.round(digest.successRate * 100)}%`} hint={`死路 ${digest.failedRouteCount}`} />
                 </CardContent>
             </Card>

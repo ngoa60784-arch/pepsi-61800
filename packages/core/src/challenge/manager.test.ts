@@ -4,7 +4,8 @@ import { tmpdir } from "os"
 import { resolve } from "path"
 import type { ConfigManager } from "../config/index"
 import { CHALLENGE_ENV_DIR } from "./env"
-import { ChallengeManager, MaxActiveChallengesError } from "./manager"
+import { ChallengeManager, MaxActiveChallengesError, latestMaterialProgressAt, promptSessionWithTimeout } from "./manager"
+import type { AgentSession } from "@mariozechner/pi-coding-agent"
 import { appendChallengeAttemptLog, appendChallengeSubmissionLog, saveChallengeRecord } from "./store"
 import { readSolverBoardSnapshot, readSolverSteerFocus } from "../solver/board-store"
 import { solverDir, solverSessionDir } from "../runtime/types"
@@ -12,6 +13,48 @@ import { solverDir, solverSessionDir } from "../runtime/types"
 let challengeDir: string
 let manager: ChallengeManager
 const originalFetch = globalThis.fetch
+
+describe("latestMaterialProgressAt", () => {
+    test("ignores notes, hints, and pending ideas", () => {
+        const result = latestMaterialProgressAt({
+            attempts: [],
+            submissions: [],
+            memory: [
+                { id: "n", challengeId: "c", kind: "note", content: "routine rewrite", refs: [], source: "observer", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
+                { id: "h", challengeId: "c", kind: "hint", content: "old hint", refs: [], source: "observer", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-07-02T00:00:00Z" },
+            ],
+            ideas: [{ id: "p", content: "untested", normalized: "untested", status: "pending", result: "", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-07-03T00:00:00Z" }],
+            stateAssets: [],
+            relations: [],
+            activeSolvers: [],
+        })
+        expect(result).toBeUndefined()
+    })
+
+    test("uses verified board progress", () => {
+        const updatedAt = "2026-07-04T00:00:00Z"
+        const result = latestMaterialProgressAt({
+            attempts: [],
+            submissions: [],
+            memory: [],
+            ideas: [{ id: "v", content: "confirmed route", normalized: "confirmed route", status: "verified", result: "works", created_at: updatedAt, updated_at: updatedAt }],
+            stateAssets: [],
+            relations: [],
+            activeSolvers: [],
+        })
+        expect(result).toBe(Date.parse(updatedAt))
+    })
+})
+
+test("promptSessionWithTimeout aborts a hung LLM session", async () => {
+    const abort = mock(async () => {})
+    const session = {
+        prompt: async () => new Promise<void>(() => {}),
+        abort,
+    } as unknown as AgentSession
+    await expect(promptSessionWithTimeout(session, "run", 5, "test session")).rejects.toThrow("timed out")
+    expect(abort).toHaveBeenCalled()
+})
 
 beforeEach(async () => {
     challengeDir = await mkdtemp(resolve(tmpdir(), "tch-challenge-manager-test-"))
@@ -880,7 +923,7 @@ describe("challenge-manager local api", () => {
             | undefined
         expect(item).toBeDefined()
         // credential memory -> foothold signal -> enters the foothold/breakthrough phase (with a correct finding -> breakthrough).
-        expect(item?.progressPhase).toBe("breakthrough")
+        expect(item?.progressPhase).toBe("execution")
         // credential fills the facts section first.
         expect(item?.memoryFacts.some((line) => line.includes("[credential]") && line.includes("admin:Sup3r!"))).toBe(true)
         // Failure boundaries listed separately, so the planner avoids already-dead routes.
@@ -894,8 +937,8 @@ describe("challenge-manager local api", () => {
         // rather than degrading into a reverse value of "more findings = lower score".
         expect(typeof (item as unknown as { successRate: number })?.successRate).toBe("number")
         expect((item as unknown as { successRate: number })?.successRate).toBeGreaterThan(0)
-        // 1 real result / (1 total submission) via Laplace -> (1+1)/(1+2) ≈ 0.667, which must be clearly higher than the 1/3 of "zero results".
-        expect((item as unknown as { successRate: number })?.successRate).toBeGreaterThan(0.5)
+        // Verified ideas and typed sessions contribute to evidence yield; unverified submissions do not count as success.
+        expect((item as unknown as { successRate: number })?.successRate).toBeGreaterThanOrEqual(0.5)
         expect((item as unknown as { failedRouteCount: number })?.failedRouteCount).toBeGreaterThanOrEqual(1)
         expect(typeof (item as unknown as { effortRank: number })?.effortRank).toBe("number")
         // With a foothold (credential) + verified idea + correct finding -> never recommend pruning.
@@ -964,7 +1007,7 @@ describe("challenge-manager local api", () => {
         expect(item?.defenseSignals.some((line) => line.includes("no injectable parameter"))).toBe(false)
     })
 
-    test("planner snapshot recommends pruning a target with >=3 dead routes, no foothold, no live hypothesis", async () => {
+    test("planner uses a higher dynamic prune threshold for hard targets", async () => {
         await manager.createChallenge({
             id: "mock-prune",
             title: "mock-prune",
@@ -981,7 +1024,7 @@ describe("challenge-manager local api", () => {
             entrypoint: ["10.0.0.7:443"],
             flags: ["flag{ok}"],
         })
-        // 3 dead routes: 2 failure memories + 1 failed idea. No credential, no testing/pending/verified.
+        // Hard targets get a five-route budget instead of being cut after the first three dead ends.
         await manager.appendMemory({ challengeId: "mock-prune", kind: "failure", content: "SQLi everywhere parameterized; dead", source: "observer" })
         await manager.appendMemory({ challengeId: "mock-prune", kind: "failure", content: "no file upload endpoint exists", source: "observer" })
         await manager.addIdea("mock-prune", { content: "brute force admin login", status: "failed", result: "account lockout after 5" })
@@ -994,11 +1037,12 @@ describe("challenge-manager local api", () => {
             manager as unknown as { buildPlannerSnapshot: (reason: string) => Promise<{ challenges: Array<Record<string, unknown>> }> }
         ).buildPlannerSnapshot("test")) as { challenges: Array<Record<string, unknown>> }
         const item = snapshot.challenges.find((entry) => entry.id === "mock-prune") as
-            | { pruneRecommended: boolean; failedRouteCount: number; progressPhase: string }
+            | { pruneRecommended: boolean; pruneThreshold: number; failedRouteCount: number; progressPhase: string }
             | undefined
         expect(item).toBeDefined()
         expect(item?.failedRouteCount).toBeGreaterThanOrEqual(3)
-        expect(item?.pruneRecommended).toBe(true)
+        expect(item?.pruneThreshold).toBe(5)
+        expect(item?.pruneRecommended).toBe(false)
         expect(item?.progressPhase).toBe("recon")
     })
 

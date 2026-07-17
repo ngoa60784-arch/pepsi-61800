@@ -10,7 +10,7 @@ import { Label } from "../ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { Textarea } from "../ui/textarea"
 
-const DEFAULT_MAX_SOLVERS = 1
+const DEFAULT_MAX_SOLVERS = 2
 const DEFAULT_PLANNER_TICK_SECONDS = 30
 const DEFAULT_STALE_TIMEOUT_MINUTES = 60
 const NONE_MODEL_VALUE = "__none__"

@@ -149,7 +149,67 @@ export const recordAssetTool = defineTool({
     },
 })
 
-export const engagementTools = [getTargetIntelTool, reportFindingTool, recordAssetTool]
+const RecordArtifactParams = Type.Object({
+    kind: Type.Union([Type.Literal("command-output"), Type.Literal("http"), Type.Literal("screenshot"), Type.Literal("poc"), Type.Literal("loot"), Type.Literal("report"), Type.Literal("file"), Type.Literal("note")]),
+    name: Type.String({ description: "Short descriptive artifact name" }),
+    uri: Type.String({ description: "Stable local path or other retrievable URI; store secrets in the referenced file, not inline" }),
+    action_id: Type.Optional(Type.String({ description: "Tool-call or action id that produced the artifact" })),
+    sha256: Type.Optional(Type.String({ description: "SHA-256 digest when available" })),
+    media_type: Type.Optional(Type.String({ description: "MIME type when known" })),
+    metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+})
+
+export const recordArtifactTool = defineTool({
+    name: "record_artifact",
+    label: "Record Evidence Artifact",
+    description: "Register a reproducible evidence artifact and receive a durable artifact id for findings and DAG task completion.",
+    promptSnippet: "record_artifact: register command output, HTTP capture, screenshot, PoC, loot pointer, or report as durable evidence",
+    parameters: RecordArtifactParams,
+    async execute(_toolCallId, params: Static<typeof RecordArtifactParams>) {
+        const details = await requestHostBridge<{ recorded: boolean; artifact_id?: string }>("artifact_create", {
+            ...params,
+            metadata: params.metadata ?? {},
+        })
+        return { content: [{ type: "text", text: details.artifact_id ? `artifact recorded: ${details.artifact_id}` : "artifact was not recorded" }], details }
+    },
+})
+
+const SearchLongTermMemoryParams = Type.Object({
+    query: Type.String({ description: "Keywords describing the route, service, credential, failure, or technique to recall" }),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 25, default: 10 })),
+})
+
+export const searchLongTermMemoryTool = defineTool({
+    name: "search_long_term_memory",
+    label: "Search Long-Term Memory",
+    description: "Search durable cross-round target memory before repeating recon or a previously failed route.",
+    promptSnippet: "search_long_term_memory: recall durable facts, evidence, and failure boundaries for this target",
+    parameters: SearchLongTermMemoryParams,
+    async execute(_toolCallId, params: Static<typeof SearchLongTermMemoryParams>) {
+        const details = await requestHostBridge<{ count: number; matches: Array<{ id: string; kind: string; content: string; confidence: number }> }>("campaign_memory_search", params)
+        const body = details.matches.map((item) => `- ${item.id} [${item.kind}; ${item.confidence.toFixed(2)}] ${item.content}`).join("\n")
+        return { content: [{ type: "text", text: body || "no matching durable memory" }], details }
+    },
+})
+
+const UpdateAssignedTaskParams = Type.Object({
+    status: Type.Union([Type.Literal("running"), Type.Literal("blocked"), Type.Literal("completed"), Type.Literal("failed")]),
+    evidence_refs: Type.Optional(Type.Array(Type.String(), { description: "Artifact ids or other durable evidence references supporting the status" })),
+})
+
+export const updateAssignedTaskTool = defineTool({
+    name: "update_assigned_task",
+    label: "Update Assigned DAG Task",
+    description: "Update the current structured task. Completing it should include evidence ids; blocked/failed should reflect a tested boundary.",
+    promptSnippet: "update_assigned_task: mark the assigned DAG task running, blocked, completed, or failed with evidence refs",
+    parameters: UpdateAssignedTaskParams,
+    async execute(_toolCallId, params: Static<typeof UpdateAssignedTaskParams>) {
+        const details = await requestHostBridge<{ updated: boolean; message?: string; task?: { id: string; status: string } }>("campaign_task_update", params)
+        return { content: [{ type: "text", text: details.updated ? `task ${details.task?.id ?? ""} updated to ${details.task?.status ?? params.status}` : details.message ?? "task was not updated" }], details }
+    },
+})
+
+export const engagementTools = [getTargetIntelTool, reportFindingTool, recordAssetTool, recordArtifactTool, searchLongTermMemoryTool, updateAssignedTaskTool]
 
 const RecordRelationParams = Type.Object({
     source: Type.String({

@@ -1293,8 +1293,8 @@ export class ConfigManager {
         const runtime = tch.runtime ?? {}
         const planner = tch.planner ?? {}
         return {
-            // Planner always on; maxSolvers defaults to 1 (UI can raise; scheduling cannot be disabled).
-            runtime: { ...runtime, maxSolvers: runtime.maxSolvers ?? 1 },
+            // Two slots exercise complementary solver roles while keeping the default resource footprint bounded.
+            runtime: { ...runtime, maxSolvers: runtime.maxSolvers ?? 2 },
             challenge: tch.challenge ?? {},
             planner: { ...planner, enabled: true },
             defaultModelPrefId: typeof tch.defaultModelPrefId === "string" && tch.defaultModelPrefId.trim() ? tch.defaultModelPrefId.trim() : undefined,

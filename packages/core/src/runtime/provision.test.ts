@@ -22,13 +22,14 @@ test("buildProvisionArgv (alias) runs bash -s over ssh, no password", () => {
     expect(argv).not.toContain("sshpass")
 })
 
-test("buildProvisionArgv (host+password) uses sshpass + port + user@host", () => {
+test("buildProvisionArgv (host+password) uses cross-platform bridge without exposing the password", () => {
     const argv = buildProvisionArgv({ host: "10.0.0.9", port: 2222, username: "root", password: "secret" })
-    expect(argv[0]).toBe("sshpass")
-    expect(argv).toContain("secret")
-    expect(argv).toContain("-p")
+    expect(argv[0]).toBe("python3")
+    expect(argv).not.toContain("secret")
+    expect(argv).toContain("--port")
     expect(argv).toContain("2222")
-    expect(argv).toContain("root@10.0.0.9")
+    expect(argv).toContain("10.0.0.9")
+    expect(argv).toContain("--command")
     expect(argv.at(-1)).toBe("bash -s")
 })
 

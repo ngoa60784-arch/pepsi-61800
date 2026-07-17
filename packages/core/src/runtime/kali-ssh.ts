@@ -1,6 +1,5 @@
-import type { Subprocess } from "bun"
 import { KALI_MCP_ENV_FIELD_ORDER } from "./pentest-keys"
-import { buildSshArgv, type ProvisionSshTarget } from "./provision"
+import { buildSshSpawnCommand, type ProvisionSshTarget } from "./provision"
 
 export { FOFA_ENV_KEYS, KALI_MCP_ENV_FIELD_ORDER, syncPentestKeysToRemote, buildPentestKeysFileContent, hasFofaCredentials } from "./pentest-keys"
 export type { PentestKeysSyncResult } from "./pentest-keys"
@@ -38,10 +37,12 @@ export async function testKaliSshConnection(
     target: ProvisionSshTarget,
     signal?: AbortSignal,
 ): Promise<KaliSshTestResult> {
-    const argv = buildSshArgv(target, SSH_TEST_REMOTE)
-    const proc: Subprocess<"pipe", "pipe", "pipe"> = Bun.spawn(argv, {
+    const command = buildSshSpawnCommand(target, SSH_TEST_REMOTE)
+    const proc = Bun.spawn(command.argv, {
+        stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
+        env: command.env,
     })
 
     const abort = () => proc.kill()
@@ -206,8 +207,8 @@ export async function checkKaliToolsOnRemote(
     signal?: AbortSignal,
 ): Promise<KaliToolCheckResult> {
     const remote = buildKaliToolCheckRemoteShell()
-    const argv = buildSshArgv(target, remote)
-    const proc: Subprocess<"pipe", "pipe", "pipe"> = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" })
+    const command = buildSshSpawnCommand(target, remote)
+    const proc = Bun.spawn(command.argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: command.env })
 
     const abort = () => proc.kill()
     if (signal) {

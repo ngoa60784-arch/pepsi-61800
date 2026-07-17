@@ -5,6 +5,7 @@ import type { Subprocess } from "bun"
 // (PROVISION_SCRIPT.length=77, i.e. the path length), which would push the path to the VPS as the script.
 // type:"file" is the reliable pattern in this repo.
 import PROVISION_SCRIPT_ASSET from "./assets/provision-pentest-vps.sh" with { type: "file" }
+import SSH_PASSWORD_BRIDGE_ASSET from "./assets/ssh-password-bridge.py" with { type: "file" }
 
 let scriptCache: Promise<string> | undefined
 /** Read the provisioning script content (cached, read cross-platform via the bundled asset path). */
@@ -26,6 +27,36 @@ export interface ProvisionResult {
     exitCode: number
 }
 
+export interface SshSpawnCommand {
+    argv: string[]
+    env?: Record<string, string | undefined>
+}
+
+/** Build a cross-platform SSH process command. Passwords are passed only by environment. */
+export function buildSshSpawnCommand(target: ProvisionSshTarget, remote: string): SshSpawnCommand {
+    if (!target.password?.trim()) {
+        return { argv: buildSshArgv(target, remote) }
+    }
+    if (!target.host?.trim()) {
+        throw new Error("需要 SSH_HOST 或 SSH_ALIAS")
+    }
+    return {
+        argv: [
+            process.env.TCH_PYTHON_COMMAND?.trim() || "python3",
+            SSH_PASSWORD_BRIDGE_ASSET,
+            "--host",
+            target.host.trim(),
+            "--port",
+            String(target.port ?? 22),
+            "--username",
+            target.username?.trim() || "root",
+            "--command",
+            remote,
+        ],
+        env: { ...process.env, TCH_SSH_PASSWORD: target.password },
+    }
+}
+
 /**
  * Build argv for `ssh … <remote>`. Used by provisioning (stdin script) and connection tests.
  */
@@ -41,8 +72,7 @@ export function buildSshArgv(target: ProvisionSshTarget, remote: string): string
     const dest = `${target.username?.trim() || "root"}@${target.host.trim()}`
     const base = ["ssh", ...common, "-p", port, dest, remote]
     if (target.password?.trim()) {
-        // sshpass uses a plaintext password (local host must have sshpass installed). Switching to alias+key is recommended.
-        return ["sshpass", "-p", target.password, ...base]
+        return buildSshSpawnCommand(target, remote).argv
     }
     return base
 }
@@ -72,11 +102,12 @@ export async function provisionKaliVps(
     signal?: AbortSignal,
     extraEnv?: Record<string, string>,
 ): Promise<ProvisionResult> {
-    const argv = buildProvisionArgv(target)
-    const proc: Subprocess<"pipe", "pipe", "pipe"> = Bun.spawn(argv, {
+    const command = buildSshSpawnCommand(target, "bash -s")
+    const proc: Subprocess<"pipe", "pipe", "pipe"> = Bun.spawn(command.argv, {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
+        env: command.env,
     })
 
     if (signal) {

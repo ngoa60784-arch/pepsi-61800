@@ -1,5 +1,6 @@
 export const CHALLENGE_ENV_CHALLENGE_ID = "TCH_CHALLENGE_ID"
 export const CHALLENGE_ENV_DIR = "TCH_CHALLENGE_DIR"
+export const CAMPAIGN_ENV_TASK_ID = "TCH_CAMPAIGN_TASK_ID"
 
 // Engagement mode (default): authorized-target exercises with local scope + findings + operator confirmation.
 export const ENGAGEMENT_ENV_MODE = "TCH_ENGAGEMENT_MODE"

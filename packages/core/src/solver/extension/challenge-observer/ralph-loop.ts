@@ -4,6 +4,7 @@ import { CHALLENGE_ENV_CHALLENGE_ID } from "../../../challenge/env"
 import { requestHostBridge } from "../../../challenge/host-bridge-client"
 
 const MAX_CHALLENGE_RETRY_ATTEMPTS = 10
+const MAX_NO_PROGRESS_ROUNDS = 3
 const CHALLENGE_CONTINUATION_MESSAGE =
     "Continue the current engagement. Don't repeat steps you've already completed; build on existing context and keep pressing. The objective isn't done until you've achieved control of the target (shell / RCE / the stated goal) and recorded it — if there are further in-scope assets or escalation paths, keep going."
 const CHALLENGE_CUSTOM_MESSAGE_TYPE = "challenge-continuation"
@@ -46,20 +47,37 @@ function getChallengeDelayMs(attempt: number): number {
     return Math.min(BASE_CHALLENGE_DELAY_MS * 2 ** Math.max(attempt - 1, 0), MAX_CHALLENGE_DELAY_MS)
 }
 
-async function isChallengeCompletedByHostBridge(): Promise<boolean> {
+interface ChallengeContinuationState {
+    is_completed: boolean
+    progress_fingerprint?: string
+}
+
+async function getChallengeContinuationState(): Promise<ChallengeContinuationState> {
     try {
-        const result = await requestHostBridge<{ is_completed: boolean }>("challenge_is_completed", {})
-        return result.is_completed === true
+        return await requestHostBridge<ChallengeContinuationState>("challenge_get_state", {})
     } catch {
-        return false
+        return { is_completed: false }
     }
+}
+
+export function updateProgressStallState(previousFingerprint: string | undefined, nextFingerprint: string | undefined, stalledRounds: number): {
+    fingerprint?: string
+    stalledRounds: number
+} {
+    const next = nextFingerprint?.trim()
+    if (!next) return { fingerprint: previousFingerprint, stalledRounds: 0 }
+    if (!previousFingerprint || previousFingerprint !== next) return { fingerprint: next, stalledRounds: 0 }
+    return { fingerprint: next, stalledRounds: stalledRounds + 1 }
 }
 
 export function attachChallengeContinuation(pi: ExtensionAPI): void {
     let consecutiveErrors = 0
+    let consecutiveNoProgressRounds = 0
+    let previousProgressFingerprint: string | undefined
 
     pi.on("agent_end", async (event) => {
-        if (await isChallengeCompletedByHostBridge()) {
+        const challengeState = await getChallengeContinuationState()
+        if (challengeState.is_completed) {
             return
         }
 
@@ -71,6 +89,11 @@ export function attachChallengeContinuation(pi: ExtensionAPI): void {
         } else {
             consecutiveErrors = 0
         }
+
+        const stallState = updateProgressStallState(previousProgressFingerprint, challengeState.progress_fingerprint, consecutiveNoProgressRounds)
+        previousProgressFingerprint = stallState.fingerprint
+        consecutiveNoProgressRounds = stallState.stalledRounds
+        if (consecutiveNoProgressRounds >= MAX_NO_PROGRESS_ROUNDS) return
 
         setImmediate(() => {
             pi.sendMessage(

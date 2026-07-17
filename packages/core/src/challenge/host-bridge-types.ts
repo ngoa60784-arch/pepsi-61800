@@ -9,6 +9,9 @@ export type HostBridgeAction =
     | "relation_upsert"
     | "relation_query"
     | "relation_path"
+    | "artifact_create"
+    | "campaign_memory_search"
+    | "campaign_task_update"
 
 export interface HostBridgeRequestEvent {
     type: "host_bridge_request"

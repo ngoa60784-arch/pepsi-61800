@@ -18,3 +18,13 @@ export function isRealFinding(item: ChallengeSubmissionLogRecord): boolean {
     }
     return Boolean(item.writeup?.trim())
 }
+
+/** A recorded, non-rejected finding. Useful for reporting, but not a success signal. */
+export function isRecordedFinding(item: ChallengeSubmissionLogRecord): boolean {
+    return isRealFinding(item)
+}
+
+/** A finding strong enough to drive breakthrough/success scheduling decisions. */
+export function isVerifiedFinding(item: ChallengeSubmissionLogRecord): boolean {
+    return item.correct === true || item.verification_status === "verified"
+}

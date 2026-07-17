@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildSolverStartupSnapshot, buildSubagentStartupSnapshot } from "./session"
+import { buildSolverStartupSnapshot, buildSubagentStartupSnapshot, resolveObserverModelId } from "./session"
 import type { PromptFile } from "../config/prompts/index"
 import type { SolverInitPayload } from "./rpc/rpc-types"
 import type { CreateAgentSessionOptions } from "@mariozechner/pi-coding-agent"
@@ -7,6 +7,18 @@ import { buildChallengeExtensionAppendPrompt } from "./extension/challenge-obser
 import { challengeObserverExtension } from "./extension/challenge-observer/index"
 import { buildObserverExtensionAppendPrompt } from "./extension/challenge-observer/observer-loop"
 import { challengeObserverAgentTools } from "./extension/challenge-observer/tools"
+import { buildToolSupervisorAppendPrompt } from "./extension/challenge-observer/tool-supervisor"
+
+describe("resolveObserverModelId", () => {
+    test("prefers the host lightweight observer model", () => {
+        expect(resolveObserverModelId("observer-fast", "solver-expensive")).toBe("observer-fast")
+    })
+
+    test("falls back to prompt model and ignores blanks", () => {
+        expect(resolveObserverModelId(" ", "prompt-observer")).toBe("prompt-observer")
+        expect(resolveObserverModelId(undefined, " ")).toBeUndefined()
+    })
+})
 
 describe("buildSolverStartupSnapshot", () => {
     test("includes task, prompt, directories, and session summary", () => {
@@ -112,9 +124,11 @@ describe("challenge collaboration append prompt", () => {
         const withoutObserver = challengeObserverExtension({ observerEnabled: false }).appendSystemPrompt
         const withObserver = challengeObserverExtension({ observerEnabled: true }).appendSystemPrompt
 
-        expect(typeof withoutObserver === "function" ? withoutObserver() : withoutObserver).toBe(buildChallengeExtensionAppendPrompt())
+        expect(typeof withoutObserver === "function" ? withoutObserver() : withoutObserver).toBe(
+            `${buildChallengeExtensionAppendPrompt()}\n\n${buildToolSupervisorAppendPrompt()}`,
+        )
         expect(typeof withObserver === "function" ? withObserver() : withObserver).toBe(
-            `${buildChallengeExtensionAppendPrompt()}\n\n${buildObserverExtensionAppendPrompt()}`,
+            `${buildChallengeExtensionAppendPrompt()}\n\n${buildObserverExtensionAppendPrompt()}\n\n${buildToolSupervisorAppendPrompt()}`,
         )
     })
 

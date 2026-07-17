@@ -15,7 +15,7 @@
 BreachWeave is a **multi-agent collaboration system for authorized penetration testing**. It is not a single LLM running tools; it splits the penetration process into clearly scoped roles orchestrated by a non-LLM central hub:
 
 - **Commander** — Human-driven conversational commander (LLM).
-- **Planner** — Periodic, unattended auto-scheduler (LLM).
+- **Planner** — State-change-driven auto-scheduler with a low-frequency fallback tick (LLM).
 - **Solver** — Entity that executes the kill chain inside Kali containers (LLM).
 - **Observer** — Sidecar supervisor maintaining the strategy board and lightweight course correction (LLM).
 - **Verifier** — Independent re-verification subagent confirming whether objectives are truly achieved (LLM).

@@ -1,8 +1,16 @@
 import type { AttackTimelineEvent } from "./attack-timeline"
 import type { IdeaRecord, MemoryEntry, IdeaStatus, MemoryKind } from "./memory"
 import type { ChallengeInfoRecord, ChallengeSubmissionLogRecord } from "./store"
+import type { CampaignArtifact, CampaignTask, CampaignTaskStatus } from "./campaign-store"
 
-export type PlannerProgressPhase = "untouched" | "recon" | "foothold" | "breakthrough"
+export type PlannerProgressPhase =
+    | "untouched"
+    | "recon"
+    | "initial-access"
+    | "execution"
+    | "privilege-escalation"
+    | "lateral-movement"
+    | "objective-validation"
 
 export interface ProgressDigestOverviewInput {
     progressPhase: PlannerProgressPhase
@@ -66,8 +74,13 @@ export interface ProgressDigestRecentEvent {
 
 export interface ProgressDigestBattlePlan {
     challengeId: string
+    version?: number
     strategy: string
     nextCheckpoint?: string
+    owner?: string
+    successCriteria?: string
+    exitCriteria?: string
+    lastProgressAt?: string
     updated_at: string
 }
 
@@ -82,6 +95,9 @@ export interface ChallengeProgressDigest {
     activeSolverCount: number
     findingCount: number
     submissionCount: number
+    taskCounts: Record<CampaignTaskStatus, number>
+    readyTaskCount: number
+    artifactCount: number
     failedRouteCount: number
     successRate: number
     pruneRecommended: boolean
@@ -98,12 +114,20 @@ export interface ChallengeProgressDigest {
     recentEvents: ProgressDigestRecentEvent[]
 }
 
-export const PROGRESS_PHASE_LABELS: Record<PlannerProgressPhase, string> = {
+export const PROGRESS_PHASE_LABELS: Record<string, string> = {
     untouched: "未接触",
     recon: "侦察中",
     foothold: "已有立足点",
     breakthrough: "突破 / 有成果",
 }
+
+Object.assign(PROGRESS_PHASE_LABELS, {
+    "initial-access": "Initial access",
+    execution: "Execution",
+    "privilege-escalation": "Privilege escalation",
+    "lateral-movement": "Lateral movement",
+    "objective-validation": "Objective validation",
+})
 
 export interface BuildProgressDigestInput {
     challenge: ChallengeInfoRecord
@@ -115,6 +139,8 @@ export interface BuildProgressDigestInput {
     battlePlan?: ProgressDigestBattlePlan
     plannerSummary?: string
     recentEvents: AttackTimelineEvent[]
+    campaignTasks?: CampaignTask[]
+    artifacts?: CampaignArtifact[]
 }
 
 function clipText(value: string, max = CONTENT_CLIP): string {
@@ -210,18 +236,26 @@ export function buildChallengeProgressDigest(input: BuildProgressDigestInput): C
         promptName: solverPromptById[solver.id],
         currentFocus: clipText(solver.currentFocus, 180),
     }))
+    const campaignTasks = input.campaignTasks ?? []
+    const taskCounts: Record<CampaignTaskStatus, number> = { pending: 0, ready: 0, running: 0, blocked: 0, completed: 0, failed: 0, cancelled: 0 }
+    for (const task of campaignTasks) taskCounts[task.status] += 1
+    const completedTaskIds = new Set(campaignTasks.filter((task) => task.status === "completed").map((task) => task.id))
+    const readyTaskCount = campaignTasks.filter((task) => (task.status === "pending" || task.status === "ready") && task.dependsOn.every((id) => completedTaskIds.has(id))).length
 
     return {
         challengeId: challenge.id,
         updatedAt: new Date().toISOString(),
         progressPhase: overview.progressPhase,
-        phaseLabel: PROGRESS_PHASE_LABELS[overview.progressPhase],
+        phaseLabel: PROGRESS_PHASE_LABELS[overview.progressPhase] ?? overview.progressPhase,
         instanceStatus: overview.instanceStatus,
         testingPaused: challenge.testing_paused === true,
         objectiveAchieved: challenge.objective_achieved === true,
         activeSolverCount: overview.activeSolverCount,
         findingCount: overview.findingCount,
         submissionCount: submissions.length,
+        taskCounts,
+        readyTaskCount,
+        artifactCount: input.artifacts?.length ?? 0,
         failedRouteCount: overview.failedRouteCount,
         successRate: overview.successRate,
         pruneRecommended: overview.pruneRecommended,

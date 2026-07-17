@@ -4,6 +4,7 @@ node_modules
 # output
 out
 dist
+dist-test
 *.tgz
 
 # code coverage
@@ -34,6 +35,10 @@ packages/core/src/runtime/assets/tch-agent-linux-x64
 .eslintcache
 .cache
 *.tsbuildinfo
+
+# transient local target range / scratch checkouts (large, has its own .git)
+.tmp-heasec-weblab/
+*.tmp-*/
 
 # IntelliJ based IDEs
 .idea

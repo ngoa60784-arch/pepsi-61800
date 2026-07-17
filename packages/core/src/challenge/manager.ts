@@ -1,10 +1,19 @@
 import { ChallengeApiClient } from "./api-client"
 import type { ChallengeApiChallenge, ChallengeApiHintData, ChallengeApiListData, ChallengeApiStartData, ChallengeApiSubmitData } from "./api-client"
 import { createAgentSession, defineTool, SessionManager } from "@mariozechner/pi-coding-agent"
-import type { ResourceLoader, ToolDefinition } from "@mariozechner/pi-coding-agent"
+import type { AgentSession, ResourceLoader, ToolDefinition } from "@mariozechner/pi-coding-agent"
 import type { ConfigManager } from "../config/index"
 import { join } from "path"
-import { CHALLENGE_ENV_CHALLENGE_ID, ENGAGEMENT_ENV_MODE, ENGAGEMENT_ENV_SCOPE } from "./env"
+import { CAMPAIGN_ENV_TASK_ID, CHALLENGE_ENV_CHALLENGE_ID, ENGAGEMENT_ENV_MODE, ENGAGEMENT_ENV_SCOPE } from "./env"
+import {
+    CampaignStore,
+    type CampaignArtifact,
+    type CampaignTask,
+    type CreateCampaignArtifactInput,
+    type CreateCampaignTaskInput,
+    type IndexedMemory,
+    type UpdateCampaignTaskInput,
+} from "./campaign-store"
 import { isEngagementMode, loadEngagementScope } from "./engagement"
 import {
     appendChallengeAttemptLog,
@@ -30,7 +39,7 @@ import { buildChallengeStatsOverview, refreshChallengeStats } from "./stats"
 import { buildChallengeAttackTimeline } from "./attack-timeline"
 import { recordPlannerRoundFailure, recordPlannerRoundSuccess } from "../observability/metrics"
 import { buildChallengeProgressDigest, type ChallengeProgressDigest } from "./progress-digest"
-import { isRealFinding } from "./submission-utils"
+import { isRealFinding, isRecordedFinding, isVerifiedFinding } from "./submission-utils"
 import {
     type AddIdeaResult,
     type AddIdeaInput,
@@ -100,12 +109,16 @@ import { requiresServerAccessObjective, validateObjectiveEvidence } from "./find
 export type { IdeaStatus, MemoryKind, MemoryEntry, AddMemoryInput, IdeaRecord, AddIdeaInput, AddIdeaResult, UpdateIdeaInput } from "./memory"
 
 const DEFAULT_PLANNER_PROMPT_NAME = CHALLENGE_PLANNER_PROMPT_NAME
-const DEFAULT_TICK_INTERVAL_MS = 30_000
+const DEFAULT_TICK_INTERVAL_MS = 2 * 60 * 1000
 const DEFAULT_STALE_TIMEOUT_MS = 60 * 60 * 1000
-const DEFAULT_MAX_SOLVERS = 1
+const DEFAULT_PLANNER_EVENT_DEBOUNCE_MS = 2_000
+const PLANNER_STOP_COOLDOWN_MS = 60_000
+const DEFAULT_MAX_SOLVERS = 2
 export const MAX_ACTIVE_CHALLENGES = 3
 const DEFAULT_VERIFIER_AUTO_RETRY_MAX = 3
 const DEFAULT_VERIFIER_AUTO_RETRY_BASE_MS = 60_000
+const DEFAULT_PLANNER_ROUND_TIMEOUT_MS = 3 * 60 * 1000
+const DEFAULT_VERIFIER_TIMEOUT_MS = 10 * 60 * 1000
 const PLANNER_FAILURE_ALERT_THRESHOLD = 5
 const PLANNER_MAX_BACKOFF_MS = 10 * 60 * 1000
 const NOISY_ERROR_THROTTLE_WINDOW_MS = 60_000
@@ -159,6 +172,7 @@ export interface ChallengeSubmissionMeta {
 
 interface LaunchSolverOptions {
     plannerHandoff?: string
+    taskId?: string
 }
 
 export class MaxActiveChallengesError extends Error {
@@ -229,6 +243,8 @@ interface PlannerSnapshotChallenge {
     attemptCount: number
     submissionCount: number
     correctSubmissionCount: number
+    recordedFindingCount: number
+    verifiedFindingCount: number
     untouched: boolean
     stale: boolean
     activeSolverCount: number
@@ -236,6 +252,9 @@ interface PlannerSnapshotChallenge {
     activeForMinutes?: number
     minutesSinceLastAttempt?: number
     minutesSinceLastCorrectSubmission?: number
+    minutesSinceLastActivity?: number
+    minutesSinceLastInformationGain?: number
+    minutesSinceLastProgress?: number
     // Outcome-aware scheduling: planner reads what solvers actually gained, not just counts.
     memoryFacts: string[]
     failureBoundaries: string[]
@@ -251,17 +270,27 @@ interface PlannerSnapshotChallenge {
     // Defense signals distilled from memory/failure boundaries (WAF / rate-limit / IP ban), so the
     // planner can react (throttle, rotate egress, or reprioritize) instead of grinding a blocked target.
     defenseSignals: string[]
+    taskStatusCounts: Record<CampaignTask["status"], number>
+    readyTasks: Array<{ id: string; title: string; role: CampaignTask["role"]; priority: number }>
     // Difficulty-aware numeric signals (research: difficulty-aware planning, Type B failure 58%→27%).
     successRate: number // Laplace-smoothed per-target success rate (correct/submissions), 0..1
     failedRouteCount: number // Dead-end route count (failed ideas + failure memories)
     effortRank?: number // Cross-target relative effort rank (1=most effort); horizon proxy; filled by buildPlannerSnapshot
     pruneRecommended: boolean // >=3 dead routes + no foothold + no live hypothesis → recommend pruning this target
+    pruneThreshold: number
     /** Operator pre-brief excerpt for scheduling (not solver memory). */
     intelNotesExcerpt?: string
 }
 
 // Progress phase derived from outcomes; drives difficulty-aware scheduling (broad recon vs deep exploit/lateral).
-export type PlannerProgressPhase = "untouched" | "recon" | "foothold" | "breakthrough"
+export type PlannerProgressPhase =
+    | "untouched"
+    | "recon"
+    | "initial-access"
+    | "execution"
+    | "privilege-escalation"
+    | "lateral-movement"
+    | "objective-validation"
 
 /** Operator/commander view of one target's progress (richer than raw memory/ideas summaries). */
 export interface TargetOverview {
@@ -325,8 +354,13 @@ interface PreviousPlannerRoundRecord {
 
 interface PlannerBattlePlanEntry {
     challengeId: string
+    version: number
     strategy: string // Current overall approach/intent for this target
     nextCheckpoint?: string // Concrete milestone to revisit/verify next round
+    owner?: string
+    successCriteria?: string
+    exitCriteria?: string
+    lastProgressAt?: string
     updated_at: string
 }
 
@@ -340,6 +374,21 @@ function clampInt(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, Math.trunc(value)))
 }
 
+export async function promptSessionWithTimeout(session: AgentSession, message: string, timeoutMs: number, label: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            void session.abort().catch(() => {})
+            reject(new Error(`${label} timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
+    })
+    try {
+        await Promise.race([session.prompt(message), timeout])
+    } finally {
+        if (timer) clearTimeout(timer)
+    }
+}
+
 function resolvePlannerTickIntervalMs(value?: number): number {
     return clampInt(value ?? DEFAULT_TICK_INTERVAL_MS, 5_000, 10 * 60 * 1000)
 }
@@ -348,6 +397,51 @@ function parseTimestamp(value?: string): number | undefined {
     if (!value) return
     const timestamp = Date.parse(value)
     return Number.isFinite(timestamp) ? timestamp : undefined
+}
+
+export function latestMaterialProgressAt(input: {
+    attempts: ChallengeAttemptLogRecord[]
+    submissions: ChallengeSubmissionLogRecord[]
+    memory: MemoryEntry[]
+    ideas: IdeaRecord[]
+    stateAssets: StateAsset[]
+    relations: MemoryRelation[]
+    activeSolvers: SolverInstance[]
+}): number | undefined {
+    const milestoneMemoryKinds = new Set<MemoryKind>(["fact", "evidence", "credential"])
+    const timestamps = [
+        ...input.submissions.filter(isRealFinding).map((item) => parseTimestamp(item.created_at)),
+        ...input.memory.filter((item) => milestoneMemoryKinds.has(item.kind)).map((item) => parseTimestamp(item.created_at)),
+        ...input.ideas.filter((item) => item.status === "verified").map((item) => parseTimestamp(item.updated_at)),
+        ...input.stateAssets.map((item) => parseTimestamp(item.created_at)),
+        ...input.relations.map((item) => parseTimestamp(item.created_at)),
+    ].filter((item): item is number => typeof item === "number")
+    return timestamps.sort((a, b) => b - a)[0]
+}
+
+export function latestInformationGainAt(input: Parameters<typeof latestMaterialProgressAt>[0]): number | undefined {
+    const informativeMemoryKinds = new Set<MemoryKind>(["fact", "evidence", "credential", "failure"])
+    const timestamps = [
+        ...input.submissions.map((item) => parseTimestamp(item.created_at)),
+        ...input.memory.filter((item) => informativeMemoryKinds.has(item.kind)).map((item) => parseTimestamp(item.updated_at)),
+        ...input.ideas.filter((item) => item.status === "testing" || item.status === "verified" || item.status === "failed").map((item) => parseTimestamp(item.updated_at)),
+        ...input.stateAssets.map((item) => parseTimestamp(item.updated_at)),
+        ...input.relations.map((item) => parseTimestamp(item.updated_at)),
+    ].filter((item): item is number => typeof item === "number")
+    return timestamps.sort((a, b) => b - a)[0]
+}
+
+export function latestActivityAt(input: Parameters<typeof latestMaterialProgressAt>[0]): number | undefined {
+    const timestamps = [
+        ...input.attempts.map((item) => parseTimestamp(item.created_at)),
+        ...input.submissions.map((item) => parseTimestamp(item.created_at)),
+        ...input.memory.map((item) => parseTimestamp(item.updated_at)),
+        ...input.ideas.map((item) => parseTimestamp(item.updated_at)),
+        ...input.stateAssets.map((item) => parseTimestamp(item.updated_at)),
+        ...input.relations.map((item) => parseTimestamp(item.updated_at)),
+        ...input.activeSolvers.map((solver) => solver.createdAt),
+    ].filter((item): item is number => typeof item === "number")
+    return timestamps.sort((a, b) => b - a)[0]
 }
 
 function formatMinutesFromTimestamp(value?: number): number | undefined {
@@ -359,6 +453,10 @@ function formatMinutesFromTimestamp(value?: number): number | undefined {
 
 function isActiveSolver(solver: SolverInstance): boolean {
     return solver.status === "starting" || solver.status === "running"
+}
+
+function isControllableSolver(solver: SolverInstance): boolean {
+    return isActiveSolver(solver) || solver.status === "idle"
 }
 
 function escapeMarkdownTableCell(value: string): string {
@@ -597,26 +695,72 @@ function buildPlannerFindings(items: ChallengeSubmissionLogRecord[]): string[] {
 // Derive progress phase from outcomes (no recon→breadth; foothold→deep exploit/lateral).
 function derivePlannerProgressPhase(input: {
     untouched: boolean
-    correctSubmissionCount: number
+    verifiedFindingCount: number
     verifiedIdeaCount: number
     hasFootholdSignal: boolean
+    hasExecutionSignal: boolean
+    hasPrivilegeSignal: boolean
+    hasLateralSignal: boolean
+    hasPendingObjective: boolean
 }): PlannerProgressPhase {
-    if (input.correctSubmissionCount > 0) return "breakthrough"
-    if (input.hasFootholdSignal || input.verifiedIdeaCount > 0) return "foothold"
+    if (input.hasPendingObjective || input.verifiedFindingCount > 0) return "objective-validation"
+    if (input.hasLateralSignal) return "lateral-movement"
+    if (input.hasPrivilegeSignal) return "privilege-escalation"
+    if (input.hasExecutionSignal || input.verifiedIdeaCount > 0) return "execution"
+    if (input.hasFootholdSignal) return "initial-access"
     if (input.untouched) return "untouched"
     return "recon"
 }
 
-// Whether foothold-level intel exists (creds/session/access); drives lateral/priv-esc scheduling.
-const FOOTHOLD_SIGNAL_PATTERN = /\b(cred|credential|password|passwd|token|api[_-]?key|secret|shell|rce|session|cookie|ssh|login|access|foothold|webshell)\b/i
-function hasFootholdSignal(memoryFacts: string[], liveIdeas: string[]): boolean {
-    return [...memoryFacts, ...liveIdeas].some((line) => FOOTHOLD_SIGNAL_PATTERN.test(line))
+interface StructuredMilestones {
+    hasFoothold: boolean
+    hasExecution: boolean
+    hasPrivilege: boolean
+    hasLateral: boolean
+}
+
+function deriveStructuredMilestones(stateAssets: StateAsset[], relations: MemoryRelation[]): StructuredMilestones {
+    const sessions = stateAssets.filter((asset) => asset.kind === "session")
+    const credentials = stateAssets.filter((asset) => asset.kind === "credential")
+    const privileged = sessions.some((asset) => /^(root|administrator|system|domain admin)$/i.test(asset.privilege?.trim() ?? ""))
+    const sessionHosts = new Set(sessions.map((asset) => asset.host?.trim().toLowerCase()).filter((host): host is string => Boolean(host)))
+    const lateralRelation = relations.some((item) => /^(pivots?_to|routes?_to|accesses|lateral_to)$/i.test(item.relation.trim()))
+    return {
+        hasFoothold: credentials.length > 0 || sessions.length > 0,
+        hasExecution: sessions.length > 0,
+        hasPrivilege: privileged,
+        hasLateral: sessionHosts.size > 1 || lateralRelation,
+    }
 }
 
 // Laplace (add-one) smoothed success rate: low samples stay neutral (0 submissions → 0.5, not 0/0).
 // research uses per-branch historical success; avoids mislabeling a line as doomed/sure-win on low samples.
 function laplaceSuccessRate(successes: number, total: number): number {
     return (successes + 1) / (total + 2)
+}
+
+function normalizeRouteFingerprint(value: string): string {
+    return value.toLowerCase().replace(/\s+/g, " ").replace(/[^a-z0-9:/_. -]/g, "").trim().slice(0, 180)
+}
+
+function countDistinctFailedRoutes(memory: MemoryEntry[], ideas: IdeaRecord[]): number {
+    const routes = new Set<string>()
+    for (const item of memory) {
+        if (item.kind === "failure") routes.add(normalizeRouteFingerprint(item.content))
+    }
+    for (const item of ideas) {
+        if (item.status === "failed") routes.add(normalizeRouteFingerprint(item.content))
+    }
+    routes.delete("")
+    return routes.size
+}
+
+function resolvePruneThreshold(challenge: ChallengeInfoRecord): number {
+    const difficulty = challenge.difficulty.trim().toLowerCase()
+    if (/critical|expert|insane|hard|困难|高/.test(difficulty)) return 5
+    if (challenge.total_score >= 500) return 5
+    if (challenge.total_score >= 250) return 4
+    return PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD
 }
 
 function extractTextContent(content: Array<{ type: string; text?: string }> | undefined): string {
@@ -737,11 +881,14 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
             `- Hint viewed: ${challenge.hintViewed ? "yes" : "no"}`,
             `- Attempt count: ${challenge.attemptCount}`,
             `- Submission count: ${challenge.submissionCount}`,
-            `- Correct submissions: ${challenge.correctSubmissionCount}`,
+            `- Recorded findings: ${challenge.recordedFindingCount}`,
+            `- Verified findings: ${challenge.verifiedFindingCount}`,
             `- Idea board: ${formatIdeaStatusCounts(challenge.ideaStatusCounts)}`,
+            `- DAG tasks: ${Object.entries(challenge.taskStatusCounts).map(([status, count]) => `${status}=${count}`).join(", ")}`,
+            `- Ready DAG tasks: ${challenge.readyTasks.length > 0 ? challenge.readyTasks.map((task) => `${task.id} (${task.role}, p${task.priority}): ${task.title}`).join("; ") : "none"}`,
             // Difficulty-aware numeric signals (research: difficulty-aware planning).
-            `- Success rate (Laplace-smoothed): ${challenge.successRate.toFixed(2)}`,
-            `- Failed/dead-end route count: ${challenge.failedRouteCount}`,
+            `- Evidence yield rate (Laplace-smoothed): ${challenge.successRate.toFixed(2)}`,
+            `- Distinct failed/dead-end routes: ${challenge.failedRouteCount}/${challenge.pruneThreshold}`,
             typeof challenge.effortRank === "number" ? `- Effort rank (1=most effort vs other targets): ${challenge.effortRank}` : "- Effort rank: -",
             challenge.pruneRecommended
                 ? `- PRUNE RECOMMENDED: >=${PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD} dead routes, no foothold, no live hypothesis — this target is too hard for the current approach; free its solvers for a more promising target unless you change tactics.`
@@ -754,6 +901,11 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
             typeof challenge.minutesSinceLastCorrectSubmission === "number"
                 ? `- Minutes since last correct submission: ${challenge.minutesSinceLastCorrectSubmission}`
                 : "- Minutes since last correct submission: -",
+            typeof challenge.minutesSinceLastActivity === "number" ? `- Minutes since last activity: ${challenge.minutesSinceLastActivity}` : "- Minutes since last activity: -",
+            typeof challenge.minutesSinceLastInformationGain === "number"
+                ? `- Minutes since last information gain: ${challenge.minutesSinceLastInformationGain}`
+                : "- Minutes since last information gain: -",
+            typeof challenge.minutesSinceLastProgress === "number" ? `- Minutes since last material progress: ${challenge.minutesSinceLastProgress}` : "- Minutes since last material progress: -",
             challenge.entrypoint && challenge.entrypoint.length > 0 ? `- Entrypoints: ${challenge.entrypoint.join(", ")}` : "- Entrypoints: -",
             challenge.intelNotesExcerpt ? `- Operator intel (pre-brief): ${challenge.intelNotesExcerpt.replaceAll("\n", " ")}` : "- Operator intel (pre-brief): (none)",
             // Outcome summary: scheduler sees what solvers gained for informed dispatch/hold/handoff.
@@ -789,7 +941,7 @@ function formatPreviousPlannerRoundMarkdown(previousRound?: PreviousPlannerRound
                   "Carried-over battle plan (your standing intent per target from last round — continue it, check its next checkpoint, and update it this round):",
                   ...previousRound.battlePlan.map(
                       (entry) =>
-                          `- ${entry.challengeId}: ${entry.strategy.replaceAll("\n", " ")}${entry.nextCheckpoint?.trim() ? ` | next checkpoint: ${entry.nextCheckpoint.replaceAll("\n", " ")}` : ""}`,
+                          `- ${entry.challengeId} v${entry.version ?? 1}: ${entry.strategy.replaceAll("\n", " ")}${entry.owner ? ` | owner: ${entry.owner}` : ""}${entry.nextCheckpoint?.trim() ? ` | next checkpoint: ${entry.nextCheckpoint.replaceAll("\n", " ")}` : ""}${entry.successCriteria ? ` | success: ${entry.successCriteria}` : ""}${entry.exitCriteria ? ` | exit: ${entry.exitCriteria}` : ""}${entry.lastProgressAt ? ` | last progress: ${entry.lastProgressAt}` : ""}`,
                   ),
               ]
             : []
@@ -810,6 +962,7 @@ function computePlannerSnapshotDigest(snapshot: PlannerSnapshot): string {
             challengeId: solver.challengeId,
             promptName: solver.promptName,
             status: solver.status,
+            currentFocus: solver.currentFocus,
         })),
         challenges: snapshot.challenges.map((challenge) => ({
             id: challenge.id,
@@ -818,6 +971,15 @@ function computePlannerSnapshotDigest(snapshot: PlannerSnapshot): string {
             attemptCount: challenge.attemptCount,
             submissionCount: challenge.submissionCount,
             correctSubmissionCount: challenge.correctSubmissionCount,
+            recordedFindingCount: challenge.recordedFindingCount,
+            verifiedFindingCount: challenge.verifiedFindingCount,
+            progressPhase: challenge.progressPhase,
+            ideaStatusCounts: challenge.ideaStatusCounts,
+            failedRouteCount: challenge.failedRouteCount,
+            stateAssets: challenge.stateAssets,
+            relations: challenge.relations,
+            memoryFacts: challenge.memoryFacts,
+            failureBoundaries: challenge.failureBoundaries,
             stale: challenge.stale,
         })),
         prompts: snapshot.availableSolverPrompts.map((prompt) => prompt.name),
@@ -916,6 +1078,11 @@ export class ChallengeManager {
     }
     private noisyErrorLogState = new Map<string, { lastLoggedAt: number; suppressedCount: number }>()
     private verifierRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    private plannerEventTimer?: ReturnType<typeof setTimeout>
+    private plannerStopCooldowns = new Map<string, number>()
+    private detachRuntimeLifecycle?: () => void
+    private detachRuntimeEvents?: () => void
+    private traceWriteChain: Promise<void> = Promise.resolve()
 
     constructor(config: ConfigManager) {
         this.config = config
@@ -961,7 +1128,44 @@ export class ChallengeManager {
     }
 
     attachRuntime(runtime: RuntimeManager): void {
+        this.detachRuntimeLifecycle?.()
+        this.detachRuntimeEvents?.()
         this.runtime = runtime
+        if (typeof runtime.onLifecycle === "function") {
+            this.detachRuntimeLifecycle = runtime.onLifecycle((event) => {
+                if (!event.challengeId) return
+                this.requestPlannerEvaluation(`runtime:${event.reason}:${event.solverId}`)
+            })
+        }
+        if (typeof runtime.onEvent === "function") this.detachRuntimeEvents = runtime.onEvent((solverId, event) => {
+            const solver = runtime.list().find((item) => item.id === solverId)
+            const eventRecord = event as unknown as Record<string, unknown>
+            const message = eventRecord.message && typeof eventRecord.message === "object"
+                ? eventRecord.message as Record<string, unknown>
+                : undefined
+            const attributes: Record<string, unknown> = {
+                type: event.type,
+                ...(typeof eventRecord.toolName === "string" ? { toolName: eventRecord.toolName } : {}),
+                ...(typeof eventRecord.toolCallId === "string" ? { toolCallId: eventRecord.toolCallId } : {}),
+                ...(typeof eventRecord.isError === "boolean" ? { isError: eventRecord.isError } : {}),
+                ...(eventRecord.usage && typeof eventRecord.usage === "object" ? { usage: eventRecord.usage } : {}),
+                ...(message?.usage && typeof message.usage === "object" ? { usage: message.usage } : {}),
+            }
+            this.traceWriteChain = this.traceWriteChain.then(() => this.withCampaignStore((store) => {
+                const span = store.startTrace({
+                    traceId: `solver:${solverId}`,
+                    challengeId: solver?.challengeId,
+                    solverId,
+                    taskId: undefined,
+                    category: event.type.startsWith("tool_") ? "tool" : "agent",
+                    name: event.type,
+                    attributes,
+                })
+                store.endTrace(span.id, eventRecord.isError === true ? "error" : "ok")
+            })).catch((error) => {
+                this.error("challenge:trace", "failed to persist runtime trace event", error, { solverId, eventType: event.type })
+            })
+        })
         void this.resumePendingVerifierRetries()
     }
 
@@ -982,6 +1186,10 @@ export class ChallengeManager {
 
     getRuntime(): RuntimeManager | undefined {
         return this.runtime
+    }
+
+    schedulePlannerEvaluation(source: string): void {
+        this.requestPlannerEvaluation(source)
     }
 
     async getPlannerHealth(): Promise<PlannerHealth> {
@@ -1051,6 +1259,7 @@ export class ChallengeManager {
     }
 
     private broadcastChallengeBoardUpdateToRunningSolvers(challengeId: string, message: string): void {
+        this.requestPlannerEvaluation(`board:${challengeId}`)
         const runtime = this.runtime
         const targetChallengeId = challengeId.trim()
         const text = message.trim()
@@ -1067,6 +1276,24 @@ export class ChallengeManager {
                 // ignore inactive solver pipes
             }
         }
+    }
+
+    private requestPlannerEvaluation(source: string): void {
+        if (this.plannerEventTimer) clearTimeout(this.plannerEventTimer)
+        this.plannerEventTimer = setTimeout(() => {
+            this.plannerEventTimer = undefined
+            void (async () => {
+                if (this.plannerRunning) {
+                    this.requestPlannerEvaluation(source)
+                    return
+                }
+                const settings = await this.config.getHostSettings()
+                if (settings.planner.enabled !== true) return
+                await this.tickPlanner(`challenge-planner:event:${source}`)
+            })().catch((error) => {
+                this.error("challenge:planner-event", "event-triggered planner evaluation failed", error, { source })
+            })
+        }, DEFAULT_PLANNER_EVENT_DEBOUNCE_MS)
     }
 
     startSyncLoop(): void {
@@ -1135,6 +1362,56 @@ export class ChallengeManager {
         await ensureChallengeStoreBaseDir(rootDir)
         this.rootDir = rootDir
         return rootDir
+    }
+
+    private async withCampaignStore<T>(operation: (store: CampaignStore) => T | Promise<T>): Promise<T> {
+        const store = await CampaignStore.open(await this.getRootDir())
+        try {
+            return await operation(store)
+        } finally {
+            store.close()
+        }
+    }
+
+    async createCampaignTask(input: CreateCampaignTaskInput): Promise<CampaignTask> {
+        return this.withCampaignStore((store) => store.createTask(input))
+    }
+
+    async updateCampaignTask(taskId: string, patch: UpdateCampaignTaskInput): Promise<CampaignTask> {
+        return this.withCampaignStore((store) => store.updateTask(taskId, patch))
+    }
+
+    async listCampaignTasks(challengeId: string): Promise<CampaignTask[]> {
+        return this.withCampaignStore((store) => store.listTasks(challengeId))
+    }
+
+    async listReadyCampaignTasks(challengeId: string): Promise<CampaignTask[]> {
+        return this.withCampaignStore((store) => store.listReadyTasks(challengeId))
+    }
+
+    async recordCampaignArtifact(input: CreateCampaignArtifactInput): Promise<CampaignArtifact> {
+        return this.withCampaignStore((store) => store.createArtifact(input))
+    }
+
+    async listCampaignArtifacts(challengeId: string, taskId?: string): Promise<CampaignArtifact[]> {
+        return this.withCampaignStore((store) => store.listArtifacts(challengeId, taskId))
+    }
+
+    async searchCampaignMemory(challengeId: string, query: string, limit = 10): Promise<IndexedMemory[]> {
+        const existing = await this.listMemory(challengeId).catch(() => [] as MemoryEntry[])
+        return this.withCampaignStore((store) => {
+            for (const entry of existing) {
+                store.indexMemory({
+                    id: entry.id,
+                    challengeId,
+                    kind: entry.kind,
+                    content: entry.content,
+                    sourceRef: entry.refs?.[0] ?? entry.source,
+                    confidence: entry.kind === "fact" || entry.kind === "evidence" ? 0.9 : entry.kind === "failure" ? 0.8 : 0.6,
+                })
+            }
+            return store.searchMemory(challengeId, query, limit)
+        })
     }
 
     private async readPreviousPlannerRound(): Promise<PreviousPlannerRoundRecord | undefined> {
@@ -1370,7 +1647,7 @@ export class ChallengeManager {
             const activeOnTarget = solvers.filter(
                 (solver) =>
                     solver.challengeId === id &&
-                    (solver.status === "starting" || solver.status === "running" || solver.status === "stopping"),
+                    (solver.status === "starting" || solver.status === "running" || solver.status === "idle" || solver.status === "stopping"),
             )
             if (activeOnTarget.length > 0) {
                 throw new Error(
@@ -1392,7 +1669,7 @@ export class ChallengeManager {
             const solvers = await runtime.listAll()
             const matching = solvers.filter((solver) => solver.challengeId === id)
             for (const solver of matching) {
-                if (solver.status === "running" || solver.status === "starting" || solver.status === "stopping") {
+                if (solver.status === "running" || solver.status === "starting" || solver.status === "idle" || solver.status === "stopping") {
                     try {
                         await runtime.stopSolver(solver.id)
                     } catch (error) {
@@ -1445,6 +1722,7 @@ export class ChallengeManager {
             entrypoint: challenge?.entrypoint ?? null,
             alreadyCompleted: computeChallengeCompleted(challenge),
         })
+        this.requestPlannerEvaluation(`challenge-start:${id}`)
         return {
             remote,
             challenge,
@@ -1463,6 +1741,7 @@ export class ChallengeManager {
             instanceStatus: challenge?.instance_status,
             completed: computeChallengeCompleted(challenge),
         })
+        this.requestPlannerEvaluation(`challenge-stop:${id}`)
         return {
             remote,
             challenge,
@@ -1706,6 +1985,7 @@ export class ChallengeManager {
                 verifier_note: note,
                 verification_next_retry_at: verdict === "verified" || verdict === "rejected" ? null : undefined,
             }).catch(() => {})
+            this.requestPlannerEvaluation(`verification:${id}:${verdict}`)
             try {
                 input.onResolved?.(verdict, note)
             } catch {
@@ -1781,24 +2061,29 @@ export class ChallengeManager {
             },
         })
 
+        let verifierSession: AgentSession | undefined
         try {
-            const { session } = await createAgentSession({
+            const created = await createAgentSession({
                 ...sessionOpts,
                 customTools: [...(sessionOpts.customTools ?? []), verifierTool],
                 sessionManager: SessionManager.inMemory(),
             })
-            session.subscribe((event) => {
+            verifierSession = created.session
+            verifierSession.subscribe((event) => {
                 if (event.type === "tool_execution_end" && event.isError) {
                     this.error("engagement:verify", "verifier tool failed", undefined, { toolName: event.toolName, result: event.result })
                 }
             })
             this.log("engagement:verify", "verifier reproducing reported objective", { challengeId: id, recordId: input.recordId })
-            await session.prompt(verifierBrief)
-            session.dispose()
+            const hostSettings = await this.config.getHostSettings()
+            const timeoutMs = clampInt(hostSettings.challenge.verifierTimeoutMs ?? DEFAULT_VERIFIER_TIMEOUT_MS, 30_000, 30 * 60_000)
+            await promptSessionWithTimeout(verifierSession, verifierBrief, timeoutMs, "objective verifier")
         } catch (error) {
             this.error("engagement:verify", "verifier session failed", error, { challengeId: id })
             await resolve("inconclusive", "verifier session errored; left for operator confirmation")
             return
+        } finally {
+            verifierSession?.dispose()
         }
 
         if (verdict === "verified") {
@@ -1936,7 +2221,7 @@ export class ChallengeManager {
         const active = all.filter(
             (solver) =>
                 solver.challengeId === challengeId &&
-                (solver.status === "running" || solver.status === "starting" || solver.status === "stopping"),
+                (solver.status === "running" || solver.status === "starting" || solver.status === "idle" || solver.status === "stopping"),
         )
         const stopped: string[] = []
         for (const solver of active) {
@@ -2054,9 +2339,42 @@ export class ChallengeManager {
         return computeChallengeCompleted(challenge)
     }
 
+    async getProgressFingerprint(challengeId: string): Promise<string> {
+        const id = requireText(challengeId, "challengeId")
+        const [challenge, memory, ideas, submissions, stateAssets, relations] = await Promise.all([
+            this.getChallenge(id),
+            this.listMemory(id),
+            this.listIdeas(id),
+            this.listSubmissionLogs(id),
+            this.listStateAssets(id),
+            this.listRelations(id),
+        ])
+        const payload = JSON.stringify({
+            completed: computeChallengeCompleted(challenge),
+            memory: memory
+                .filter((item) => item.kind !== "note" && item.kind !== "hint")
+                .map(({ id: entryId, kind, content, refs }) => ({ id: entryId, kind, content, refs })),
+            ideas: ideas
+                .filter((item) => item.status !== "pending" && item.status !== "skipped")
+                .map(({ id: ideaId, status, content, result }) => ({ id: ideaId, status, content, result })),
+            submissions: submissions.map(({ id: recordId, verification_status, correct, writeup }) => ({ id: recordId, verification_status, correct, writeup })),
+            stateAssets: stateAssets.map(({ id: assetId, kind, label, host, port, account, privilege, sourceRefs }) => ({ id: assetId, kind, label, host, port, account, privilege, sourceRefs })),
+            relations: relations.map(({ id: relationId, source, relation, target, note, source_ref }) => ({ id: relationId, source, relation, target, note, source_ref })),
+        })
+        return Bun.hash(payload).toString(16)
+    }
+
     async appendMemory(input: AddMemoryInput): Promise<MemoryEntry> {
         const rootDir = await this.getRootDir()
         const entry = await appendChallengeMemory(rootDir, input)
+        await this.withCampaignStore((store) => store.indexMemory({
+            id: entry.id,
+            challengeId: input.challengeId,
+            kind: entry.kind,
+            content: entry.content,
+            sourceRef: entry.refs?.[0] ?? entry.source,
+            confidence: entry.kind === "fact" || entry.kind === "evidence" ? 0.9 : entry.kind === "failure" ? 0.8 : 0.6,
+        })).catch((error) => this.error("challenge:memory", "failed to index durable memory", error, { challengeId: input.challengeId, memoryId: entry.id }))
         this.broadcastChallengeBoardUpdateToRunningSolvers(input.challengeId, formatChallengeMemoryBroadcastMessage("added", entry))
         return entry
     }
@@ -2270,13 +2588,15 @@ export class ChallengeManager {
             throw new Error(`challenge "${id}" not found`)
         }
 
-        const [overview, ideas, memory, submissions, attempts, statsResult] = await Promise.all([
+        const [overview, ideas, memory, submissions, attempts, statsResult, campaignTasks, artifacts] = await Promise.all([
             this.buildTargetOverview(id),
             this.listIdeas(id),
             this.listMemory(id),
             this.listSubmissionLogs(id),
             this.listAttemptLogs(id),
             this.refreshStats(id),
+            this.listCampaignTasks(id),
+            this.listCampaignArtifacts(id),
         ])
 
         const solverPromptById: Record<string, string | undefined> = {}
@@ -2315,12 +2635,19 @@ export class ChallengeManager {
             ideas,
             memory,
             submissions,
+            campaignTasks,
+            artifacts,
             solverPromptById,
             battlePlan: battlePlanEntry
                 ? {
                       challengeId: battlePlanEntry.challengeId,
+                      version: battlePlanEntry.version,
                       strategy: battlePlanEntry.strategy,
                       nextCheckpoint: battlePlanEntry.nextCheckpoint,
+                      owner: battlePlanEntry.owner,
+                      successCriteria: battlePlanEntry.successCriteria,
+                      exitCriteria: battlePlanEntry.exitCriteria,
+                      lastProgressAt: battlePlanEntry.lastProgressAt,
                       updated_at: battlePlanEntry.updated_at,
                   }
                 : undefined,
@@ -2533,6 +2860,12 @@ export class ChallengeManager {
         }
 
         const solverId = crypto.randomUUID().slice(0, 8)
+        const assignedTask = options?.taskId
+            ? await this.withCampaignStore((store) => store.getTask(options.taskId!))
+            : undefined
+        if (options?.taskId && (!assignedTask || assignedTask.challengeId !== challengeId)) {
+            throw new Error(`campaign task is missing or belongs to another target: ${options.taskId}`)
+        }
         const task = await this.buildSolverTask(challenge, options)
         try {
             await this.seedSolverBoardFromChallenge(solverId, challengeId)
@@ -2543,6 +2876,7 @@ export class ChallengeManager {
             })
         }
         const solverEnv: Record<string, string> = { [CHALLENGE_ENV_CHALLENGE_ID]: challengeId }
+        if (assignedTask) solverEnv[CAMPAIGN_ENV_TASK_ID] = assignedTask.id
         // Engagement: pass engagement flag and scope path to solver,
         // so host-bridge-handler uses engagement branch via getSolverEnvValue (local records, no remote scoring).
         if (isEngagementMode()) {
@@ -2551,6 +2885,9 @@ export class ChallengeManager {
             if (scopePath) solverEnv[ENGAGEMENT_ENV_SCOPE] = scopePath
         }
         const solver = await this.runtime.launch(promptNameText, task, solverEnv, { solverId })
+        if (assignedTask) {
+            await this.updateCampaignTask(assignedTask.id, { status: "running", assignedSolverId: solver.id })
+        }
         await this.appendAttemptLog({
             challengeId,
             solverId: solver.id,
@@ -2563,6 +2900,7 @@ export class ChallengeManager {
             promptName: promptNameText,
             solverName: solver.name,
         })
+        this.requestPlannerEvaluation(`solver-launch:${challengeId}`)
         return solver
     }
 
@@ -2585,7 +2923,7 @@ export class ChallengeManager {
 
             if (!this.runtime) return
             const solvers = await this.runtime.listAll()
-            const active = solvers.filter((solver) => solver.challengeId === id && (solver.status === "starting" || solver.status === "running" || solver.status === "stopping"))
+            const active = solvers.filter((solver) => solver.challengeId === id && (solver.status === "starting" || solver.status === "running" || solver.status === "idle" || solver.status === "stopping"))
             await Promise.allSettled(active.map((solver) => this.runtime!.stopSolver(solver.id)))
             // Record solvers stopped on completion for precise resume on revoke.
             if (active.length > 0) this.stoppedOnCompletion.set(id, active.map((solver) => solver.id))
@@ -2612,6 +2950,10 @@ export class ChallengeManager {
         }
 
         const previousRound = await this.readPreviousPlannerRound()
+        const snapshotDigest = computePlannerSnapshotDigest(snapshot)
+        if (previousRound?.snapshot_digest === snapshotDigest && !source.includes(":manual")) {
+            return { ok: true, skipped: true }
+        }
         const resourceLoader = wrapPlannerResourceLoader(sessionOpts.resourceLoader, snapshot, settings.planner.strategy, previousRound)
         await resourceLoader.reload()
 
@@ -2668,12 +3010,13 @@ export class ChallengeManager {
         })
 
         try {
-            await session.prompt("Begin this scheduling round.")
+            const timeoutMs = clampInt(settings.planner.roundTimeoutMs ?? DEFAULT_PLANNER_ROUND_TIMEOUT_MS, 30_000, 15 * 60_000)
+            await promptSessionWithTimeout(session, "Begin this scheduling round.", timeoutMs, "planner round")
         } catch (error) {
-            session.dispose()
             return { ok: false, error: extractErrorMessage(error) ?? "planner session failed" }
+        } finally {
+            session.dispose()
         }
-        session.dispose()
         if (plannerStopReason === "error") {
             return { ok: false, error: "planner LLM round errored" }
         }
@@ -2687,9 +3030,11 @@ export class ChallengeManager {
             ].join(" ")
         const plannerHeader = `${formatChallengeLogScope("challenge:planner")} model output${plannerStopReason ? ` [${plannerStopReason}]` : ""}`
         console.log(`${plannerHeader}\n${plannerText}`)
+        const reconciledSnapshot = await this.buildPlannerSnapshot("challenge-planner:post-round-reconcile")
+        const reconciledDigest = computePlannerSnapshotDigest(reconciledSnapshot)
         await this.writePreviousPlannerRound({
             generated_at: new Date().toISOString(),
-            snapshot_digest: computePlannerSnapshotDigest(snapshot),
+            snapshot_digest: reconciledDigest,
             actions: [...plannerActions.values()],
             summary: plannerText,
             battlePlan: [...battlePlan.values()],
@@ -2702,11 +3047,32 @@ export class ChallengeManager {
         const challengeIds = snapshot.challenges.map((challenge) => challenge.id)
         const solverPromptNames = snapshot.availableSolverPrompts.map((prompt) => prompt.name)
         const activeSolverIds = snapshot.activeSolvers.map((solver) => solver.id)
-        const snapshotChallenges = new Map(snapshot.challenges.map((challenge) => [challenge.id, challenge]))
-        const snapshotSolvers = new Map(snapshot.activeSolvers.map((solver) => [solver.id, solver]))
+        let currentSnapshot = snapshot
+        let expectedDigest = computePlannerSnapshotDigest(snapshot)
+        let snapshotChallenges = new Map(snapshot.challenges.map((challenge) => [challenge.id, challenge]))
+        let snapshotSolvers = new Map(snapshot.activeSolvers.map((solver) => [solver.id, solver]))
         const challengeIdSchema = challengeIds.length > 0 ? Type.Union(challengeIds.map((id) => Type.Literal(id))) : Type.String({ description: "challenge id" })
         const promptNameSchema = solverPromptNames.length > 0 ? Type.Union(solverPromptNames.map((name) => Type.Literal(name))) : Type.String({ description: "solver prompt name" })
         const solverIdSchema = activeSolverIds.length > 0 ? Type.Union(activeSolverIds.map((id) => Type.Literal(id))) : Type.String({ description: "solver id" })
+
+        const refreshSnapshot = async (source: string): Promise<PlannerSnapshot> => {
+            currentSnapshot = await this.buildPlannerSnapshot(source)
+            expectedDigest = computePlannerSnapshotDigest(currentSnapshot)
+            snapshotChallenges = new Map(currentSnapshot.challenges.map((challenge) => [challenge.id, challenge]))
+            snapshotSolvers = new Map(currentSnapshot.activeSolvers.map((solver) => [solver.id, solver]))
+            return currentSnapshot
+        }
+        const assertSnapshotCurrent = async (action: string): Promise<void> => {
+            const latest = await this.buildPlannerSnapshot(`challenge-planner:preflight:${action}`)
+            const latestDigest = computePlannerSnapshotDigest(latest)
+            if (latestDigest !== expectedDigest) {
+                currentSnapshot = latest
+                expectedDigest = latestDigest
+                snapshotChallenges = new Map(latest.challenges.map((challenge) => [challenge.id, challenge]))
+                snapshotSolvers = new Map(latest.activeSolvers.map((solver) => [solver.id, solver]))
+                throw new Error(`planner snapshot changed before ${action}; call planner_get_state and reconsider the action`)
+            }
+        }
 
         return [
             defineTool({
@@ -2715,7 +3081,7 @@ export class ChallengeManager {
                 description: "Get current unsolved challenges, active challenge instances, solver allocation, attempts, submissions and stale indicators.",
                 parameters: emptyObject,
                 execute: async () => {
-                    const snapshot = await this.buildPlannerSnapshot("challenge-planner:tool-state")
+                    const snapshot = await refreshSnapshot("challenge-planner:tool-state")
                     return {
                         content: [{ type: "text", text: formatPlannerSnapshotMarkdown(snapshot) }],
                         details: snapshot,
@@ -2730,8 +3096,10 @@ export class ChallengeManager {
                     challengeId: challengeIdSchema,
                 }),
                 execute: async (_toolCallId, params) => {
+                    await assertSnapshotCurrent("start-challenge")
                     this.log("challenge:planner-tool", "start challenge requested", { challengeId: params.challengeId })
                     const result = await this.startChallenge(params.challengeId)
+                    await refreshSnapshot("challenge-planner:reconcile:start-challenge")
                     return {
                         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
                         details: result,
@@ -2744,18 +3112,74 @@ export class ChallengeManager {
                 description: "Stop a challenge instance and free one of the 3 challenge-instance slots.",
                 parameters: Type.Object({
                     challengeId: challengeIdSchema,
+                    reason: Type.Union([
+                        Type.Literal("stale"),
+                        Type.Literal("prune-recommended"),
+                        Type.Literal("resource-reallocation"),
+                        Type.Literal("operator-strategy"),
+                    ]),
                 }),
                 execute: async (_toolCallId, params) => {
+                    await assertSnapshotCurrent("stop-challenge")
                     const challenge = snapshotChallenges.get(params.challengeId)
-                    if (challenge && !challenge.stale) {
-                        throw new Error(`challenge "${params.challengeId}" is not stale yet; stop is blocked before stale timeout`)
+                    if (challenge && !challenge.stale && !challenge.pruneRecommended && params.reason === "stale") {
+                        throw new Error(`challenge "${params.challengeId}" has recent progress; stale reason is invalid`)
                     }
-                    this.log("challenge:planner-tool", "stop challenge requested", { challengeId: params.challengeId })
+                    const cooldownKey = `challenge:${params.challengeId}`
+                    const lastStoppedAt = this.plannerStopCooldowns.get(cooldownKey) ?? 0
+                    if (Date.now() - lastStoppedAt < PLANNER_STOP_COOLDOWN_MS) throw new Error("challenge stop is in cooldown")
+                    this.plannerStopCooldowns.set(cooldownKey, Date.now())
+                    this.log("challenge:planner-tool", "stop challenge requested", { challengeId: params.challengeId, reason: params.reason })
                     const result = await this.stopChallenge(params.challengeId)
+                    await refreshSnapshot("challenge-planner:reconcile:stop-challenge")
                     return {
                         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
                         details: result,
                     }
+                },
+            }),
+            defineTool({
+                name: "planner_create_task",
+                label: "Create Campaign DAG Task",
+                description: "Create a bounded task with dependencies, success/exit criteria, role, priority, and optional turn/token budgets.",
+                parameters: Type.Object({
+                    challengeId: challengeIdSchema,
+                    title: Type.String({ minLength: 1 }),
+                    description: Type.Optional(Type.String()),
+                    role: Type.Union([Type.Literal("recon"), Type.Literal("researcher"), Type.Literal("exploit"), Type.Literal("verifier"), Type.Literal("reporter"), Type.Literal("custom")]),
+                    priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 100 })),
+                    dependsOn: Type.Optional(Type.Array(Type.String())),
+                    successCriteria: Type.Optional(Type.String()),
+                    exitCriteria: Type.Optional(Type.String()),
+                    budgetTurns: Type.Optional(Type.Integer({ minimum: 1 })),
+                    budgetTokens: Type.Optional(Type.Integer({ minimum: 1 })),
+                }),
+                execute: async (_toolCallId, params) => {
+                    await assertSnapshotCurrent("create-task")
+                    const task = await this.createCampaignTask(params)
+                    await refreshSnapshot("challenge-planner:reconcile:create-task")
+                    return { content: [{ type: "text", text: JSON.stringify(task, null, 2) }], details: task }
+                },
+            }),
+            defineTool({
+                name: "planner_update_task",
+                label: "Update Campaign DAG Task",
+                description: "Update task state, dependency/evidence refs, priority, criteria, or assignment after reviewing current evidence.",
+                parameters: Type.Object({
+                    taskId: Type.String({ minLength: 1 }),
+                    status: Type.Optional(Type.Union([Type.Literal("pending"), Type.Literal("ready"), Type.Literal("running"), Type.Literal("blocked"), Type.Literal("completed"), Type.Literal("failed"), Type.Literal("cancelled")])),
+                    priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 100 })),
+                    dependsOn: Type.Optional(Type.Array(Type.String())),
+                    evidenceRefs: Type.Optional(Type.Array(Type.String())),
+                    successCriteria: Type.Optional(Type.String()),
+                    exitCriteria: Type.Optional(Type.String()),
+                }),
+                execute: async (_toolCallId, params) => {
+                    await assertSnapshotCurrent("update-task")
+                    const { taskId, ...patch } = params
+                    const task = await this.updateCampaignTask(taskId, patch)
+                    await refreshSnapshot("challenge-planner:reconcile:update-task")
+                    return { content: [{ type: "text", text: JSON.stringify(task, null, 2) }], details: task }
                 },
             }),
             defineTool({
@@ -2766,6 +3190,7 @@ export class ChallengeManager {
                 parameters: Type.Object({
                     challengeId: challengeIdSchema,
                     promptName: promptNameSchema,
+                    taskId: Type.Optional(Type.String({ description: "Ready DAG task id to assign to this solver" })),
                     solverHandoff: Type.String({
                         minLength: 1,
                         maxLength: SOLVER_HANDOFF_MAX_CHARS,
@@ -2773,6 +3198,7 @@ export class ChallengeManager {
                     }),
                 }),
                 execute: async (_toolCallId, params) => {
+                    await assertSnapshotCurrent("launch-solver")
                     const promptName = requireText(params.promptName, "promptName")
                     const solverHandoff = clipTaskText(requireText(params.solverHandoff, "solverHandoff"), SOLVER_HANDOFF_MAX_CHARS)
                     if ((await this.getChallenge(params.challengeId))?.testing_paused === true) {
@@ -2780,7 +3206,12 @@ export class ChallengeManager {
                     }
                     this.log("challenge:planner-tool", "launch solver requested", { challengeId: params.challengeId, promptName })
                     try {
-                        const solver = await this.launchSolver(params.challengeId, promptName, { plannerHandoff: solverHandoff })
+                        if (params.taskId) {
+                            const readyTasks = await this.listReadyCampaignTasks(params.challengeId)
+                            if (!readyTasks.some((task) => task.id === params.taskId)) throw new Error(`task ${params.taskId} is not ready for dispatch`)
+                        }
+                        const solver = await this.launchSolver(params.challengeId, promptName, { plannerHandoff: solverHandoff, taskId: params.taskId })
+                        await refreshSnapshot("challenge-planner:reconcile:launch-solver")
                         return {
                             content: [{ type: "text", text: JSON.stringify(solver, null, 2) }],
                             details: solver,
@@ -2797,17 +3228,29 @@ export class ChallengeManager {
                 description: "Stop a running solver to free a solver slot.",
                 parameters: Type.Object({
                     solverId: solverIdSchema,
+                    reason: Type.Union([
+                        Type.Literal("stale"),
+                        Type.Literal("duplicate-route"),
+                        Type.Literal("prune-recommended"),
+                        Type.Literal("resource-reallocation"),
+                    ]),
                 }),
                 execute: async (_toolCallId, params) => {
+                    await assertSnapshotCurrent("stop-solver")
                     const runtime = this.getRuntime()
                     if (!runtime) throw new Error("runtime is not attached")
                     const solver = snapshotSolvers.get(params.solverId)
                     const challenge = solver?.challengeId ? snapshotChallenges.get(solver.challengeId) : undefined
-                    if (challenge && !challenge.stale) {
-                        throw new Error(`challenge "${challenge.id}" is not stale yet; solver stop is blocked before stale timeout`)
+                    if (challenge && !challenge.stale && !challenge.pruneRecommended && params.reason === "stale") {
+                        throw new Error(`challenge "${challenge.id}" has recent progress; stale reason is invalid`)
                     }
-                    this.log("challenge:planner-tool", "stop solver requested", { solverId: params.solverId })
+                    const cooldownKey = `solver:${params.solverId}`
+                    const lastStoppedAt = this.plannerStopCooldowns.get(cooldownKey) ?? 0
+                    if (Date.now() - lastStoppedAt < PLANNER_STOP_COOLDOWN_MS) throw new Error("solver stop is in cooldown")
+                    this.plannerStopCooldowns.set(cooldownKey, Date.now())
+                    this.log("challenge:planner-tool", "stop solver requested", { solverId: params.solverId, reason: params.reason })
                     await runtime.stopSolver(params.solverId)
+                    await refreshSnapshot("challenge-planner:reconcile:stop-solver")
                     return {
                         content: [{ type: "text", text: `stopped solver ${params.solverId}` }],
                         details: { solverId: params.solverId },
@@ -2828,17 +3271,27 @@ export class ChallengeManager {
                     }),
                 }),
                 execute: async (_toolCallId, params) => {
+                    await assertSnapshotCurrent("steer-solver")
                     const runtime = this.getRuntime()
                     if (!runtime) throw new Error("runtime is not attached")
                     const solver = snapshotSolvers.get(params.solverId)
                     if (!solver) throw new Error(`solver "${params.solverId}" is not in the current snapshot`)
-                    if (solver.status !== "running") {
-                        throw new Error(`solver "${params.solverId}" is ${solver.status}, not running; can only steer a running solver`)
+                    if (solver.status !== "running" && solver.status !== "idle") {
+                        throw new Error(`solver "${params.solverId}" is ${solver.status}; can only steer a running or idle solver`)
+                    }
+                    if (solver.status === "idle") {
+                        const settings = await this.config.getHostSettings()
+                        const maxSolvers = clampInt(settings.runtime.maxSolvers ?? DEFAULT_MAX_SOLVERS, 0, 64)
+                        const currentActive = (await runtime.listAll()).filter(isActiveSolver).length
+                        if (currentActive >= maxSolvers) {
+                            throw new Error(`cannot wake idle solver while ${currentActive}/${maxSolvers} active solver slots are occupied`)
+                        }
                     }
                     const message = clipTaskText(requireText(params.message, "message"), SOLVER_HANDOFF_MAX_CHARS)
                     this.log("challenge:planner-tool", "steer solver requested", { solverId: params.solverId, challengeId: solver.challengeId })
                     await recordSolverSteerFocus({ message, source: "planner:steer" }, solverSessionDir(params.solverId))
                     runtime.sendCommand(params.solverId, { type: "steer", message })
+                    await refreshSnapshot("challenge-planner:reconcile:steer-solver")
                     return {
                         content: [{ type: "text", text: `steered solver ${params.solverId}` }],
                         details: { solverId: params.solverId, challengeId: solver.challengeId },
@@ -2854,6 +3307,10 @@ export class ChallengeManager {
                     challengeId: challengeIdSchema,
                     strategy: Type.String({ minLength: 1, maxLength: 600, description: "Current overall approach/intent for this target." }),
                     nextCheckpoint: Type.Optional(Type.String({ maxLength: 300, description: "The specific milestone to re-check next round (e.g. 'confirm escalation solver got root')." })),
+                    owner: Type.Optional(Type.String({ maxLength: 120, description: "Solver id or role accountable for the next checkpoint." })),
+                    successCriteria: Type.Optional(Type.String({ maxLength: 300, description: "Observable condition that marks this plan successful." })),
+                    exitCriteria: Type.Optional(Type.String({ maxLength: 300, description: "Condition that should stop or replace this plan." })),
+                    progressObserved: Type.Optional(Type.Boolean({ description: "Set true only when this round observed material progress." })),
                 }),
                 execute: async (_toolCallId, params) => {
                     if (!battlePlan) {
@@ -2861,8 +3318,13 @@ export class ChallengeManager {
                     }
                     const entry: PlannerBattlePlanEntry = {
                         challengeId: params.challengeId,
+                        version: (battlePlan.get(params.challengeId)?.version ?? 0) + 1,
                         strategy: clipTaskText(requireText(params.strategy, "strategy"), 600),
                         nextCheckpoint: params.nextCheckpoint?.trim() ? clipTaskText(params.nextCheckpoint.trim(), 300) : undefined,
+                        owner: params.owner?.trim() ? clipTaskText(params.owner.trim(), 120) : undefined,
+                        successCriteria: params.successCriteria?.trim() ? clipTaskText(params.successCriteria.trim(), 300) : undefined,
+                        exitCriteria: params.exitCriteria?.trim() ? clipTaskText(params.exitCriteria.trim(), 300) : undefined,
+                        lastProgressAt: params.progressObserved ? new Date().toISOString() : battlePlan.get(params.challengeId)?.lastProgressAt,
                         updated_at: new Date().toISOString(),
                     }
                     battlePlan.set(params.challengeId, entry)
@@ -2887,6 +3349,7 @@ export class ChallengeManager {
         const unsolved = challenges.filter((item) => !computeChallengeCompleted(item) && item.testing_paused !== true)
         const solvers = await runtime.listAll()
         const activeSolvers = solvers.filter(isActiveSolver)
+        const controllableSolvers = solvers.filter(isControllableSolver)
         const modelPrefs = await this.config.listModelPrefs()
         const solverPrompts = (await this.config.listAgentPrompts()).filter(
             (prompt) => prompt.meta.isSubagent !== true && prompt.meta.disabled !== true && prompt.deleted !== true && prompt.name !== DEFAULT_PLANNER_PROMPT_NAME,
@@ -2908,15 +3371,16 @@ export class ChallengeManager {
 
         const challengeItems = await Promise.all(
             unsolved.map(async (challenge) => {
-                const [attempts, submissions, memory, ideas, stateAssets, relations] = await Promise.all([
+                const [attempts, submissions, memory, ideas, stateAssets, relations, campaignTasks] = await Promise.all([
                     this.listAttemptLogs(challenge.id),
                     this.listSubmissionLogs(challenge.id),
                     this.listMemory(challenge.id).catch(() => [] as MemoryEntry[]),
                     this.listIdeas(challenge.id).catch(() => [] as IdeaRecord[]),
                     this.listStateAssets(challenge.id).catch(() => [] as StateAsset[]),
                     this.listRelations(challenge.id).catch(() => [] as MemoryRelation[]),
+                    this.listCampaignTasks(challenge.id).catch(() => [] as CampaignTask[]),
                 ])
-                return this.buildPlannerSnapshotItem(challenge, attempts, submissions, memory, ideas, stateAssets, activeSolvers, staleTimeoutMs, relations)
+                return this.buildPlannerSnapshotItem(challenge, attempts, submissions, memory, ideas, stateAssets, activeSolvers, staleTimeoutMs, relations, campaignTasks)
             }),
         )
         // Backfill cross-target effort rank (horizon proxy): most attempts ranks #1.
@@ -2927,7 +3391,7 @@ export class ChallengeManager {
         })
 
         const kaliProvisionerAllowed = challengeItems.some(
-            (item) => item.progressPhase === "foothold" || item.progressPhase === "breakthrough",
+            (item) => item.progressPhase !== "untouched" && item.progressPhase !== "recon",
         )
         const plannerSolverPrompts = solverPrompts.filter(
             (prompt) => kaliProvisionerAllowed || prompt.name !== KALI_PROVISIONER_PROMPT_NAME,
@@ -2937,7 +3401,7 @@ export class ChallengeManager {
         // so planner separates advancing vs idle and decides steer/withdraw.
         const solverFocusById = new Map<string, string>(
             await Promise.all(
-                activeSolvers.map(async (solver): Promise<[string, string]> => {
+                controllableSolvers.map(async (solver): Promise<[string, string]> => {
                     const focus = await this.deriveSolverFocus(solver).catch(() => "(no board signal yet)")
                     return [solver.id, focus]
                 }),
@@ -2953,7 +3417,7 @@ export class ChallengeManager {
                 activeSolvers: activeSolvers.length,
                 staleTimeoutMs,
             },
-            activeSolvers: activeSolvers.map((solver) => ({
+            activeSolvers: controllableSolvers.map((solver) => ({
                 id: solver.id,
                 challengeId: solver.challengeId,
                 promptName: solver.promptName,
@@ -2994,6 +3458,7 @@ export class ChallengeManager {
         activeSolvers: SolverInstance[],
         staleTimeoutMs: number,
         relations: MemoryRelation[] = [],
+        campaignTasks: CampaignTask[] = [],
     ): PlannerSnapshotChallenge {
         const challengeSolvers = activeSolvers.filter((solver) => solver.challengeId === challenge.id)
         const oldestActiveSolverAt = challengeSolvers.map((solver) => solver.createdAt).sort((a, b) => a - b)[0]
@@ -3002,7 +3467,7 @@ export class ChallengeManager {
             .filter((item): item is number => typeof item === "number")
             .sort((a, b) => b - a)[0]
         const lastCorrectSubmissionAt = submissions
-            .filter(isRealFinding)
+            .filter(isVerifiedFinding)
             .map((item) => parseTimestamp(item.created_at))
             .filter((item): item is number => typeof item === "number")
             .sort((a, b) => b - a)[0]
@@ -3025,28 +3490,63 @@ export class ChallengeManager {
         // Distill defense signals (WAF / rate-limit / IP ban) from failure boundaries + memory so the
         // planner sees "this target is actively blocking" as a first-class scheduling input.
         const defenseSignals = buildPlannerDefenseSignals(memory)
+        const taskStatusCounts: Record<CampaignTask["status"], number> = {
+            pending: 0,
+            ready: 0,
+            running: 0,
+            blocked: 0,
+            completed: 0,
+            failed: 0,
+            cancelled: 0,
+        }
+        for (const task of campaignTasks) taskStatusCounts[task.status] += 1
+        const completedTaskIds = new Set(campaignTasks.filter((task) => task.status === "completed").map((task) => task.id))
+        const readyTasks = campaignTasks
+            .filter((task) => (task.status === "pending" || task.status === "ready") && task.dependsOn.every((id) => completedTaskIds.has(id)))
+            .sort((a, b) => b.priority - a.priority)
+            .slice(0, 8)
+            .map(({ id, title, role, priority }) => ({ id, title, role, priority }))
         // "Real finding" count: CTF uses correct; engagement uses recorded and not verifier-rejected (isRealFinding).
         // Difficulty/phase/pruning depend on it — else engagement stays 0, successRate inverts, findings empty.
-        const correctSubmissionCount = submissions.filter(isRealFinding).length
-        // Foothold signal (precision first): credential/session assets > credential memory > text heuristic.
-        const hasCredentialAsset = stateAssets.some((asset) => asset.kind === "credential" || asset.kind === "session")
-        const hasCredentialMemory = memory.some((item) => item.kind === "credential")
-        const footholdSignal = hasCredentialAsset || hasCredentialMemory || hasFootholdSignal(memoryFacts, liveIdeas)
+        const recordedFindingCount = submissions.filter(isRecordedFinding).length
+        const verifiedFindingCount = submissions.filter(isVerifiedFinding).length
+        const correctSubmissionCount = verifiedFindingCount
+        // Phase changes are driven only by typed operational assets/relations. Free text and pending ideas
+        // remain useful planner context, but cannot accidentally promote a target by mentioning "ssh" or "shell".
+        const milestones = deriveStructuredMilestones(stateAssets, relations)
+        const hasPendingObjective = submissions.some((item) => item.verification_status === "pending")
         const progressPhase = derivePlannerProgressPhase({
             untouched: attempts.length === 0,
-            correctSubmissionCount,
+            verifiedFindingCount,
             verifiedIdeaCount: ideaStatusCounts.verified,
-            hasFootholdSignal: footholdSignal,
+            hasFootholdSignal: milestones.hasFoothold,
+            hasExecutionSignal: milestones.hasExecution,
+            hasPrivilegeSignal: milestones.hasPrivilege,
+            hasLateralSignal: milestones.hasLateral,
+            hasPendingObjective,
         })
 
         // Difficulty-aware numeric signals.
-        const successRate = laplaceSuccessRate(correctSubmissionCount, submissions.length)
-        // Dead routes = failed ideas + failure memories (both; observer may write either).
-        const failureMemoryCount = memory.filter((item) => item.kind === "failure").length
-        const failedRouteCount = ideaStatusCounts.failed + failureMemoryCount
-        const hasLiveHypothesis = ideaStatusCounts.testing > 0 || ideaStatusCounts.pending > 0 || ideaStatusCounts.verified > 0
-        // >=3 dead routes, no foothold, no live hypothesis → target too hard for current approach; prune.
-        const pruneRecommended = failedRouteCount >= PLANNER_PRUNE_FAILED_ROUTE_THRESHOLD && !footholdSignal && !hasLiveHypothesis && correctSubmissionCount === 0
+        const successfulMilestones = verifiedFindingCount + ideaStatusCounts.verified + stateAssets.filter((asset) => asset.kind === "session").length
+        const failedRouteCount = countDistinctFailedRoutes(memory, ideas)
+        const successRate = laplaceSuccessRate(successfulMilestones, Math.max(attempts.length, successfulMilestones + failedRouteCount))
+        const liveIdeaCutoff = Date.now() - 2 * 60 * 60 * 1000
+        const hasLiveHypothesis = ideas.some(
+            (item) => item.status === "verified" || ((item.status === "testing" || item.status === "pending") && (parseTimestamp(item.updated_at) ?? 0) >= liveIdeaCutoff),
+        )
+        const pruneThreshold = resolvePruneThreshold(challenge)
+        const pruneRecommended = failedRouteCount >= pruneThreshold && !milestones.hasFoothold && !hasLiveHypothesis && verifiedFindingCount === 0
+        const lastProgressAt = latestMaterialProgressAt({
+            attempts,
+            submissions,
+            memory,
+            ideas,
+            stateAssets,
+            relations,
+            activeSolvers: challengeSolvers,
+        })
+        const lastInformationGainAt = latestInformationGainAt({ attempts, submissions, memory, ideas, stateAssets, relations, activeSolvers: challengeSolvers })
+        const lastActivityAt = latestActivityAt({ attempts, submissions, memory, ideas, stateAssets, relations, activeSolvers: challengeSolvers })
 
         return {
             id: challenge.id,
@@ -3065,13 +3565,18 @@ export class ChallengeManager {
             attemptCount: attempts.length,
             submissionCount: submissions.length,
             correctSubmissionCount,
+            recordedFindingCount,
+            verifiedFindingCount,
             untouched: attempts.length === 0,
-            stale: Boolean(oldestActiveSolverAt && Date.now() - oldestActiveSolverAt >= staleTimeoutMs && !submissions.some(isRealFinding)),
+            stale: Boolean(lastInformationGainAt && Date.now() - lastInformationGainAt >= staleTimeoutMs),
             activeSolverCount: challengeSolvers.length,
             activeSolverIds: challengeSolvers.map((solver) => solver.id),
             activeForMinutes: formatMinutesFromTimestamp(oldestActiveSolverAt),
             minutesSinceLastAttempt: formatMinutesFromTimestamp(lastAttemptAt),
             minutesSinceLastCorrectSubmission: formatMinutesFromTimestamp(lastCorrectSubmissionAt),
+            minutesSinceLastActivity: formatMinutesFromTimestamp(lastActivityAt),
+            minutesSinceLastInformationGain: formatMinutesFromTimestamp(lastInformationGainAt),
+            minutesSinceLastProgress: formatMinutesFromTimestamp(lastProgressAt),
             memoryFacts,
             failureBoundaries,
             liveIdeas,
@@ -3081,10 +3586,13 @@ export class ChallengeManager {
             stateAssets: stateAssetLines,
             relations: relationLines,
             defenseSignals,
+            taskStatusCounts,
+            readyTasks,
             successRate,
             failedRouteCount,
             effortRank: undefined, // filled by buildPlannerSnapshot
             pruneRecommended,
+            pruneThreshold,
             intelNotesExcerpt: clipTaskText(challenge.intel_notes?.trim() || "", PLANNER_INTEL_MAX_CHARS) || undefined,
         }
     }
@@ -3126,6 +3634,14 @@ export class ChallengeManager {
             this.listRelations(challenge.id).catch(() => [] as MemoryRelation[]),
         ])
         const plannerHandoff = options?.plannerHandoff?.trim()
+        const assignedTask = options?.taskId
+            ? await this.withCampaignStore((store) => store.getTask(options.taskId!))
+            : undefined
+        const recalledMemory = await this.searchCampaignMemory(
+            challenge.id,
+            [assignedTask?.title, assignedTask?.description, challenge.title].filter(Boolean).join(" "),
+            5,
+        ).catch(() => [] as IndexedMemory[])
 
         // Inject scope as target context (your operational target list). Scope safety is enforced
         // by the execution layer; we do NOT ask the model to self-restrain in the brief — that only
@@ -3152,6 +3668,20 @@ export class ChallengeManager {
             ...scopeLines,
             ``,
             ...(plannerHandoff ? [`Startup brief:`, plannerHandoff, ``] : []),
+            ...(assignedTask
+                ? [
+                      `Assigned DAG task (${assignedTask.id}):`,
+                      `- Title: ${assignedTask.title}`,
+                      `- Role: ${assignedTask.role}`,
+                      `- Description: ${assignedTask.description || "(none)"}`,
+                      `- Success criteria: ${assignedTask.successCriteria || "produce material, reproducible progress"}`,
+                      `- Exit criteria: ${assignedTask.exitCriteria || "stop when success is proven or the route is conclusively blocked"}`,
+                      `- Budget: ${assignedTask.budgetTurns ?? "unspecified"} turns / ${assignedTask.budgetTokens ?? "unspecified"} tokens`,
+                      `- Dependencies: ${assignedTask.dependsOn.join(", ") || "none"}`,
+                      `Stay focused on this task contract; record artifacts and update durable findings instead of silently broadening the assignment.`,
+                      ``,
+                  ]
+                : []),
             ...(challenge.intel_notes?.trim()
                 ? [
                       `Operator-provided initial intel (authoritative pre-brief — not solver memory; use get_target_intel to re-read):`,
@@ -3162,6 +3692,13 @@ export class ChallengeManager {
             `Current Memory summary:`,
             formatSolverMemorySection(memoryItems),
             ``,
+            ...(recalledMemory.length > 0
+                ? [
+                      `Long-term memory recalled for this assignment:`,
+                      ...recalledMemory.map((item) => `- [${item.kind}; confidence=${item.confidence.toFixed(2)}] ${clipTaskText(item.content, SOLVER_MEMORY_CONTENT_MAX_CHARS)}`),
+                      ``,
+                  ]
+                : []),
             `Current Ideas summary:`,
             formatSolverIdeasSection(ideaItems),
             ``,
@@ -3176,6 +3713,7 @@ export class ChallengeManager {
             ``,
             `Requirements:`,
             `- The moment you verify a vuln / obtain control / get high-value evidence, record it with report_finding (proof + route writeup).`,
+            `- Register reproducible command output, HTTP captures, screenshots, PoCs, loot pointers, and reports with record_artifact; reference those artifact ids in findings and task completion.`,
             `- When you achieve the primary objective (confirmed RCE / interactive shell / the core goal stated above), call report_finding with objective_achieved=true to wind down this target. Only set it true for a real primary-objective achievement — never for partial progress or unverified leads.`,
             `- Reference credential-type evidence via evidence_refs; do not pile plaintext into shared state.`,
             `- Before deciding a direction, check the Findings summary to avoid repeating already-verified entries/routes.`,

@@ -173,7 +173,7 @@ describe("skills", () => {
         const skill = config.getSkill("recon")
         expect(skill).toBeDefined()
         expect(skill!.name).toBe("recon")
-        expect(skill!.filePath).toContain("recon/SKILL.md")
+        expect(skill!.filePath.replaceAll("\\", "/")).toContain("recon/SKILL.md")
         expect(skill!.baseDir).toContain("recon")
         expect(skill!.description).toBe("Recon skill")
         // Verify folder structure

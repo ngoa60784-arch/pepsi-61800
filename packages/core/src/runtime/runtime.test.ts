@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
-import { applyDesktopRuntimeOverrides, getAgentEndError, RuntimeManager } from "./runtime"
+import { applyDesktopRuntimeOverrides, getAgentEndError, RuntimeManager, waitForSolverInit } from "./runtime"
 import { CHALLENGE_ENV_CHALLENGE_ID } from "../challenge/env"
 import { ChallengeManager } from "../challenge/manager"
 import { createChallengeHostBridgeHandler } from "../challenge/host-bridge-handler"
@@ -89,6 +89,51 @@ describe("getAgentEndError", () => {
     })
 })
 
+describe("waitForSolverInit", () => {
+    test("resolves when the init handshake arrives", async () => {
+        await expect(waitForSolverInit(Promise.resolve(), 20)).resolves.toBeUndefined()
+    })
+
+    test("rejects a stuck solver init", async () => {
+        await expect(waitForSolverInit(new Promise<void>(() => {}), 5)).rejects.toThrow("solver init timed out")
+    })
+})
+
+describe("RuntimeManager lifecycle events", () => {
+    test("subscribers receive events and can detach", async () => {
+        const { runtime } = await createRuntimeManager()
+        const events: string[] = []
+        const detach = runtime.onLifecycle((event) => events.push(`${event.reason}:${event.status}`))
+        const emitLifecycle = (runtime as unknown as { emitLifecycle: (event: { solverId: string; status: "stopped"; reason: "process-exit" }) => void }).emitLifecycle.bind(runtime)
+        emitLifecycle({ solverId: "s1", status: "stopped", reason: "process-exit" })
+        detach()
+        emitLifecycle({ solverId: "s1", status: "stopped", reason: "process-exit" })
+        expect(events).toEqual(["process-exit:stopped"])
+    })
+
+    test("agent end parks a solver and the next agent start reactivates it", async () => {
+        const { runtime } = await createRuntimeManager()
+        const internal = runtime as unknown as {
+            solvers: Map<string, { id: string; containerId: string; name: string; promptName: string; task: string; status: "running" | "idle"; createdAt: number }>
+            recordAgentEnd: (solverId: string, error?: string) => void
+            recordAgentStart: (solverId: string) => void
+        }
+        internal.solvers.set("s-idle", {
+            id: "s-idle",
+            containerId: "s-idle",
+            name: "s-idle",
+            promptName: "kimi-security",
+            task: "test",
+            status: "running",
+            createdAt: Date.now(),
+        })
+        internal.recordAgentEnd("s-idle")
+        expect(internal.solvers.get("s-idle")?.status).toBe("idle")
+        internal.recordAgentStart("s-idle")
+        expect(internal.solvers.get("s-idle")?.status).toBe("running")
+    })
+})
+
 describe("RuntimeManager host bridge", () => {
     test("getDetails restores subagent parent tool call id from startup snapshot", async () => {
         const { runtime } = await createRuntimeManager()
@@ -108,7 +153,7 @@ describe("RuntimeManager host bridge", () => {
             }),
         )
         await Bun.write(resolve(baseDir, "session", "0001.jsonl"), "")
-        const subagentDir = resolve(baseDir, "workspace", ".subagents", "recon-subagent:1")
+        const subagentDir = resolve(baseDir, "workspace", ".subagents", "recon-subagent-1")
         await mkdir(resolve(subagentDir, "session"), { recursive: true })
         await Bun.write(
             resolve(subagentDir, "startup.json"),

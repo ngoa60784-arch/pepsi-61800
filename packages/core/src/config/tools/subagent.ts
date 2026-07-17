@@ -264,7 +264,7 @@ async function runSingleAgent(
         }
     }
 
-    const subagentCwd = path.resolve(baseCwd, ".subagents", `${prompt.name}-${toolCallId}${step !== undefined ? `-${step}` : ""}`)
+    const subagentCwd = path.resolve(baseCwd, ".subagents", buildSubagentDirectoryName(prompt.name, toolCallId, step))
     await fs.promises.mkdir(subagentCwd, { recursive: true })
     args.push(task)
     let wasAborted = false
@@ -373,6 +373,12 @@ async function runSingleAgent(
     currentResult.exitCode = exitCode
     if (wasAborted) throw new Error("Subagent was aborted")
     return currentResult
+}
+
+export function buildSubagentDirectoryName(promptName: string, toolCallId: string, step?: number): string {
+    const raw = `${promptName}-${toolCallId}${step !== undefined ? `-${step}` : ""}`
+    const safe = raw.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/g, "").slice(0, 96)
+    return `${safe || "subagent"}-${Bun.hash(raw).toString(16)}`
 }
 
 const TaskItem = Type.Object({

@@ -2,5 +2,7 @@ export { ChallengeManager, MaxActiveChallengesError } from "./manager"
 export type { IdeaStatus, MemoryKind, TargetOverview, PlannerProgressPhase, PlannerHealth, PlannerTickOutcome } from "./manager"
 export type { ChallengeProgressDigest } from "./progress-digest"
 export { PROGRESS_PHASE_LABELS } from "./progress-digest"
+export { CampaignStore } from "./campaign-store"
+export type { CampaignTask, CampaignTaskStatus, CampaignTaskRole, CampaignArtifact, CampaignTraceEvent, IndexedMemory } from "./campaign-store"
 
 export { CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_DIR, ENGAGEMENT_ENV_MODE, ENGAGEMENT_ENV_SCOPE } from "./env"

@@ -4,6 +4,8 @@ import type {
     AddResult,
     BuiltInProvider,
     ChallengeAttemptLogRecord,
+    CampaignArtifact,
+    CampaignTask,
     ChallengeInfoRecord,
     ChallengeProgressDigest,
     ChallengeStatsOverview,
@@ -16,6 +18,7 @@ import type {
     KaliSshTestResult,
     KaliSystemStats,
     MemoryEntry,
+    IndexedMemory,
     McpServerItem,
     ModelConfigEntry,
     ModelDefinition,
@@ -490,6 +493,13 @@ export const challenges = {
             method: "DELETE",
         }),
     progress: (id: string) => json<ChallengeProgressDigest>(`/api/challenges/${encodeURIComponent(id)}/progress`),
+    campaignTasks: (id: string) => json<CampaignTask[]>(`/api/challenges/${encodeURIComponent(id)}/campaign-tasks`),
+    createCampaignTask: (id: string, input: Omit<CampaignTask, "id" | "challengeId" | "status" | "assignedSolverId" | "evidenceRefs" | "createdAt" | "updatedAt">) =>
+        json<CampaignTask>(`/api/challenges/${encodeURIComponent(id)}/campaign-tasks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
+    updateCampaignTask: (id: string, taskId: string, patch: Partial<Pick<CampaignTask, "status" | "priority" | "dependsOn" | "successCriteria" | "exitCriteria" | "evidenceRefs">>) =>
+        json<CampaignTask>(`/api/challenges/${encodeURIComponent(id)}/campaign-tasks/${encodeURIComponent(taskId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }),
+    artifacts: (id: string, taskId?: string) => json<CampaignArtifact[]>(`/api/challenges/${encodeURIComponent(id)}/artifacts${taskId ? `?taskId=${encodeURIComponent(taskId)}` : ""}`),
+    searchLongTermMemory: (id: string, query: string, limit = 10) => json<IndexedMemory[]>(`/api/challenges/${encodeURIComponent(id)}/long-term-memory?q=${encodeURIComponent(query)}&limit=${limit}`),
     exportSolverSessions: (id: string) => download(`/api/challenges/${encodeURIComponent(id)}/solver-sessions.zip`),
     startSolver: (id: string, promptName: string) =>
         json<SolverInstance>(`/api/challenges/${encodeURIComponent(id)}/solvers`, {

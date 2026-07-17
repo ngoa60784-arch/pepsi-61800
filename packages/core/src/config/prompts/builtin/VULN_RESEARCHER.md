@@ -1,8 +1,7 @@
 ---
 isSubagent: true
 mcps:
-    - "vuln-intel"
-    - "kali-arsenal"
+  - "vuln-intel"
 skills:
     - "known-product-exploit"
     - "nuclei-skill"

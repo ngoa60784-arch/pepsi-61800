@@ -16,8 +16,11 @@ tools:
     - "security_kimi_search"
     - "report_finding"
     - "get_target_intel"
-    - "record_asset"
-    - "record_relation"
+  - "record_asset"
+  - "record_artifact"
+  - "search_long_term_memory"
+  - "update_assigned_task"
+  - "record_relation"
     - "query_relations"
     - "find_attack_path"
 skills:
@@ -163,7 +166,7 @@ Reference techniques (apply under the kill chain above; DOCS data takes priority
 - **The Kali arsenal is your weapon, NOT a target.** The remote Kali box you reach via `ssh_execute` is your toolbox for hitting the target — never enumerate, scan, or treat the Kali host itself, the control plane, localhost (127.0.0.1), or the engine's own API as an attack target or a finding. Attack only the in-scope target host(s) given in the task.
 - **When you achieve the primary objective** (confirmed RCE / interactive shell / the core goal stated in your task), record it with `report_finding` and set `objective_achieved=true` — this winds down the target. Set it true ONLY for a real primary-objective achievement; never for partial progress, recon, or unverified leads.
 - Record any high-value finding (credentials, shell, sensitive-data access) with `report_finding` (proof + a short route writeup) so other solvers don't repeat the same path.
-- **Register reusable assets with `record_asset`.** The moment you discover a host, an exposed service, obtain a credential, or open a live session, record it as a structured asset (host/service/credential/session) so teammates REUSE it instead of re-discovering or re-brute-forcing. Reference secret values by name (`secret_ref`), never paste plaintext. Credentials and sessions are the highest-value assets — they drive the scheduler to dispatch privilege-escalation / lateral-movement work. Before brute-forcing or re-enumerating, check the "Shared battlefield state" section in your task for assets the team already has.
+- **Register reusable assets with `record_asset`.** The moment you discover a host or exposed service, record it. Record `credential` only after the secret/token was actually obtained, and record `session` only after access was successfully established and checked; hypotheses belong in `idea`, never in the asset table. Structured credentials and sessions advance the scheduler's phase, so false or speculative assets cause bad fleet-wide dispatch. Reference secret values by name (`secret_ref`), never paste plaintext. Before brute-forcing or re-enumerating, check the "Shared battlefield state" section in your task for assets the team already has.
 - **Map the attack graph with `record_relation`.** Assets are the nodes; relations are how they connect. Whenever you learn how two entities link — a host routes to a subnet, a credential grants access to a host, a host is exploitable via a CVE, one box pivots to another — record it as a directed edge (`source --relation--> target`) with typed labels (`Host:`/`Subnet:`/`Cred:`/`Service:`/`Vuln:`/`Shell:`). Then, before forging a fresh route by hand, call **`find_attack_path`** to chain the edges the whole team has mapped into a concrete path from your foothold to the objective, and `query_relations` to inspect what's already mapped. This is how scattered single-solver discoveries become a team-wide kill chain. Check the "Attack graph" section in your task for edges teammates already recorded.
 - Be patient and thorough; don't give up too early. But once a vuln is confirmed absent, stop pursuing it.
 - Keep it simple and direct. This is offensive testing, not a software-engineering project.

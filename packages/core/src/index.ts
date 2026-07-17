@@ -24,6 +24,7 @@ export type {
     PlannerProgressPhase,
 } from "./challenge/manager"
 export type { IdeaStatus, MemoryKind } from "./challenge/memory"
+export type { CampaignTask, CampaignTaskStatus, CampaignTaskRole, CampaignArtifact, ArtifactKind, IndexedMemory } from "./challenge/campaign-store"
 export type { ChallengeProgressDigest } from "./challenge/progress-digest"
 export { PROGRESS_PHASE_LABELS } from "./challenge/progress-digest"
 export type {
@@ -38,7 +39,7 @@ export type {
     ChallengeStatsRecord,
     SolverStatsRecord,
 } from "./challenge/stats"
-export { CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_DIR, ENGAGEMENT_ENV_MODE, ENGAGEMENT_ENV_SCOPE } from "./challenge/env"
+export { CAMPAIGN_ENV_TASK_ID, CHALLENGE_ENV_CHALLENGE_ID, CHALLENGE_ENV_DIR, ENGAGEMENT_ENV_MODE, ENGAGEMENT_ENV_SCOPE } from "./challenge/env"
 export { isEngagementMode } from "./challenge/engagement"
 
 export { RuntimeManager } from "./runtime/runtime"

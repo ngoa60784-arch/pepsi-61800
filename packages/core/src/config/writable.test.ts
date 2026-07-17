@@ -20,6 +20,8 @@ describe("isConfigDirWritable", () => {
     })
 
     test("returns false for a read-only directory", async () => {
+        // Windows chmod does not remove write permission; ACL-specific coverage belongs in a Windows integration test.
+        if (process.platform === "win32") return
         configDir = await mkdtemp(resolve(tmpdir(), "tch-readonly-"))
         await chmod(configDir, 0o555)
         expect(await isConfigDirWritable(configDir)).toBe(false)

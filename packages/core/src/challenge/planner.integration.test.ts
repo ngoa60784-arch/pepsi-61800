@@ -11,11 +11,13 @@ import type { RuntimeManager } from "../runtime/runtime"
 let challengeDir = ""
 let manager: ChallengeManager
 const TARGET_ID = "planner-target"
+let runtimeSolvers: Array<{ id: string; status: "running"; challengeId: string; promptName: string; createdAt: number }> = []
 
 const createAgentSession = mock(async (opts: {
     customTools?: Array<{ name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> }>
 }) => {
     const setPlan = opts.customTools?.find((tool) => tool.name === "planner_set_plan")
+    const launchSolver = opts.customTools?.find((tool) => tool.name === "planner_launch_solver")
     type Subscriber = (event: {
         type: string
         message?: { role: string; content: Array<{ type: string; text?: string }>; stopReason?: string }
@@ -31,6 +33,13 @@ const createAgentSession = mock(async (opts: {
                     challengeId: TARGET_ID,
                     strategy: "focus upload surface and verify RCE",
                     nextCheckpoint: "confirm shell on target",
+                })
+            }
+            if (launchSolver) {
+                await launchSolver.execute("tc-planner-2", {
+                    challengeId: TARGET_ID,
+                    promptName: "kimi-security",
+                    solverHandoff: "Recon the upload surface and record only verified typed assets.",
                 })
             }
             subscriber?.({
@@ -59,6 +68,7 @@ beforeEach(async () => {
     challengeDir = await mkdtemp(join(tmpdir(), "tch-planner-integration-"))
     process.env[CHALLENGE_ENV_DIR] = challengeDir
     createAgentSession.mockClear()
+    runtimeSolvers = []
 
     const fakeResourceLoader = {
         getExtensions: () => [],
@@ -97,9 +107,22 @@ beforeEach(async () => {
     manager = new ChallengeManagerImpl(config)
 
     const runtime = {
-        listAll: async () => [],
-        list: () => [],
-        launch: mock(async () => ({ id: "solver-mock", status: "running", challengeId: TARGET_ID, promptName: "kimi-security" })),
+        listAll: async () => runtimeSolvers,
+        list: () => runtimeSolvers,
+        launch: mock(async (promptName: string, task: string) => {
+            const solver = {
+                id: "solver-mock",
+                containerId: "solver-mock",
+                name: "solver-mock",
+                status: "running" as const,
+                challengeId: TARGET_ID,
+                promptName,
+                task,
+                createdAt: Date.now(),
+            }
+            runtimeSolvers.push(solver)
+            return solver
+        }),
         stopSolver: mock(async () => {}),
         sendCommand: mock(() => {}),
     } as unknown as RuntimeManager
@@ -149,5 +172,6 @@ describe("planner integration smoke", () => {
         expect(entry?.strategy).toContain("upload surface")
         expect(entry?.nextCheckpoint).toContain("shell")
         expect(round.summary).toContain("planner round complete")
+        expect(runtimeSolvers.map((solver) => solver.id)).toContain("solver-mock")
     })
 })

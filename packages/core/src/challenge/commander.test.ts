@@ -216,8 +216,8 @@ describe("commander get_target_overview", () => {
         }
         const text = result.content[0].text
         // Credential signal present → foothold phase.
-        expect(result.details.progressPhase).toBe("foothold")
-        expect(text).toContain("foothold")
+        expect(result.details.progressPhase).toBe("initial-access")
+        expect(text).toContain("initial-access")
         // Assets / graph / credential facts all made it into the overview.
         expect(text).toContain("admin@web01")
         expect(text).toContain("Host:web01 --exploitable_via--> Vuln:CVE-1")

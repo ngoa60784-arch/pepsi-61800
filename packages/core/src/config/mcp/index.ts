@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs"
 import { mkdir, writeFile } from "fs/promises"
-import { resolve } from "path"
+import { basename, resolve } from "path"
 import type { ServerEntry, McpConfig, McpSettings } from "pi-mcp-adapter/types.js"
 import { BUILTIN_MCP_FILES } from "../builtin-assets.generated"
 import {
@@ -17,12 +17,15 @@ export {
     BUILTIN_MCP_SCRIPT_NAMES,
     SOLVER_MCP_MOUNT,
     TCH_MCP_DIR_ENV,
+    TCH_MCP_VENV_ENV,
     applyMcpDirEnv,
     containerMcpScriptPath,
     getRepoMcpDir,
     isSolverMcpMountAvailable,
     resolveMcpDir,
     resolveMcpScriptPathForHost,
+    resolveMcpVenvDir,
+    resolveMcpVenvPython,
     resolveRepoMcpDir,
     withHostResolvedMcpServer,
 } from "./paths"
@@ -121,7 +124,7 @@ export async function migrateMcpPathsToContainerMount(dir: string) {
         const arg0 = server.args?.[0]
         if (typeof arg0 !== "string") continue
         const scriptName = BUILTIN_MCP_SCRIPT_NAMES.find(
-            (name) => arg0.endsWith(`/${name}`) && (isLegacyRepoMcpScriptPath(arg0) || isContainerMcpScriptPath(arg0)),
+            (name) => basename(arg0.replaceAll("\\", "/")) === name && (isLegacyRepoMcpScriptPath(arg0) || isContainerMcpScriptPath(arg0)),
         )
         if (!scriptName) continue
         const next = containerMcpScriptPath(scriptName)

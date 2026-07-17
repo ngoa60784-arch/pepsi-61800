@@ -25,6 +25,8 @@
         "typecheck:web": "bun ./node_modules/typescript/bin/tsc --noEmit -p packages/ui-web",
         "typecheck:cli": "bun ./node_modules/typescript/bin/tsc --noEmit -p apps/cli",
         "typecheck:all": "bun run typecheck && bun run typecheck:web && bun run typecheck:cli",
+        "eval:roles": "bun run packages/core/src/eval/qualify-model-roles.ts",
+        "eval:regression": "bun run scripts/run-pentest-regression.ts",
         "desktop:prepare": "bun run scripts/prepare-desktop-sidecar.ts --platform=linux",
         "desktop:prepare:dev": "bun run scripts/prepare-desktop-sidecar.ts --dev",
         "desktop:prepare:all": "bun run scripts/prepare-desktop-sidecar.ts --all-platforms",

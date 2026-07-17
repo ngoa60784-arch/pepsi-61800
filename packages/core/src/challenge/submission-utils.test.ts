@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ChallengeSubmissionLogRecord } from "./store"
-import { isRealFinding } from "./submission-utils"
+import { isRealFinding, isRecordedFinding, isVerifiedFinding } from "./submission-utils"
 
 function submission(overrides: Partial<ChallengeSubmissionLogRecord> = {}): ChallengeSubmissionLogRecord {
     return {
@@ -31,5 +31,20 @@ describe("isRealFinding", () => {
 
     test("verifier-rejected finding does not count", () => {
         expect(isRealFinding(submission({ correct: false, verification_status: "rejected" }))).toBe(false)
+    })
+})
+
+describe("finding scheduling signals", () => {
+    test("pending and inconclusive stay recorded without becoming verified success", () => {
+        for (const verification_status of ["pending", "inconclusive", "unverified"] as const) {
+            const item = submission({ writeup: "useful finding", verification_status })
+            expect(isRecordedFinding(item)).toBe(true)
+            expect(isVerifiedFinding(item)).toBe(false)
+        }
+    })
+
+    test("verified or correct findings count as scheduling success", () => {
+        expect(isVerifiedFinding(submission({ verification_status: "verified" }))).toBe(true)
+        expect(isVerifiedFinding(submission({ correct: true }))).toBe(true)
     })
 })

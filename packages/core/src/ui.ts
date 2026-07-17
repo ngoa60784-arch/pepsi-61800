@@ -10,6 +10,7 @@ export type { McpServerItem, ProbeResult } from "./config/mcp/index"
 
 export type { AddIdeaResult, IdeaRecord, MemoryEntry, PlannerHealth } from "./challenge/manager"
 export type { IdeaStatus } from "./challenge/memory"
+export type { CampaignTask, CampaignTaskStatus, CampaignTaskRole, CampaignArtifact, ArtifactKind, IndexedMemory } from "./challenge/campaign-store"
 export type { ChallengeProgressDigest } from "./challenge/progress-digest"
 export type {
     ChallengeInfoRecord,

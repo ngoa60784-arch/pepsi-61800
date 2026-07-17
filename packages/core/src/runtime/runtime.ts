@@ -5,6 +5,8 @@ import type {
     HostBridgeHandler,
     RuntimeMessageThread,
     RuntimeSolverDetails,
+    RuntimeLifecycleEvent,
+    RuntimeLifecycleHandler,
     SolverEventHandler,
     SolverInstance,
 } from "./types"
@@ -31,8 +33,23 @@ import {
 import { recordRpcStdoutPollution, tryParseStdoutJsonlLine } from "../observability/metrics"
 const SOLVER_NAME_PREFIX = "tch-solver"
 const RPC_STRICT_POLLUTION_LIMIT = 5
+const DEFAULT_RPC_INIT_TIMEOUT_MS = 60_000
 
 export { getAgentEndError } from "./helpers"
+
+export async function waitForSolverInit(initReady: Promise<void>, timeoutMs = DEFAULT_RPC_INIT_TIMEOUT_MS): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+        await Promise.race([
+            initReady,
+            new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(() => reject(new Error(`solver init timed out after ${timeoutMs}ms`)), timeoutMs)
+            }),
+        ])
+    } finally {
+        if (timer) clearTimeout(timer)
+    }
+}
 
 function isHostBridgeRequestEvent(value: unknown): value is HostBridgeRequestEvent {
     if (!value || typeof value !== "object") return false
@@ -207,6 +224,7 @@ export class RuntimeManager {
     private hostConfig: ConfigManager
     private ready: Promise<void>
     private eventHandlers: SolverEventHandler[] = []
+    private lifecycleHandlers: RuntimeLifecycleHandler[] = []
     private backend: ExecutionBackend
 
     constructor(config: ConfigManager, hostBridgeHandlers: HostBridgeHandler[]) {
@@ -235,8 +253,28 @@ export class RuntimeManager {
         await this.ensureReady()
     }
 
-    onEvent(handler: SolverEventHandler) {
+    onEvent(handler: SolverEventHandler): () => void {
         this.eventHandlers.push(handler)
+        return () => {
+            this.eventHandlers = this.eventHandlers.filter((item) => item !== handler)
+        }
+    }
+
+    onLifecycle(handler: RuntimeLifecycleHandler): () => void {
+        this.lifecycleHandlers.push(handler)
+        return () => {
+            this.lifecycleHandlers = this.lifecycleHandlers.filter((item) => item !== handler)
+        }
+    }
+
+    private emitLifecycle(event: RuntimeLifecycleEvent): void {
+        for (const handler of this.lifecycleHandlers) {
+            try {
+                handler(event)
+            } catch {
+                // Lifecycle observers must not break process supervision.
+            }
+        }
     }
 
     private emit(solverId: string, event: AgentSessionEvent) {
@@ -257,9 +295,28 @@ export class RuntimeManager {
     private recordAgentEnd(solverId: string, errorMessage?: string) {
         const solver = this.solvers.get(solverId)
         if (solver) {
+            const previousStatus = solver.status
+            solver.status = errorMessage ? "error" : "idle"
             if (errorMessage) solver.error = errorMessage
             else delete solver.error
+            this.emitLifecycle({
+                solverId,
+                challengeId: solver.challengeId,
+                status: solver.status,
+                previousStatus,
+                reason: "agent-end",
+                error: errorMessage,
+            })
         }
+    }
+
+    private recordAgentStart(solverId: string) {
+        const solver = this.solvers.get(solverId)
+        if (!solver || (solver.status !== "idle" && solver.status !== "error")) return
+        const previousStatus = solver.status
+        solver.status = "running"
+        delete solver.error
+        this.emitLifecycle({ solverId, challengeId: solver.challengeId, status: "running", previousStatus, reason: "agent-start" })
     }
 
     private clearSolverRuntimeState(solverId: string): void {
@@ -374,6 +431,7 @@ export class RuntimeManager {
             createdAt: Date.now(),
         }
         this.solvers.set(id, solver)
+        this.emitLifecycle({ solverId: id, challengeId: solver.challengeId, status: "starting", reason: "launch" })
         this.solverEnvs.set(id, normalizedSolverEnv)
 
         const baseDir = solverDir(id)
@@ -400,20 +458,24 @@ export class RuntimeManager {
             })
 
             this.procs.set(id, proc)
-            solver.status = "running"
 
             // Start reading JSONL, wait for init handshake to complete
             const initReady = this.readStream(id, proc)
             const initPayload: SolverInitPayload = { solverId: id, promptName, task, challengeId: solver.challengeId, resume: options?.resume === true }
             proc.stdin.write(JSON.stringify(initPayload) + "\n")
-            await initReady
+            await waitForSolverInit(initReady)
+            const previousStatus = solver.status
+            solver.status = "running"
+            this.emitLifecycle({ solverId: id, challengeId: solver.challengeId, status: "running", previousStatus, reason: "init-ready" })
 
             // Init done — task prompt is auto-executed by RPC server
 
             return solver
         } catch (err) {
+            const previousStatus = solver.status
             solver.status = "error"
             solver.error = err instanceof Error ? err.message : String(err)
+            this.emitLifecycle({ solverId: id, challengeId: solver.challengeId, status: "error", previousStatus, reason: "init-failed", error: solver.error })
             await this.appendSolverStartupLog(id, `[launch-error] ${solver.error}`)
             // spawn ok but init handshake failed (e.g. RPC success:false while still running),
             // must kill child or local client + remote solver leak after clearSolverRuntimeState.
@@ -435,6 +497,7 @@ export class RuntimeManager {
         const solver = this.solvers.get(solverId)
         if (!solver) throw new Error(`Solver ${solverId} not found`)
 
+        const previousStatus = solver.status
         solver.status = "stopping"
 
         try {
@@ -446,6 +509,7 @@ export class RuntimeManager {
         } finally {
             this.procs.get(solverId)?.kill()
             solver.status = "stopped"
+            this.emitLifecycle({ solverId, challengeId: solver.challengeId, status: "stopped", previousStatus, reason: "operator-stop" })
             this.clearSolverRuntimeState(solverId)
         }
     }
@@ -459,7 +523,7 @@ export class RuntimeManager {
         const id = solverId.trim()
         if (!id) throw new Error("solverId is required")
         const existing = this.solvers.get(id)
-        if (existing && (existing.status === "running" || existing.status === "starting")) {
+        if (existing && (existing.status === "running" || existing.status === "starting" || existing.status === "idle")) {
             throw new Error(`solver ${id} is already active`)
         }
         const startup = await readStartup(solverStartupPath(id))
@@ -590,7 +654,7 @@ export class RuntimeManager {
 
     async deleteSolver(solverId: string) {
         const solver = this.solvers.get(solverId)
-        if (solver && (solver.status === "running" || solver.status === "starting" || solver.status === "stopping")) {
+        if (solver && (solver.status === "running" || solver.status === "starting" || solver.status === "idle" || solver.status === "stopping")) {
             throw new Error(`Solver ${solverId} is still running`)
         }
 
@@ -611,7 +675,7 @@ export class RuntimeManager {
 
     /** Stop all running solvers */
     async stopAll() {
-        const running = [...this.solvers.values()].filter((s) => s.status === "running" || s.status === "starting")
+        const running = [...this.solvers.values()].filter((s) => s.status === "running" || s.status === "starting" || s.status === "idle")
         await Promise.allSettled(running.map((s) => this.stopSolver(s.id)))
     }
 
@@ -697,6 +761,9 @@ export class RuntimeManager {
                             }
                             const event = parsed as AgentSessionEvent
                             const finalError = getAgentEndError(event)
+                            if (event.type === "agent_start") {
+                                this.recordAgentStart(solverId)
+                            }
                             if (event.type === "agent_end") {
                                 this.recordAgentEnd(solverId, finalError)
                             }
@@ -721,8 +788,17 @@ export class RuntimeManager {
                     rejectInit(new Error("solver process exited before init response"))
                 }
                 const solver = this.solvers.get(solverId)
-                if (solver && (solver.status === "running" || solver.status === "starting" || solver.status === "stopping")) {
+                if (solver && (solver.status === "running" || solver.status === "starting" || solver.status === "idle" || solver.status === "stopping")) {
+                    const previousStatus = solver.status
                     solver.status = solver.error ? "error" : "stopped"
+                    this.emitLifecycle({
+                        solverId,
+                        challengeId: solver.challengeId,
+                        status: solver.status,
+                        previousStatus,
+                        reason: "process-exit",
+                        error: solver.error,
+                    })
                 }
                 this.clearSolverRuntimeState(solverId)
             }
