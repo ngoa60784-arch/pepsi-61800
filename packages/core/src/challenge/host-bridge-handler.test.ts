@@ -263,6 +263,53 @@ describe("engagement host bridge notifications", () => {
         expect(markEngagementComplete).not.toHaveBeenCalled()
     })
 
+    test("duplicate finding (already banked) is not re-broadcast or re-verified; only the submitter is stood down", async () => {
+        // recordEngagementObjective tags the re-derivation with duplicate_of → handler must short-circuit.
+        const recordEngagementObjective = mock(async (_id: string, _proof: string) => ({ id: "rec-dup", duplicate_of: "rec-orig" }))
+        const markEngagementComplete = mock(async () => {})
+        const verifyObjective = mock(async () => {})
+        const promoteFindingFactsToChallenge = mock(async () => ({ promoted: 0, duplicate: 0, skipped: 0 }))
+        const schedulePlannerEvaluation = mock(() => {})
+        const listMemory = mock(async () => [])
+        const listIdeas = mock(async () => [])
+        const handler = createChallengeHostBridgeHandler({
+            recordEngagementObjective,
+            markEngagementComplete,
+            verifyObjective,
+            promoteFindingFactsToChallenge,
+            schedulePlannerEvaluation,
+            listMemory,
+            listIdeas,
+        } as unknown as ChallengeManager)
+        const sendCommand = mock(() => {})
+        const result = await handler.handle(
+            createContext({
+                action: "challenge_submit_flag",
+                params: {
+                    flag: "$ id\nuid=0(root) gid=0(root) groups=0(root)",
+                    writeup: "same RCE another solver already banked",
+                    objective_achieved: true,
+                },
+                sendCommand,
+            }),
+        )
+        expect(result.handled).toBe(true)
+        expect((result.data as { duplicate?: boolean }).duplicate).toBe(true)
+        expect((result.data as { under_verification?: boolean }).under_verification).toBe(false)
+        expect((result.data as { recorded: boolean }).recorded).toBe(true)
+        // No re-verification, no team-wide broadcast, no planner churn, no fact re-promotion for a duplicate.
+        expect(verifyObjective).not.toHaveBeenCalled()
+        expect(markEngagementComplete).not.toHaveBeenCalled()
+        expect(promoteFindingFactsToChallenge).not.toHaveBeenCalled()
+        expect(schedulePlannerEvaluation).not.toHaveBeenCalled()
+        // Only the submitting solver is steered to stand down (not the other peers on the target).
+        expect(sendCommand).toHaveBeenCalledTimes(1)
+        const steerCall = sendCommand.mock.calls[0] as unknown as [string, { type: string; message: string }]
+        expect(steerCall[0]).toBe("solver-1")
+        expect(steerCall[1].type).toBe("steer")
+        expect(steerCall[1].message).toContain("ALREADY banked")
+    })
+
     test("state_upsert records a structured asset via the manager", async () => {
         const upsertStateAsset = mock(async (_id: string, _input: { kind: string; label: string }) => ({ created: true, asset: { id: "asset_abc" } }))
         const handler = createChallengeHostBridgeHandler({ upsertStateAsset } as unknown as ChallengeManager)

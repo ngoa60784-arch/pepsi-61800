@@ -73,6 +73,13 @@ export interface ChallengeSubmissionLogRecord {
     verification_retry_count?: number
     /** ISO timestamp when the next auto-retry is scheduled; cleared after success or max retries. */
     verification_next_retry_at?: string | null
+    /**
+     * Set when this submission re-derives a result already banked by an earlier, non-rejected submission
+     * on the same target (its `flag` matches after normalization). The value is the earlier record's id.
+     * Duplicates are kept for audit but must NOT trigger a fresh verifier re-run, a team-wide broadcast,
+     * or re-count as a distinct finding — they are the "flag recaptured unnecessarily" redundancy.
+     */
+    duplicate_of?: string
 }
 
 function nowIso(): string {
@@ -230,6 +237,7 @@ export async function appendChallengeSubmissionLog(
         writeup?: string
         evidenceRefs?: string[]
         verificationStatus?: ChallengeSubmissionLogRecord["verification_status"]
+        duplicateOf?: string
     },
 ): Promise<ChallengeSubmissionLogRecord> {
     const challengeId = requireText(input.challengeId, "challengeId")
@@ -249,6 +257,7 @@ export async function appendChallengeSubmissionLog(
         writeup: typeof input.writeup === "string" && input.writeup.trim() ? input.writeup.trim() : undefined,
         evidence_refs: evidenceRefs.length > 0 ? evidenceRefs : undefined,
         verification_status: input.verificationStatus,
+        duplicate_of: typeof input.duplicateOf === "string" && input.duplicateOf.trim() ? input.duplicateOf.trim() : undefined,
         created_at: nowIso(),
     }
     await atomicWriteJson(join(submissionLogsDir(rootDir, challengeId), `${Date.now()}-${record.id}.json`), record)

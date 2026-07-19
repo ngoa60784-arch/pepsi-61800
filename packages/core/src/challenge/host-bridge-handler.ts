@@ -255,6 +255,30 @@ async function handleEngagementAction(
                 evidenceRefs,
                 verificationStatus: enterVerification ? "pending" : undefined,
             })
+            // Redundancy guard: this proof re-derives a result already banked on this target. It is logged for
+            // audit but must NOT re-broadcast to the whole team, re-run the verifier, or re-trigger planner churn.
+            // Steer only the submitting solver to stop re-deriving it and move on (or wind down if nothing is left).
+            if (record.duplicate_of) {
+                sendSteerToSolver(
+                    context,
+                    solverId,
+                    "That result is ALREADY banked by an earlier finding on this target — you just re-derived it. Do NOT re-report it. Stop working this route and either pivot to an unsolved in-scope objective/target, or, if the primary objective is already met, wind down.",
+                )
+                return {
+                    handled: true,
+                    data: {
+                        challenge_id: storeKey,
+                        recorded: true,
+                        record_id: record.id,
+                        is_completed: false,
+                        under_verification: false,
+                        objective_downgraded: false,
+                        duplicate: true,
+                        message:
+                            "duplicate of an already-banked finding; not re-verified and not broadcast. Stop re-deriving this result — pivot to something unsolved or wind down.",
+                    },
+                }
+            }
             if (typeof challengeManager.schedulePlannerEvaluation === "function") {
                 challengeManager.schedulePlannerEvaluation(`finding:${storeKey}`)
             }

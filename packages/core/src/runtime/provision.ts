@@ -5,7 +5,7 @@ import type { Subprocess } from "bun"
 // (PROVISION_SCRIPT.length=77, i.e. the path length), which would push the path to the VPS as the script.
 // type:"file" is the reliable pattern in this repo.
 import PROVISION_SCRIPT_ASSET from "./assets/provision-pentest-vps.sh" with { type: "file" }
-import SSH_PASSWORD_BRIDGE_ASSET from "./assets/ssh-password-bridge.py" with { type: "file" }
+import { SSH_PASSWORD_BRIDGE_SOURCE } from "./ssh-password-bridge-source"
 
 let scriptCache: Promise<string> | undefined
 /** Read the provisioning script content (cached, read cross-platform via the bundled asset path). */
@@ -43,7 +43,10 @@ export function buildSshSpawnCommand(target: ProvisionSshTarget, remote: string)
     return {
         argv: [
             process.env.TCH_PYTHON_COMMAND?.trim() || "python3",
-            SSH_PASSWORD_BRIDGE_ASSET,
+            // Inline the bridge source via `-c` instead of a file path: in the compiled binary the asset
+            // path is a `/$bunfs/...` entry that the external python3 process cannot open.
+            "-c",
+            SSH_PASSWORD_BRIDGE_SOURCE,
             "--host",
             target.host.trim(),
             "--port",

@@ -167,7 +167,9 @@ async def _osv_query(client: httpx.AsyncClient, package_name: str, ecosystem: st
 
     out = []
     for vuln in data.get("vulns", []) or []:
-        ids = [vuln.get("id", "")] + [a.get("id", "") for a in vuln.get("aliases", []) or []]
+        # OSV aliases are plain strings (e.g. "CVE-2021-43798"), occasionally objects; handle both.
+        alias_ids = [a if isinstance(a, str) else (a.get("id", "") if isinstance(a, dict) else "") for a in (vuln.get("aliases", []) or [])]
+        ids = [vuln.get("id", "")] + alias_ids
         cve_ids = [i for i in ids if i and i.startswith("CVE-")]
         published = (vuln.get("published") or "")[:10]
         summary = vuln.get("summary") or ""

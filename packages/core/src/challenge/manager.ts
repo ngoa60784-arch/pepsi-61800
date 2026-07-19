@@ -39,7 +39,7 @@ import { buildChallengeStatsOverview, refreshChallengeStats } from "./stats"
 import { buildChallengeAttackTimeline } from "./attack-timeline"
 import { recordPlannerRoundFailure, recordPlannerRoundSuccess } from "../observability/metrics"
 import { buildChallengeProgressDigest, type ChallengeProgressDigest } from "./progress-digest"
-import { isRealFinding, isRecordedFinding, isVerifiedFinding } from "./submission-utils"
+import { findDuplicateSubmission, isRealFinding, isRecordedFinding, isVerifiedFinding } from "./submission-utils"
 import {
     type AddIdeaResult,
     type AddIdeaInput,
@@ -111,6 +111,11 @@ export type { IdeaStatus, MemoryKind, MemoryEntry, AddMemoryInput, IdeaRecord, A
 const DEFAULT_PLANNER_PROMPT_NAME = CHALLENGE_PLANNER_PROMPT_NAME
 const DEFAULT_TICK_INTERVAL_MS = 2 * 60 * 1000
 const DEFAULT_STALE_TIMEOUT_MS = 60 * 60 * 1000
+// Early-warning "no material progress" watchdog. A target with an assigned solver that produces no
+// information gain for this long (but < stale) is flagged `stalling`. This is deliberately much finer
+// than the 60-min stale line so the planner is woken to steer/stop a spinning solver long before stale.
+// Always clamped to <= staleTimeoutMs so a small stale override stays consistent.
+const DEFAULT_NO_PROGRESS_WARN_MS = 15 * 60 * 1000
 const DEFAULT_PLANNER_EVENT_DEBOUNCE_MS = 2_000
 const PLANNER_STOP_COOLDOWN_MS = 60_000
 const DEFAULT_MAX_SOLVERS = 2
@@ -247,6 +252,13 @@ interface PlannerSnapshotChallenge {
     verifiedFindingCount: number
     untouched: boolean
     stale: boolean
+    // Early-warning stall: an active solver is assigned but the target has produced no information gain
+    // for >= the no-progress warn window (finer than `stale`). Wakes the planner to steer/stop a spinner.
+    stalling: boolean
+    // Coarse "how many warn-windows without information gain" bucket, only counted while a solver is
+    // assigned. Included in the snapshot digest so a persistent stall re-wakes the planner each warn
+    // window instead of the digest staying frozen until the 60-min stale line.
+    stallBucket: number
     activeSolverCount: number
     activeSolverIds: string[]
     activeForMinutes?: number
@@ -687,6 +699,8 @@ function buildPlannerIdeaStatusCounts(items: IdeaRecord[]): Record<IdeaStatus, n
 function buildPlannerFindings(items: ChallengeSubmissionLogRecord[]): string[] {
     return [...items]
         .filter(isRealFinding)
+        // Drop re-derivations of already-banked results so the planner's finding list shows each result once.
+        .filter((item) => !item.duplicate_of)
         .sort((a, b) => (parseTimestamp(b.created_at) ?? 0) - (parseTimestamp(a.created_at) ?? 0))
         .slice(0, PLANNER_FINDING_LIMIT)
         .map((item) => clipTaskText((item.writeup?.trim() || item.flag).replaceAll("\n", " "), PLANNER_SUMMARY_CONTENT_MAX_CHARS))
@@ -896,6 +910,9 @@ function formatPlannerSnapshotMarkdown(snapshot: PlannerSnapshot): string {
             `- Active solver ids: ${challenge.activeSolverIds.length > 0 ? challenge.activeSolverIds.join(", ") : "none"}`,
             `- Untouched: ${challenge.untouched ? "yes" : "no"}`,
             `- Stale: ${challenge.stale ? "yes" : "no"}`,
+            challenge.stalling
+                ? `- STALLING: an assigned solver has produced no information gain for >= the warn window (finer than stale). Steer it onto a concrete next step, or planner_stop_solver(reason:"stalled") if it is spinning with no viable path (e.g. a pivot/tunnel that never connects).`
+                : "- Stalling: no",
             typeof challenge.activeForMinutes === "number" ? `- Active for minutes: ${challenge.activeForMinutes}` : "- Active for minutes: -",
             typeof challenge.minutesSinceLastAttempt === "number" ? `- Minutes since last attempt: ${challenge.minutesSinceLastAttempt}` : "- Minutes since last attempt: -",
             typeof challenge.minutesSinceLastCorrectSubmission === "number"
@@ -981,6 +998,8 @@ function computePlannerSnapshotDigest(snapshot: PlannerSnapshot): string {
             memoryFacts: challenge.memoryFacts,
             failureBoundaries: challenge.failureBoundaries,
             stale: challenge.stale,
+            stalling: challenge.stalling,
+            stallBucket: challenge.stallBucket,
         })),
         prompts: snapshot.availableSolverPrompts.map((prompt) => prompt.name),
     })
@@ -1805,11 +1824,18 @@ export class ChallengeManager {
         const rootDir = await this.getRootDir()
         const id = requireText(engagementId, "engagementId")
         const normalizedProof = requireText(proof, "proof")
+        // Redundancy guard: if this proof re-derives a result an earlier, non-rejected submission already
+        // banked on this target, tag it as a duplicate. Duplicates are still logged (audit of who else hit
+        // it) but they must not spin up a fresh verifier re-run or a team-wide broadcast — that is exactly
+        // the "same flag recaptured 3× / typo re-submission" churn we want to stop.
+        const existing = await this.listSubmissionLogs(id).catch(() => [] as ChallengeSubmissionLogRecord[])
+        const duplicateOf = findDuplicateSubmission(existing, normalizedProof)
         this.log("engagement:record", "recording verified objective", {
             engagementId: id,
             solverId: meta?.solverId,
             promptName: meta?.promptName,
             modelName: meta?.modelName,
+            duplicateOf: duplicateOf?.id,
         })
         return appendChallengeSubmissionLog(rootDir, {
             challengeId: id,
@@ -1818,10 +1844,14 @@ export class ChallengeManager {
             modelName: meta?.modelName,
             flag: normalizedProof,
             correct: false,
-            message: "recorded in engagement mode; pending operator confirmation",
+            message: duplicateOf
+                ? `duplicate of already-banked finding ${duplicateOf.id}; not re-verified`
+                : "recorded in engagement mode; pending operator confirmation",
             writeup: meta?.writeup,
             evidenceRefs: meta?.evidenceRefs,
-            verificationStatus: meta?.verificationStatus,
+            // A duplicate must never re-enter verification; drop the pending status so no verifier re-run fires.
+            verificationStatus: duplicateOf ? undefined : meta?.verificationStatus,
+            duplicateOf: duplicateOf?.id,
         })
     }
 
@@ -3230,6 +3260,7 @@ export class ChallengeManager {
                     solverId: solverIdSchema,
                     reason: Type.Union([
                         Type.Literal("stale"),
+                        Type.Literal("stalled"),
                         Type.Literal("duplicate-route"),
                         Type.Literal("prune-recommended"),
                         Type.Literal("resource-reallocation"),
@@ -3243,6 +3274,11 @@ export class ChallengeManager {
                     const challenge = solver?.challengeId ? snapshotChallenges.get(solver.challengeId) : undefined
                     if (challenge && !challenge.stale && !challenge.pruneRecommended && params.reason === "stale") {
                         throw new Error(`challenge "${challenge.id}" has recent progress; stale reason is invalid`)
+                    }
+                    // "stalled" is the early-warning stop: valid only when the target actually shows a stall
+                    // (assigned solver, no information gain for >= the warn window) or is already stale.
+                    if (challenge && params.reason === "stalled" && !challenge.stalling && !challenge.stale) {
+                        throw new Error(`challenge "${challenge.id}" shows no stall signal; stalled reason is invalid`)
                     }
                     const cooldownKey = `solver:${params.solverId}`
                     const lastStoppedAt = this.plannerStopCooldowns.get(cooldownKey) ?? 0
@@ -3548,6 +3584,16 @@ export class ChallengeManager {
         const lastInformationGainAt = latestInformationGainAt({ attempts, submissions, memory, ideas, stateAssets, relations, activeSolvers: challengeSolvers })
         const lastActivityAt = latestActivityAt({ attempts, submissions, memory, ideas, stateAssets, relations, activeSolvers: challengeSolvers })
 
+        // Early-warning stall watchdog (finer than `stale`). Baseline is the last information gain, or —
+        // if a solver has been assigned but never produced any — the oldest active solver's start time,
+        // so a solver that spins from the start (e.g. a pivot tunnel that never connects) is still caught.
+        const noProgressWarnMs = Math.min(DEFAULT_NO_PROGRESS_WARN_MS, staleTimeoutMs)
+        const hasActiveSolver = challengeSolvers.length > 0
+        const progressBaselineAt = lastInformationGainAt ?? oldestActiveSolverAt
+        const infoGainAgeMs = typeof progressBaselineAt === "number" ? Date.now() - progressBaselineAt : undefined
+        const stalling = hasActiveSolver && infoGainAgeMs !== undefined && infoGainAgeMs >= noProgressWarnMs
+        const stallBucket = hasActiveSolver && infoGainAgeMs !== undefined ? Math.floor(infoGainAgeMs / noProgressWarnMs) : 0
+
         return {
             id: challenge.id,
             title: challenge.title,
@@ -3569,6 +3615,8 @@ export class ChallengeManager {
             verifiedFindingCount,
             untouched: attempts.length === 0,
             stale: Boolean(lastInformationGainAt && Date.now() - lastInformationGainAt >= staleTimeoutMs),
+            stalling,
+            stallBucket,
             activeSolverCount: challengeSolvers.length,
             activeSolverIds: challengeSolvers.map((solver) => solver.id),
             activeForMinutes: formatMinutesFromTimestamp(oldestActiveSolverAt),

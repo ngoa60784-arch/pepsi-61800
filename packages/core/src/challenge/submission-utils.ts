@@ -28,3 +28,30 @@ export function isRecordedFinding(item: ChallengeSubmissionLogRecord): boolean {
 export function isVerifiedFinding(item: ChallengeSubmissionLogRecord): boolean {
     return item.correct === true || item.verification_status === "verified"
 }
+
+/**
+ * Normalize a reported flag/proof for duplicate detection: trim, collapse internal whitespace.
+ * Case is preserved on purpose — flags are usually opaque tokens where case is significant, and we
+ * would rather miss a case-only "duplicate" than merge two genuinely different results.
+ */
+export function normalizeFlagForDedup(flag: string): string {
+    return flag.trim().replace(/\s+/g, " ")
+}
+
+/**
+ * Find an earlier, non-rejected submission on the same target whose flag matches `flag` after
+ * normalization — i.e. this new submission re-derives an already-banked result. Returns the earliest
+ * such record (the original that first banked it) so callers can point `duplicate_of` at a stable id.
+ * Already-duplicate records are skipped as candidates so every duplicate chains back to the original.
+ */
+export function findDuplicateSubmission(
+    existing: ChallengeSubmissionLogRecord[],
+    flag: string,
+): ChallengeSubmissionLogRecord | undefined {
+    const normalized = normalizeFlagForDedup(flag)
+    if (!normalized) return undefined
+    return [...existing]
+        .filter((item) => !item.duplicate_of && item.verification_status !== "rejected" && isRealFinding(item))
+        .filter((item) => normalizeFlagForDedup(item.flag) === normalized)
+        .sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0))[0]
+}

@@ -69,6 +69,11 @@ function buildReminderActivityFingerprint(payload: ObserverReviewPayload): strin
     )
 }
 
+function hasRecentToolErrors(payload: ObserverReviewPayload): boolean {
+    const recentRounds = payload.rounds.slice(-OBSERVER_REMINDER_ACTIVITY_WINDOW_ROUNDS)
+    return recentRounds.some((round) => round.tool_logs.some((log) => log.is_error))
+}
+
 async function isChallengeCompletedByHostBridge(): Promise<boolean> {
     try {
         const result = await requestHostBridge<{ is_completed: boolean }>("challenge_is_completed", {})
@@ -87,14 +92,21 @@ async function shouldSendEfficiencyReminder(payload: ObserverReviewPayload, mess
     const messageFingerprint = normalizeReminderFingerprint(text)
     const activityFingerprint = buildReminderActivityFingerprint(payload)
 
+    // A quiet solver repeating the SAME activity is normally throttled to avoid nagging. But if that
+    // repeated activity is actively ERRORING (a failing loop — e.g. a pivot/tunnel that never connects),
+    // don't let the correction go quiet for the full window: halve the repeat window so a spinning solver
+    // keeps getting nudged (and, together with the planner stall watchdog, gets steered/reassigned) rather
+    // than being mistaken for a benign repeat and silenced.
+    const failingLoop = hasRecentToolErrors(payload)
+
     return updateObserverState((state) => {
         const lastReminder = state.last_reminder
         const roundsSinceLast = lastReminder ? currentRound - lastReminder.round : Number.POSITIVE_INFINITY
         const sameMessage = lastReminder?.message_fingerprint === messageFingerprint
         const sameActivity = lastReminder?.activity_fingerprint === activityFingerprint
         const withinCooldown = roundsSinceLast < OBSERVER_REMINDER_COOLDOWN_ROUNDS
-        const repeatedPattern =
-            roundsSinceLast < OBSERVER_REMINDER_REPEAT_WINDOW_ROUNDS && (sameMessage || sameActivity)
+        const repeatWindow = failingLoop && sameActivity ? Math.ceil(OBSERVER_REMINDER_REPEAT_WINDOW_ROUNDS / 2) : OBSERVER_REMINDER_REPEAT_WINDOW_ROUNDS
+        const repeatedPattern = roundsSinceLast < repeatWindow && (sameMessage || sameActivity)
 
         const allowed = !withinCooldown && !repeatedPattern
         return {

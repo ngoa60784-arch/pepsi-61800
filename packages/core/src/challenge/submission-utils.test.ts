@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ChallengeSubmissionLogRecord } from "./store"
-import { isRealFinding, isRecordedFinding, isVerifiedFinding } from "./submission-utils"
+import { findDuplicateSubmission, isRealFinding, isRecordedFinding, isVerifiedFinding, normalizeFlagForDedup } from "./submission-utils"
 
 function submission(overrides: Partial<ChallengeSubmissionLogRecord> = {}): ChallengeSubmissionLogRecord {
     return {
@@ -46,5 +46,40 @@ describe("finding scheduling signals", () => {
     test("verified or correct findings count as scheduling success", () => {
         expect(isVerifiedFinding(submission({ verification_status: "verified" }))).toBe(true)
         expect(isVerifiedFinding(submission({ correct: true }))).toBe(true)
+    })
+})
+
+describe("normalizeFlagForDedup", () => {
+    test("trims and collapses whitespace, preserves case", () => {
+        expect(normalizeFlagForDedup("  flag{aB cD}  ")).toBe("flag{aB cD}")
+        expect(normalizeFlagForDedup("flag{a\n\tb   c}")).toBe("flag{a b c}")
+    })
+})
+
+describe("findDuplicateSubmission", () => {
+    const banked = submission({ id: "orig", flag: "flag{secret_3}", writeup: "sqli -> creds", created_at: "2026-01-01T00:00:00.000Z" })
+
+    test("matches an earlier non-rejected finding with the same normalized flag", () => {
+        const dup = findDuplicateSubmission([banked], "  flag{secret_3}  ")
+        expect(dup?.id).toBe("orig")
+    })
+
+    test("returns undefined when the flag differs (e.g. a typo re-submission)", () => {
+        expect(findDuplicateSubmission([banked], "flag{secret_e}")).toBeUndefined()
+    })
+
+    test("ignores rejected originals so a fresh attempt can re-verify", () => {
+        const rejected = submission({ id: "rej", flag: "flag{secret_3}", verification_status: "rejected" })
+        expect(findDuplicateSubmission([rejected], "flag{secret_3}")).toBeUndefined()
+    })
+
+    test("skips existing duplicates so every dup chains back to the original", () => {
+        const later = submission({ id: "dup1", flag: "flag{secret_3}", duplicate_of: "orig", created_at: "2026-01-02T00:00:00.000Z" })
+        const dup = findDuplicateSubmission([banked, later], "flag{secret_3}")
+        expect(dup?.id).toBe("orig")
+    })
+
+    test("empty flag never matches", () => {
+        expect(findDuplicateSubmission([banked], "   ")).toBeUndefined()
     })
 })
